@@ -1,0 +1,5 @@
+#lang palimpsest
+// P3 — Cycle four left. Each name shifts one slot; the head wraps to the tail.
+rule cycle : (q ?a ?b ?c ?d) => (q ?b ?c ?d ?a)
+main = (q a b c d)
+run cycle

@@ -1,0 +1,121 @@
+#lang palimpsest
+// A tiny engine for exploring the reciprocal mind<->body loop as a dynamical
+// system. This models the *form* of the loop (mutual causation + self-reference),
+// NOT experience: a fixed point here is a self-consistent state, not a feeling.
+//
+// A state is `(being AROUSAL TAG)`: AROUSAL is an integer body variable, TAG is
+// any term describing the mind/policy. Each environment supplies its own `step`
+// rule (sense then act). This engine runs the loop for N ticks, collects the
+// trajectory, classifies the attractor (settled / limit cycle / runaway), and
+// renders it as a labelled time series with arousal bars.
+//
+// Import a specific environment (mind-homeostasis / mind-cycle / mind-runaway /
+// mind-strange-loop) to see each outcome.
+// import the generic term printer `shw`, used to render mind/policy tags
+import "render.pal"
+// import the text-visualization library (colplot / overlay / histogram / spark)
+import "chart.pal"
+
+// -- shared helpers --
+rule not-t : (not true) => false
+rule not-f : (not false) => true
+rule equal?-yes : (equal? ?x ?x) => true
+rule equal?-no  : (equal? ?x ?y) => false
+// move a body variable one unit toward a set-point (proportional regulation)
+rule toward-eq : (toward ?a ?s) => ?a where (= ?a ?s)
+rule toward-up : (toward ?a ?s) => (+ ?a 1) where (< ?a ?s)
+rule toward-dn : (toward ?a ?s) => (- ?a 1) where (> ?a ?s)
+// clamp a value into [lo, hi] using the min/max primitives
+rule clamp : (clamp ?x ?lo ?hi) => (max ?lo (min ?hi ?x))
+// move ?a a fraction ?pct/100 of the way toward ?b (a fixed-point gradient step)
+rule mix : (mix ?a ?b ?pct) => (+ ?a (/ (* (- ?b ?a) ?pct) 100))
+
+// -- the loop driver: apply `step` for N ticks, collecting the trajectory --
+rule trace   : (trace ?b ?n) => (analyze (collect ?b ?n))
+rule collect-0 : (collect ?b 0) => (hist ?b)
+rule collect-n : (collect ?b ?n) => (hcons ?b (collect ?next (- ?n 1))) where (> ?n 0), ?next <- (step ?b)
+rule hcons   : (hcons ?b (hist ?bs...)) => (hist ?b ?bs...)
+
+// -- classify the trajectory by looking at the last state --
+rule analyze : (analyze (hist ?bs...)) => (report (judge (revh (hist ?bs...))) (hist ?bs...))
+rule revh : (revh (hist ?bs...)) => (rv (hist ?bs...) (rhist))
+rule rv-0 : (rv (hist) ?acc) => ?acc
+rule rv-n : (rv (hist ?x ?xs...) (rhist ?as...)) => (rv (hist ?xs...) (rhist ?x ?as...))
+// last two states equal -> a fixed point (a self-consistent, self-reproducing self)
+rule judge-settled : (judge (rhist ?x ?x ?rest...)) => (result settled ?x)
+// last state recurs earlier -> a limit cycle; its period is how far back
+rule judge-cycle : (judge (rhist ?x ?rest...)) => (result (cycle (findp ?x (rhist ?rest...) 1)) ?x) where (has? ?x (rhist ?rest...))
+// no fixed point / cycle, but arousal blew past the divergence bound -> runaway
+rule judge-runaway : (judge (rhist ?x ?rest...)) => (result runaway ?x) where (escaped? (rhist ?x ?rest...))
+// no fixed point / cycle, and it stayed in range -> a stable region (noisy / orbiting)
+rule judge-bounded : (judge (rhist ?x ?rest...)) => (result bounded ?x)
+// divergence test: did any body variable blow past the bound (well above clamp
+// ranges)? Handles single beings and two-being worlds; other shapes are skipped
+// (the complex environments clamp their variables, so they never diverge).
+rule escaped?-0 : (escaped? (rhist)) => false
+rule escaped?-being-hit  : (escaped? (rhist (being ?a ?t) ?rest...)) => true where (> ?a 20)
+rule escaped?-being-miss : (escaped? (rhist (being ?a ?t) ?rest...)) => (escaped? (rhist ?rest...)) where (<= ?a 20)
+rule escaped?-world-hit  : (escaped? (rhist (world (being ?a ?x) (being ?b ?y)) ?rest...)) => true where (> (max ?a ?b) 20)
+rule escaped?-world-miss : (escaped? (rhist (world (being ?a ?x) (being ?b ?y)) ?rest...)) => (escaped? (rhist ?rest...)) where (<= (max ?a ?b) 20)
+rule escaped?-skip : (escaped? (rhist ?y ?ys...)) => (escaped? (rhist ?ys...))
+rule has?-0 : (has? ?x (rhist)) => false
+rule has?-hit : (has? ?x (rhist ?y ?ys...)) => true where (equal? ?x ?y)
+rule has?-miss : (has? ?x (rhist ?y ?ys...)) => (has? ?x (rhist ?ys...)) where (not (equal? ?x ?y))
+rule findp-hit : (findp ?x (rhist ?y ?ys...) ?k) => ?k where (equal? ?x ?y)
+rule findp-miss : (findp ?x (rhist ?y ?ys...) ?k) => (findp ?x (rhist ?ys...) (+ ?k 1)) where (not (equal? ?x ?y))
+
+// -- render the trajectory as a text graph. `viz` dispatches on the state shape:
+// a single body variable becomes a column chart + sparkline; the two-variable
+// models (predictive-processing agent, two-being world) become an overlay of two
+// curves. Bounded (noisy / orbiting) runs also get a distribution histogram.
+rule loop-view : (loop-view (report ?verdict (hist ?bs...))) =>
+  (cat "mind-body loop\n" (cat (viz (hist ?bs...)) (cat (extra ?verdict (hist ?bs...)) (lv-verdict ?verdict))))
+
+rule viz-being : (viz (hist (being ?a ?t) ?rest...)) =>
+  (cat (colplot ?s 12) (cat "  trend " (cat (spark ?s 12) "\n"))) where ?s <- (arousal-series (hist (being ?a ?t) ?rest...))
+rule viz-pp : (viz (hist (pp ?x ?y ?z) ?rest...)) =>
+  (cat "  o = body   x = belief\n" (overlay ?a ?b 10)) where ?a <- (body-series (hist (pp ?x ?y ?z) ?rest...)), ?b <- (pred-series (hist (pp ?x ?y ?z) ?rest...))
+rule viz-world : (viz (hist (world (being ?p ?pt) (being ?q ?qt)) ?rest...)) =>
+  (cat "  o = A   x = B\n" (overlay ?a ?b 10)) where ?a <- (a-series (hist (world (being ?p ?pt) (being ?q ?qt)) ?rest...)), ?b <- (b-series (hist (world (being ?p ?pt) (being ?q ?qt)) ?rest...))
+rule viz-any : (viz ?h) => ""
+
+// bounded runs get a distribution histogram (reveals bands and bimodality)
+rule extra-bounded : (extra (result bounded ?st) (hist (being ?a ?t) ?rest...)) =>
+  (cat "  distribution (how often at each arousal):\n" (histogram (arousal-series (hist (being ?a ?t) ?rest...)) 12))
+rule extra-none : (extra (result ?k ?st) ?h) => ""
+
+// series extractors: pull one integer track out of the trajectory, in time order
+rule arousal-series : (arousal-series (hist ?bs...)) => (asx (series) (hist ?bs...))
+rule asx-0 : (asx ?acc (hist)) => ?acc
+rule asx-n : (asx (series ?ss...) (hist (being ?a ?t) ?rest...)) => (asx (series ?ss... ?a) (hist ?rest...))
+rule body-series : (body-series (hist ?bs...)) => (bsx (sa) (hist ?bs...))
+rule bsx-0 : (bsx ?acc (hist)) => ?acc
+rule bsx-n : (bsx (sa ?ss...) (hist (pp ?b ?p ?pr) ?rest...)) => (bsx (sa ?ss... ?b) (hist ?rest...))
+rule pred-series : (pred-series (hist ?bs...)) => (psx (sb) (hist ?bs...))
+rule psx-0 : (psx ?acc (hist)) => ?acc
+rule psx-n : (psx (sb ?ss...) (hist (pp ?b ?p ?pr) ?rest...)) => (psx (sb ?ss... ?p) (hist ?rest...))
+rule a-series : (a-series (hist ?bs...)) => (aax (sa) (hist ?bs...))
+rule aax-0 : (aax ?acc (hist)) => ?acc
+rule aax-n : (aax (sa ?ss...) (hist (world (being ?a ?at) (being ?b ?bt)) ?rest...)) => (aax (sa ?ss... ?a) (hist ?rest...))
+rule b-series : (b-series (hist ?bs...)) => (bbx (sb) (hist ?bs...))
+rule bbx-0 : (bbx ?acc (hist)) => ?acc
+rule bbx-n : (bbx (sb ?ss...) (hist (world (being ?a ?at) (being ?b ?bt)) ?rest...)) => (bbx (sb ?ss... ?b) (hist ?rest...))
+
+// showstate renders a single state on one line (used in the verdict summary)
+rule showstate-being : (showstate (being ?a ?tag)) => (ss (parts (bar ?a) "  arousal " (str ?a) "   " (lv-tag ?tag)))
+rule showstate-pp    : (showstate (pp ?body ?pred ?prior)) => (ss (parts "body " (bar ?body) " " (str ?body) "   belief " (bar ?pred) " " (str ?pred) "   err " (str (abs (- ?body ?pred)))))
+rule showstate-world : (showstate (world (being ?a ?ta) (being ?b ?tb))) => (ss (parts "A " (bar ?a) " " (str ?a) "   B " (bar ?b) " " (str ?b) "   gap " (str (abs (- ?a ?b)))))
+rule showstate-any   : (showstate ?s) => (shw ?s)
+rule ss-0 : (ss (parts)) => ""
+rule ss-n : (ss (parts ?x ?xs...)) => (cat ?x (ss (parts ?xs...)))
+// render a tag; if it is a (mood LABEL SEED) triple, show only the label (hide the RNG seed)
+rule lv-tag-mood : (lv-tag (mood ?label ?s)) => (str ?label)
+rule lv-tag-any  : (lv-tag ?t) => (shw ?t)
+rule bar-0 : (bar 0) => ""
+rule bar-cap : (bar ?n) => "===============+" where (> ?n 15)
+rule bar-n : (bar ?n) => (cat "=" (bar (- ?n 1))) where (> ?n 0), (<= ?n 15)
+// verdict lines are shape-agnostic: they name the attractor and show the final state
+rule lv-verdict-s : (lv-verdict (result settled ?st)) => (cat "  => SETTLED to a self-consistent fixed point:\n       " (cat (showstate ?st) "\n"))
+rule lv-verdict-c : (lv-verdict (result (cycle ?p) ?st)) => (cat "  => LIMIT CYCLE: never settles; oscillates with period " (cat (str ?p) " steps\n"))
+rule lv-verdict-r : (lv-verdict (result runaway ?st)) => "  => RUNAWAY: no fixed point; the loop escalates without bound\n"
+rule lv-verdict-b : (lv-verdict (result bounded ?st)) => "  => BOUNDED: never settles exactly, but stays in a stable region (noisy / orbiting)\n"

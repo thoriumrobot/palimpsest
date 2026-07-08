@@ -1,0 +1,16 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// ENVIRONMENT 1: HOMEOSTASIS. The mind senses arousal and regulates the body one
+// step toward a set-point (4). Body produces the feeling; the feeling regulates
+// the body. Negative feedback with unit gain converges: the loop reaches a
+// self-consistent fixed point (a stable "self"), and the file becomes a quine.
+import "../lib/mindbody.pal"
+rule step : (step (being ?a ?any)) => (being ?na (feel-of ?na)) where ?na <- (toward ?a 4)
+rule feel-of  : (feel-of ?a) => calm  where (<= ?a 4)
+rule feel-of2 : (feel-of ?a) => tense where (> ?a 4)
+strategy solve = outermost(prim + rules)
+main = (trace (being 9 tense) 10)
+rewrite self with solve
+display (loop-view main) with solve

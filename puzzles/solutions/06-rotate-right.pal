@@ -1,0 +1,6 @@
+#lang palimpsest
+// P6 — Rotate right (any length). The mirror of P5: a leading sequence variable
+// lets you name the LAST element and move it to the front.
+rule rotr : (rotr (list ?xs... ?x)) => (list ?x ?xs...)
+main = (rotr (list a b c d))
+run rotr

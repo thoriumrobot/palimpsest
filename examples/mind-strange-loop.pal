@@ -1,0 +1,18 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// ENVIRONMENT 4: STRANGE LOOP. The being carries its own regulation policy -- its
+// set-point (goal) -- as part of its state. While arousal differs from the goal
+// the mind regulates toward it; but each time it *reaches* the goal, the mind
+// rewrites the goal itself (lowers it), re-opening the gap. The process edits the
+// law that produces it -- a Hofstadter strange loop -- descending a staircase of
+// ever-deeper calm until it hits a floor and reaches a META-fixed-point.
+import "../lib/mindbody.pal"
+rule step-regulate : (step (being ?a (goal ?g))) => (being (toward ?a ?g) (goal ?g)) where (<> ?a ?g)
+rule step-lower    : (step (being ?a (goal ?g))) => (being ?a (goal (- ?g 1)))         where (= ?a ?g), (> ?g 2)
+rule step-floor    : (step (being ?a (goal ?g))) => (being ?a (goal ?g))               where (= ?a ?g), (<= ?g 2)
+strategy solve = outermost(prim + rules)
+main = (trace (being 6 (goal 6)) 11)
+rewrite self with solve
+display (loop-view main) with solve

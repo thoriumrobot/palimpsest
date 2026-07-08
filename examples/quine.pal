@@ -1,0 +1,19 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 1000
+#caps { rewrite: [self] }
+// A self-rewriting QUINE.
+// The subject (app quine (quote quine)) is a fixed point of rule q:
+// applying q rebinds code:=data:=quine and rebuilds the same term. Because the
+// normal form equals the source, `rewrite self` reproduces this file
+// byte-for-byte. That fixed point is exactly what a quine is (Kleene's 2nd
+// recursion theorem guarantees such a fixed point exists).
+
+rule q : (app ?code (quote ?data)) => (app ?data (quote ?data))
+
+strategy reproduce = fixpoint(q)
+
+main = (app quine (quote quine))
+
+run reproduce
+rewrite self with reproduce

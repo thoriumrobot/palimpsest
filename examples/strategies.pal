@@ -1,0 +1,20 @@
+#lang palimpsest
+#fuel 200000
+// User-defined, parameterized, and recursive strategies.
+import "../lib/prelude.pal"
+
+rule dbl  : (dbl ?n) => (* ?n 2)
+rule neg  : (neg ?n) => (- 0 ?n)
+rule dec1 : (S ?n) => ?n
+
+// A parameterized combinator: fully reduce using the given rule set + prim.
+strategy simplify(s) = innermost(s + prim)
+
+// A RECURSIVE parameterized strategy (this is essentially `repeat`, defined in
+// the language itself rather than built in).
+strategy myrepeat(s) = try(s ; myrepeat(s))
+
+main = (nothing)
+show (dbl (dbl (dbl 5))) with simplify(dbl)
+show (neg (dbl 21)) with simplify(dbl + neg)
+show (S (S (S (S (S 0))))) with myrepeat(dec1)

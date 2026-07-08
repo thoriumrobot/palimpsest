@@ -1,0 +1,11 @@
+#lang palimpsest
+#fuel 500000
+// P14 — Apply a permutation given as 1-based indices: gather the value at each
+// index, in order. (idx 3 1 2) applied to (vals x y z) collects z, x, y.
+import "../../lib/prelude.pal"
+rule pick     : (pick ?i (vals ?xs...)) => (nth (- ?i 1) (list ?xs...))
+rule gather-0 : (gather (idx) ?v) => (out)
+rule gather-n : (gather (idx ?i ?is...) ?v) => (out-cons (pick ?i ?v) (gather (idx ?is...) ?v))
+rule out-cons : (out-cons ?x (out ?xs...)) => (out ?x ?xs...)
+main = (gather (idx 3 1 2) (vals x y z))
+run normalize

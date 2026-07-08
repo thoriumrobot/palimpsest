@@ -1,0 +1,15 @@
+#lang palimpsest
+// arith.pal — Helpers over the native integer primitives.
+// Primitives (built in, evaluated by the `prim` strategy):
+//   + - * / mod   < <= > >=   = <>   cat
+import "logic.pal"
+
+rule inc     : (inc ?n) => (+ ?n 1)
+rule dec     : (dec ?n) => (- ?n 1)
+rule square  : (square ?n) => (* ?n ?n)
+rule max     : (max ?a ?b) => (if (>= ?a ?b) ?a ?b)
+rule min     : (min ?a ?b) => (if (<= ?a ?b) ?a ?b)
+rule abs     : (abs ?n) => (if (< ?n 0) (- 0 ?n) ?n)
+rule between : (between ?lo ?x ?hi) => (and (<= ?lo ?x) (<= ?x ?hi))
+rule even    : (even ?n) => (= (mod ?n 2) 0)
+rule odd     : (odd ?n)  => (= (mod ?n 2) 1)

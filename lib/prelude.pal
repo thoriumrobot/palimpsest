@@ -1,0 +1,20 @@
+#lang palimpsest
+// prelude.pal — one import for the whole standard library, plus the standard
+// evaluation strategies.
+import "logic.pal"
+import "arith.pal"
+import "list.pal"
+import "option.pal"
+import "math.pal"
+import "dict.pal"
+import "sort.pal"
+import "text.pal"
+
+// normalize / eval: normal-order (leftmost-outermost). Terminates for
+// if-guarded recursive definitions. This is the default you want.
+strategy normalize   = outermost(prim + rules)
+strategy eval        = outermost(prim + rules)
+
+// eval-strict: innermost (call-by-value). Faster for non-recursive arithmetic,
+// but can loop on if-guarded recursion — use deliberately.
+strategy eval-strict = innermost(prim + rules)

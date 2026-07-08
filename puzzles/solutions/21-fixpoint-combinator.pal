@@ -1,0 +1,13 @@
+#lang palimpsest
+#fuel 500000
+// P21 — Recursion from self-application. The step function `fac` never refers to
+// itself; all the recursion lives in the fixpoint combinator fix f = f (fix f).
+// `fac` receives its own recursive version as ?self and calls it for (n-1).
+rule if-t : (if true ?t ?e) => ?t
+rule if-f : (if false ?t ?e) => ?e
+rule fix : (fix ?f) => (app ?f (fix ?f))
+rule facstep  : (app fac ?self) => (facfun ?self)
+rule facapply : (app (facfun ?self) ?n) => (if (<= ?n 0) 1 (* ?n (app ?self (- ?n 1))))
+strategy solve = outermost(prim + rules)
+main = (app (fix fac) 5)
+run solve

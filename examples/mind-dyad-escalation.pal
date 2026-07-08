@@ -1,0 +1,19 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// TWO COUPLED LOOPS WITH POSITIVE FEEDBACK (mutual escalation). Same structure as
+// co-regulation, but the coupling has the opposite sign: each is agitated by the
+// other, more so when the other is more aroused, and neither self-regulates. A
+// quarrel that feeds on itself -- both escalate without bound (mutual runaway).
+// The only difference from co-regulation is the sign of the coupling.
+import "../lib/mindbody.pal"
+rule step : (step (world (being ?a alice) (being ?b bob))) => (world (being ?a2 alice) (being ?b2 bob))
+  where ?a2 <- (min (+ ?a (spur ?a ?b)) 60),
+        ?b2 <- (min (+ ?b (spur ?b ?a)) 60)
+rule spur-more : (spur ?self ?other) => 3 where (> ?other ?self)
+rule spur-less : (spur ?self ?other) => 2 where (<= ?other ?self)
+strategy solve = outermost(prim + rules)
+main = (trace (world (being 3 alice) (being 4 bob)) 12)
+rewrite self with solve
+display (loop-view main) with solve

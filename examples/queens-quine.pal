@@ -1,0 +1,48 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 50000000
+#caps { rewrite: [self] }
+// A SELF-REWRITING N-QUEENS SOLVER (self-contained — no imports).
+//
+// `main` starts as the unsolved problem (nqueens 8). `rewrite self with solve`
+// runs a backtracking depth-first search — expressed entirely as term rewriting —
+// over the placement space, and writes the solution it finds back into this file
+// (run 1: WROTE). Once `main` holds (found (cols ...)) there is nothing left to
+// rewrite, so the file reproduces itself byte-for-byte (run 2+: a quine). The
+// quine is the certificate that the search succeeded.
+
+// -- minimal helpers (inlined so the file stands alone) --
+import "../lib/render.pal"
+
+rule if-t : (if true ?t ?e) => ?t
+rule if-f : (if false ?t ?e) => ?e
+rule and-t : (and true ?x) => ?x
+rule and-f : (and false ?x) => false
+rule range : (range ?a ?b) => (if (<= ?a ?b) (rcons ?a (range (+ ?a 1) ?b)) (list))
+rule rcons : (rcons ?y (list ?ys...)) => (list ?y ?ys...)
+
+// -- the search --
+rule nqueens : (nqueens ?n) => (place 1 (cols) ?n)
+rule place-done : (place ?row ?placed ?n) => (found ?placed) where (> ?row ?n)
+rule place-try  : (place ?row ?placed ?n) => (try ?row ?placed ?n (range 1 ?n)) where (<= ?row ?n)
+rule try-empty : (try ?row ?placed ?n (list)) => nope
+rule try-col   : (try ?row ?placed ?n (list ?c ?cs...)) => (pick (safe? ?c ?placed) ?row ?placed ?n ?c (list ?cs...))
+rule pick-no  : (pick false ?row ?placed ?n ?c ?rest) => (try ?row ?placed ?n ?rest)
+rule pick-yes : (pick true ?row ?placed ?n ?c ?rest) => (after (place (+ ?row 1) (cols-add ?c ?placed) ?n) ?row ?placed ?n ?rest)
+rule after-found : (after (found ?sol) ?row ?placed ?n ?rest) => (found ?sol)
+rule after-nope  : (after nope ?row ?placed ?n ?rest) => (try ?row ?placed ?n ?rest)
+rule cols-add : (cols-add ?c (cols ?cs...)) => (cols ?c ?cs...)
+
+// -- safety: no shared column or diagonal with any placed queen --
+rule safe? : (safe? ?c ?placed) => (safe-d ?c 1 ?placed)
+rule safe-d-0 : (safe-d ?c ?d (cols)) => true
+rule safe-d-n : (safe-d ?c ?d (cols ?x ?rest...)) => (and (okq ?c ?x ?d) (safe-d ?c (+ ?d 1) (cols ?rest...)))
+rule okq  : (okq ?c ?x ?d) => (and (<> ?c ?x) (<> (dabs (- ?c ?x)) ?d))
+rule dabs : (dabs ?k) => (if (< ?k 0) (- 0 ?k) ?k)
+
+strategy solve = outermost(prim + rules)
+
+main = (nqueens 8)
+
+rewrite self with solve
+display (chess main) with solve

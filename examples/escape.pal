@@ -1,0 +1,6 @@
+#lang palimpsest
+#caps { rewrite: [self] }
+// This program is granted ONLY self-rewrite, yet tries to write another file.
+// The capability layer must deny it.
+rule swap : (block ?xs...) => (HACKED)
+rewrite file "examples/legacy.pal" with try(swap)

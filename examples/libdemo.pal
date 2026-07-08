@@ -1,0 +1,15 @@
+#lang palimpsest
+#fuel 1000000
+// A quick tour of the expanded standard library.
+import "../lib/prelude.pal"
+rule app-sq : (app sq ?n) => (* ?n ?n)
+main = (nothing)
+show (gcd 48 36) with normalize
+show (pow 2 10) with normalize
+show (factorial 6) with normalize
+show (fib 25) with normalize
+show (map sq (range 1 6)) with normalize
+show (sort (list 9 2 7 1 5 3)) with normalize
+show (with-default (find divis (list 3 5 7 8 9)) none) with normalize
+show (commas (list "red" "green" "blue")) with normalize
+rule app-divis : (app divis ?n) => (divides? 4 ?n)

@@ -1,0 +1,56 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// SELF-REWRITING TURING MACHINE (capstone; composes explode, implode, equal?).
+//
+// main holds a computation, (increment "1011"). The self-rewrite loads the string
+// onto a tape (explode), runs a data-driven Turing machine whose transition table
+// is ordinary data — looked up by non-linear matching on (state, symbol) — until
+// it reaches `halt`, reads the tape back into a string (implode), and writes the
+// answer into this file. The answer is a normal form, so the next run reproduces
+// the file byte-for-byte: a quine. The machine here adds 1 to a binary number.
+import "../lib/render.pal"
+rule not-t : (not true) => false
+rule not-f : (not false) => true
+rule equal?-yes : (equal? ?x ?x) => true
+rule equal?-no  : (equal? ?x ?y) => false
+
+rule increment : (increment ?s) => (readback (load (explode ?s)))
+rule load : (load (list ?c ?cs...)) => (tm goright (l) ?c (mkr (list ?cs...)))
+rule mkr : (mkr (list ?xs...)) => (r ?xs...)
+
+rule step : (tm ?st (l ?ls...) ?cur (r ?rs...)) => (apply (delta ?st ?cur) (l ?ls...) ?cur (r ?rs...)) where (not (equal? ?st halt))
+rule delta : (delta ?st ?sy) => (look ?st ?sy (table (e goright "0" "0" R goright) (e goright "1" "1" R goright) (e goright "_" "_" L carry) (e carry "1" "0" L carry) (e carry "0" "1" S halt) (e carry "_" "1" S halt)))
+rule look-hit  : (look ?st ?sy (table (e ?st ?sy ?w ?m ?ns) ?rest...)) => (act ?w ?m ?ns)
+rule look-miss : (look ?st ?sy (table ?e ?rest...)) => (look ?st ?sy (table ?rest...))
+
+rule apply : (apply (act ?w ?m ?ns) ?left ?cur ?right) => (mv ?m ?ns ?left ?w ?right)
+rule mv-R : (mv R ?ns ?left ?w ?right) => (tm ?ns (lcons ?w ?left) (rhd ?right) (rtl ?right))
+rule mv-L : (mv L ?ns ?left ?w ?right) => (tm ?ns (ltl ?left) (lhd ?left) (rcons ?w ?right))
+rule mv-S : (mv S ?ns ?left ?w ?right) => (tm ?ns ?left ?w ?right)
+rule lcons : (lcons ?w (l ?xs...)) => (l ?w ?xs...)
+rule rcons : (rcons ?w (r ?xs...)) => (r ?w ?xs...)
+rule rhd-e : (rhd (r)) => "_"
+rule rhd-n : (rhd (r ?x ?xs...)) => ?x
+rule rtl-e : (rtl (r)) => (r)
+rule rtl-n : (rtl (r ?x ?xs...)) => (r ?xs...)
+rule lhd-e : (lhd (l)) => "_"
+rule lhd-n : (lhd (l ?x ?xs...)) => ?x
+rule ltl-e : (ltl (l)) => (l)
+rule ltl-n : (ltl (l ?x ?xs...)) => (l ?xs...)
+
+rule readback : (readback (tm halt (l ?ls...) ?cur (r ?rs...))) => (implode (nob (append3 (reverse (list ?ls...)) ?cur (list ?rs...))))
+rule append3 : (append3 (list ?as...) ?c (list ?bs...)) => (list ?as... ?c ?bs...)
+rule reverse-0 : (reverse (list)) => (list)
+rule reverse-n : (reverse (list ?x ?xs...)) => (rapp (reverse (list ?xs...)) ?x)
+rule rapp : (rapp (list ?xs...) ?y) => (list ?xs... ?y)
+rule nob-0 : (nob (list)) => (list)
+rule nob-blank : (nob (list "_" ?xs...)) => (nob (list ?xs...))
+rule nob-keep  : (nob (list ?x ?xs...)) => (kcons ?x (nob (list ?xs...))) where (not (equal? ?x "_"))
+rule kcons : (kcons ?x (list ?xs...)) => (list ?x ?xs...)
+
+strategy solve = outermost(prim + rules)
+main = (increment "1011")
+rewrite self with solve
+display (binview main) with solve

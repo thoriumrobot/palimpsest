@@ -1,0 +1,16 @@
+#lang palimpsest
+#fuel 1000000
+// Word frequency counting with the dict library: fold a list of items into a
+// dictionary of counts. `put` shadows, so the latest count for a key wins.
+import "../lib/prelude.pal"
+
+rule tally      : (tally ?xs) => (tally-into (dict) ?xs)
+rule tally-done : (tally-into ?d (list)) => ?d
+rule tally-step : (tally-into ?d (list ?x ?xs...)) => (tally-into (put ?x (+ 1 (get-or ?x 0 ?d)) ?d) (list ?xs...))
+
+main = (tally (list apple banana apple cherry apple banana))
+
+show (get apple  (tally (list apple banana apple cherry apple banana))) with normalize
+show (get banana (tally (list apple banana apple cherry apple banana))) with normalize
+show (get cherry (tally (list apple banana apple cherry apple banana))) with normalize
+show (get durian (tally (list apple banana apple cherry apple banana))) with normalize

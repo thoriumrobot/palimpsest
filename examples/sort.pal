@@ -1,0 +1,18 @@
+#lang palimpsest
+#fuel 500000
+// Insertion sort — needs CONDITIONAL rules (guards) to compare elements.
+// Note the multi-line rule: items may now span lines.
+import "../lib/prelude.pal"
+
+rule insert-empty : (insert ?x (list)) => (list ?x)
+rule insert-le : (insert ?x (list ?y ?ys...)) => (list ?x ?y ?ys...)
+  where (<= ?x ?y)
+rule insert-gt : (insert ?x (list ?y ?ys...)) => (prepend ?y (insert ?x (list ?ys...)))
+  where (> ?x ?y)
+
+rule sort-empty : (sort (list)) => (list)
+rule sort-cons : (sort (list ?x ?ys...)) => (insert ?x (sort (list ?ys...)))
+
+main = (sort (list 5 3 8 1 9 2 7 4 6))
+run normalize
+show (sort (list 42 17 99 3 3 58 17)) with normalize

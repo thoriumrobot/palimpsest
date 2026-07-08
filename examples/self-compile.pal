@@ -1,0 +1,33 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 2000000
+#caps { rewrite: [self] }
+// SELF-REWRITING COMPILER (tests sym). main holds an arithmetic expression tree;
+// the self-rewrite flattens it into three-address code, inventing a fresh
+// temporary (t0, t1, ...) for each operation via `sym`, and writes the compiled
+// program back. The compiled form is a normal form, so the next run is a quine.
+
+import "../lib/render.pal"
+rule if-t : (if true ?t ?e) => ?t
+rule if-f : (if false ?t ?e) => ?e
+
+// compile e => (program (code ...) (return operand))
+rule compile : (compile ?e) => (finish (flat 0 ?e))
+rule finish  : (finish (out ?k ?code ?op)) => (program ?code (return ?op))
+
+// flat k e => (out nextK code operand)
+rule flat-var : (flat ?k (var ?x)) => (out ?k (code) (var ?x))
+rule flat-num : (flat ?k (num ?n)) => (out ?k (code) (num ?n))
+rule flat-bin : (flat ?k (bin ?o ?a ?b)) => (seqA ?o ?b (flat ?k ?a))
+rule seqA : (seqA ?o ?b (out ?k1 ?ca ?opa)) => (seqB ?o ?opa ?ca (flat ?k1 ?b))
+rule seqB : (seqB ?o ?opa ?ca (out ?k2 ?cb ?opb)) => (emit ?o ?opa ?opb ?k2 (cat2 ?ca ?cb))
+rule emit : (emit ?o ?opa ?opb ?k ?code) => (out (+ ?k 1) (snoc ?code (:= (sym (cat "t" (str ?k))) (bin ?o ?opa ?opb))) (var (sym (cat "t" (str ?k)))))
+
+rule cat2 : (cat2 (code ?as...) (code ?bs...)) => (code ?as... ?bs...)
+rule snoc : (snoc (code ?as...) ?i) => (code ?as... ?i)
+
+strategy solve = outermost(prim + rules)
+// (a*b) + (c*d)
+main = (compile (bin + (bin * (var a) (var b)) (bin * (var c) (var d))))
+rewrite self with solve
+display (asm main) with solve

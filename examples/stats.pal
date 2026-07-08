@@ -1,0 +1,14 @@
+#lang palimpsest
+#fuel 500000
+import "../lib/prelude.pal"
+// Integer stats over a data list. total/mean are local; minimum/maximum now
+// come straight from the standard library.
+rule total : (total ?xs) => (sum ?xs)
+rule mean  : (mean ?xs) => (/ (sum ?xs) (length ?xs))
+
+main = (data 4 8 15 16 23 42)
+show (total (list 4 8 15 16 23 42)) with normalize
+show (length (list 4 8 15 16 23 42)) with normalize
+show (mean  (list 4 8 15 16 23 42)) with normalize
+show (minimum (list 4 8 15 16 23 42)) with normalize
+show (maximum (list 4 8 15 16 23 42)) with normalize

@@ -1,0 +1,9 @@
+#lang palimpsest
+#fuel 200000
+// P19 — Idempotence. A transformation T is idempotent when T(T(x)) = T(x):
+// applying it a second time changes nothing. Sorting is idempotent — the second
+// sort finds a fixed point immediately.
+rule bubble : (list ?xs... ?a ?b ?ys...) => (list ?xs... ?b ?a ?ys...) where (> ?a ?b)
+strategy sort = repeat(oncetd(prim + rules))
+main = (list 3 1 2)
+run (sort ; sort)

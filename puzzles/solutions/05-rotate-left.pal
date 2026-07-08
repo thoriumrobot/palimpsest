@@ -1,0 +1,5 @@
+#lang palimpsest
+// P5 — Rotate left (any length). Split off the head; splice it back at the tail.
+rule rotl : (rotl (list ?x ?xs...)) => (list ?xs... ?x)
+main = (rotl (list a b c d))
+run rotl

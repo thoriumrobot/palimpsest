@@ -1,0 +1,11 @@
+#lang palimpsest
+// refactor.pal — reusable source-modernization rules and a strategy that
+// applies them. Import this into any program that needs to modernize code, so
+// the rules live in one place instead of being copied per project.
+
+rule loop->for   : (loop ?init ?cond ?step ?body) => (for (?init ?cond ?step) ?body)
+rule while->for  : (while ?cond ?body) => (for (nil ?cond nil) ?body)
+rule dedup-label : (block ?a... (label ?l ?n) (label ?l ?n) ?b...) => (block ?a... (label ?l ?n) ?b...)
+
+// One named strategy, exported for reuse.
+strategy modernize = topdown(try(loop->for + while->for)) ; fixpoint(dedup-label)

@@ -1,0 +1,25 @@
+#lang palimpsest
+#fuel 500000
+// A small interpreter for an expression language with integers, arithmetic,
+// variables, and lexically-scoped `let` — evaluated entirely by rewriting.
+// Environments are association lists: (bind x v (bind y w ... empty)).
+import "../lib/prelude.pal"
+
+rule ev-num : (eval ?env (num ?n)) => ?n
+rule ev-add : (eval ?env (add ?a ?b)) => (+ (eval ?env ?a) (eval ?env ?b))
+rule ev-sub : (eval ?env (sub ?a ?b)) => (- (eval ?env ?a) (eval ?env ?b))
+rule ev-mul : (eval ?env (mul ?a ?b)) => (* (eval ?env ?a) (eval ?env ?b))
+rule ev-var : (eval ?env (var ?x)) => (lookup ?x ?env)
+rule ev-let : (eval ?env (let ?x ?e ?body)) => (eval (bind ?x (eval ?env ?e) ?env) ?body)
+
+// Variable lookup: non-linear pattern matches the SAME name; the miss case is
+// guarded so the two rules are unambiguous.
+rule lookup-hit  : (lookup ?x (bind ?x ?v ?rest)) => ?v
+rule lookup-miss : (lookup ?x (bind ?y ?v ?rest)) => (lookup ?x ?rest) where (<> ?x ?y)
+
+// Program: let x = 5 in let y = 3 in x*y + 1   ==> 16
+main = (eval empty (let x (num 5) (let y (num 3) (add (mul (var x) (var y)) (num 1)))))
+
+run normalize
+show (eval empty (let a (num 10) (sub (var a) (num 4)))) with normalize
+show (eval empty (let n (add (num 20) (num 1)) (mul (var n) (num 2)))) with normalize

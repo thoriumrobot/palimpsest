@@ -1,0 +1,21 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// NOISY HOMEOSTASIS (tests the `rng` primitive). The mind regulates arousal toward
+// a set-point of 5, but every tick a pseudo-random perturbation (in -2..+2, derived
+// purely from a seed carried in the state via `rng`) jitters the body. The loop
+// never settles exactly -- the RNG stream keeps advancing -- yet stays in a stable
+// band: a BOUNDED attractor, the stochastic analogue of a fixed point. Because
+// `rng` is pure, the run is reproducible, so this stochastic program is a quine.
+import "../lib/mindbody.pal"
+rule step : (step (being ?a (mood ?lab ?s))) => (being ?na (mood (mood-of ?na) ?ns))
+  where ?ns <- (rng ?s),
+        ?noise <- (- (mod ?ns 5) 2),
+        ?na <- (clamp (+ (toward ?a 5) ?noise) 0 10)
+rule mood-of-lo : (mood-of ?a) => calm where (<= ?a 5)
+rule mood-of-hi : (mood-of ?a) => edgy where (> ?a 5)
+strategy solve = outermost(prim + rules)
+main = (trace (being 9 (mood edgy 12345)) 14)
+rewrite self with solve
+display (loop-view main) with solve

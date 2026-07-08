@@ -1,0 +1,15 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// Puzzle 16 — The reproducible random stream.
+// Expand a seed into a fixed-length stream of pseudo-random numbers, then hold.
+// `rng` is a PURE deterministic hash of its seed, so the "random" output is fixed:
+// run 1 generates the stream and writes it back; run 2 finds nothing to change and
+// reproduces the file byte-for-byte. Randomness you can reproduce -- a quine.
+rule gen-0 : (gen ?seed 0) => (stream)
+rule gen-n : (gen ?seed ?k) => (push (mod ?ns 100) (gen ?ns (- ?k 1))) where (> ?k 0), ?ns <- (rng ?seed)
+rule push : (push ?x (stream ?xs...)) => (stream ?x ?xs...)
+strategy solve = outermost(prim + rules)
+main = (gen 1 6)
+rewrite self with solve

@@ -1,0 +1,65 @@
+#lang palimpsest
+// A small text-visualization library, written in Palimpsest. It turns a series
+// of integers -- (series v0 v1 v2 ...) -- into understandable ASCII graphs:
+//
+//   colplot    a 2D column chart: value on the vertical axis, time across
+//   overlay    two series drawn together (o = first, x = second, * = both)
+//   histogram  the distribution: how often each value occurs
+//   spark      a compact one-line sparkline using block characters
+//
+// Uses only primitives (cat, str, padl, min, max, +, -, *, /, =, <>, <=, >=,
+// explode) plus its own helpers, so it composes with any program. Values above
+// the chart height clip to the top row.
+
+// ---- shared helpers ----
+rule hbar-0 : (hbar 0) => ""
+rule hbar-n : (hbar ?n) => (cat "#" (hbar (- ?n 1))) where (> ?n 0)
+rule dashes-0 : (dashes (series)) => ""
+rule dashes-n : (dashes (series ?v ?vs...)) => (cat "-" (dashes (series ?vs...)))
+rule count-eq-0 : (count-eq ?v (series)) => 0
+rule count-eq-hit : (count-eq ?v (series ?x ?xs...)) => (+ 1 (count-eq ?v (series ?xs...))) where (= ?v ?x)
+rule count-eq-no  : (count-eq ?v (series ?x ?xs...)) => (count-eq ?v (series ?xs...)) where (<> ?v ?x)
+
+// ============================================================================
+// colplot : a column chart. Rows run from the height `?h` down to 1; a cell is
+// filled when that timestep's value reaches the row. Time runs left to right.
+// ============================================================================
+rule colplot : (colplot (series ?vs...) ?h) => (cp ?h (series ?vs...) ?h)
+rule cp-axis : (cp 0 (series ?vs...) ?h) => (cat "     +" (cat (dashes (series ?vs...)) "-> time\n"))
+rule cp-row  : (cp ?r (series ?vs...) ?h) => (cat (padl (str ?r) 4) (cat " |" (cat (cp-cells ?r (series ?vs...)) (cat "\n" (cp (- ?r 1) (series ?vs...) ?h))))) where (> ?r 0)
+rule cp-cells-0 : (cp-cells ?r (series)) => ""
+rule cp-cells-n : (cp-cells ?r (series ?v ?vs...)) => (cat (cp-cell ?r ?v) (cp-cells ?r (series ?vs...)))
+rule cp-cell-hit : (cp-cell ?r ?v) => "#" where (>= ?v ?r)
+rule cp-cell-no  : (cp-cell ?r ?v) => " " where (< ?v ?r)
+
+// ============================================================================
+// overlay : two series on one chart. o = first series, x = second, * = both.
+// Values above the height clip to the top row so escaping curves stay visible.
+// ============================================================================
+rule overlay : (overlay (sa ?as...) (sb ?bs...) ?h) => (ov ?h (sa ?as...) (sb ?bs...) ?h)
+rule ov-axis : (ov 0 (sa ?as...) (sb ?bs...) ?h) => (cat "     +" (cat (dashes (series ?as...)) "-> time\n"))
+rule ov-row  : (ov ?r (sa ?as...) (sb ?bs...) ?h) => (cat (padl (str ?r) 4) (cat " |" (cat (ov-cells ?r (sa ?as...) (sb ?bs...) ?h) (cat "\n" (ov (- ?r 1) (sa ?as...) (sb ?bs...) ?h))))) where (> ?r 0)
+rule ov-cells-0 : (ov-cells ?r (sa) (sb) ?h) => ""
+rule ov-cells-n : (ov-cells ?r (sa ?a ?as...) (sb ?b ?bs...) ?h) => (cat (ov-cell ?r (min ?a ?h) (min ?b ?h)) (ov-cells ?r (sa ?as...) (sb ?bs...) ?h))
+rule ov-cell-both : (ov-cell ?r ?a ?b) => "*" where (= ?a ?r), (= ?b ?r)
+rule ov-cell-a    : (ov-cell ?r ?a ?b) => "o" where (= ?a ?r), (<> ?b ?r)
+rule ov-cell-b    : (ov-cell ?r ?a ?b) => "x" where (<> ?a ?r), (= ?b ?r)
+rule ov-cell-no   : (ov-cell ?r ?a ?b) => " " where (<> ?a ?r), (<> ?b ?r)
+
+// ============================================================================
+// histogram : the value distribution. One row per level 0..maxval, a bar whose
+// length is how many timesteps sat at that level. Reveals bands and bimodality.
+// ============================================================================
+rule histogram : (histogram (series ?vs...) ?maxval) => (hg 0 (series ?vs...) ?maxval)
+rule hg-done : (hg ?v ?s ?maxval) => "" where (> ?v ?maxval)
+rule hg-row  : (hg ?v (series ?vs...) ?maxval) => (cat (padl (str ?v) 4) (cat " | " (cat (hbar (count-eq ?v (series ?vs...))) (cat " " (cat (str (count-eq ?v (series ?vs...))) (cat "\n" (hg (+ ?v 1) (series ?vs...) ?maxval))))))) where (<= ?v ?maxval)
+
+// ============================================================================
+// spark : a one-line sparkline. Each value becomes a block glyph scaled to ?h.
+// ============================================================================
+rule spark-0 : (spark (series) ?h) => ""
+rule spark-n : (spark (series ?v ?vs...) ?h) => (cat (glyph (/ (* (min ?v ?h) 8) ?h)) (spark (series ?vs...) ?h))
+rule glyph : (glyph ?n) => (nthchar (max 0 (min 8 ?n)) "▁▁▂▃▄▅▆▇█")
+rule nthchar : (nthchar ?i ?s) => (nc ?i (explode ?s))
+rule nc-0 : (nc 0 (list ?x ?xs...)) => ?x
+rule nc-n : (nc ?i (list ?x ?xs...)) => (nc (- ?i 1) (list ?xs...)) where (> ?i 0)

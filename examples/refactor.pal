@@ -1,0 +1,9 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 100000
+#caps { rewrite: [file "examples/legacy.pal"] }
+// Rewrites ANOTHER file, reusing the shared modernization library. Capability
+// is still scoped to exactly legacy.pal; the imported library cannot widen it.
+import "../lib/refactor.pal"
+
+rewrite file "examples/legacy.pal" with modernize

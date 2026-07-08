@@ -1,0 +1,82 @@
+#lang palimpsest
+// Rendering library, written in Palimpsest itself. Turns the results of programs
+// into human-readable text. Use these with the `display` command, which prints a
+// string result verbatim (real line breaks) instead of as an escaped one-liner.
+//
+// Self-contained: it uses only built-in primitives (cat, str, explode, implode,
+// +, -, *, =, <, >) plus its own helpers, which are prefixed `r` / named
+// distinctively so they never collide with a program's own rules.
+
+// -- tiny helpers --
+rule rif-t : (rif true ?t ?e) => ?t
+rule rif-f : (rif false ?t ?e) => ?e
+
+// ============================================================================
+// shw : a generic pretty-printer. Renders ANY term as its canonical string.
+// (shw (pt 1 2)) => "(pt 1 2)".  Atoms render via `str`; lists recurse.
+// ============================================================================
+rule shw-empty : (shw ()) => "()"
+rule shw-list  : (shw (?h ?rest...)) => (cat "(" (cat (shw-seq (seq ?h ?rest...)) ")"))
+rule shw-atom  : (shw ?a) => (str ?a)
+rule shw-seq-1 : (shw-seq (seq ?x)) => (shw ?x)
+rule shw-seq-n : (shw-seq (seq ?x ?y ?ys...)) => (cat (shw ?x) (cat " " (shw-seq (seq ?y ?ys...))))
+
+// ============================================================================
+// chess : a text chess board from an N-Queens solution (found (cols ...)).
+// Ranks are labelled N (top) down to 1 (bottom); a queen is Q, empty is a dot.
+// ============================================================================
+rule chess : (chess (found ?board)) => (chess-go (clen ?board) ?board (clen ?board))
+rule chess-go-0 : (chess-go ?i (cols) ?n) => (cat "   " (chess-files 1 ?n))
+rule chess-go-n : (chess-go ?i (cols ?c ?cs...) ?n) => (cat (chess-row ?i ?c ?n) (chess-go (- ?i 1) (cols ?cs...) ?n))
+rule chess-row  : (chess-row ?i ?c ?n) => (cat (rpad2 ?i) (cat " " (cat (chess-cells 1 ?n ?c) "\n")))
+rule chess-cells: (chess-cells ?j ?n ?c) => (rif (> ?j ?n) "" (cat (chess-cell ?j ?c) (chess-cells (+ ?j 1) ?n ?c)))
+rule chess-cell : (chess-cell ?j ?c) => (rif (= ?j ?c) "Q " ". ")
+rule chess-files: (chess-files ?j ?n) => (rif (> ?j ?n) "\n" (cat (str ?j) (cat " " (chess-files (+ ?j 1) ?n))))
+rule rpad2-1 : (rpad2 ?i) => (cat " " (str ?i)) where (< ?i 10)
+rule rpad2-2 : (rpad2 ?i) => (str ?i) where (> ?i 9)
+rule clen-0 : (clen (cols)) => 0
+rule clen-n : (clen (cols ?x ?xs...)) => (+ 1 (clen (cols ?xs...)))
+
+// ============================================================================
+// asm : pretty-print three-address code from the self-compile program.
+// ============================================================================
+rule asm : (asm (program ?code (return ?op))) => (cat (asm-code ?code) (cat "return " (cat (asm-op ?op) "\n")))
+rule asm-code-0 : (asm-code (code)) => ""
+rule asm-code-n : (asm-code (code ?i ?is...)) => (cat (asm-instr ?i) (asm-code (code ?is...)))
+rule asm-instr : (asm-instr (:= ?t (bin ?o ?a ?b))) => (cat (str ?t) (cat " := " (cat (asm-op ?a) (cat " " (cat (str ?o) (cat " " (cat (asm-op ?b) "\n")))))))
+rule asm-op-var : (asm-op (var ?x)) => (str ?x)
+rule asm-op-num : (asm-op (num ?n)) => (str ?n)
+
+// ============================================================================
+// binview : show a binary string with its decimal value (self-turing output).
+// ============================================================================
+rule binview : (binview ?s) => (cat "binary " (cat ?s (cat "  =  " (cat (str (bin2int ?s)) " (decimal)"))))
+rule bin2int : (bin2int ?s) => (b2i 0 (explode ?s))
+rule b2i-0 : (b2i ?acc (list)) => ?acc
+rule b2i-n : (b2i ?acc (list ?c ?cs...)) => (b2i (+ (* ?acc 2) (bit ?c)) (list ?cs...))
+rule bit-1 : (bit "1") => 1
+rule bit-0 : (bit "0") => 0
+
+// ============================================================================
+// moves-view : number a list of Hanoi moves as "k. A -> B".
+// ============================================================================
+rule moves-view : (moves-view (moves ?ms...)) => (mv-go (moves ?ms...) 1)
+rule mv-go-0 : (mv-go (moves) ?k) => ""
+rule mv-go-n : (mv-go (moves (move ?a ?b) ?rest...) ?k) => (cat (str ?k) (cat ". " (cat (str ?a) (cat " -> " (cat (str ?b) (cat "\n" (mv-go (moves ?rest...) (+ ?k 1))))))))
+
+// ============================================================================
+// set-view : a deduplicated list as a bulleted set with a count.
+// ============================================================================
+rule set-view : (set-view (list ?xs...)) => (cat "set of " (cat (str (slen (list ?xs...))) (cat ":\n" (sv-go (list ?xs...)))))
+rule sv-go-0 : (sv-go (list)) => ""
+rule sv-go-n : (sv-go (list ?x ?xs...)) => (cat "  - " (cat (shw ?x) (cat "\n" (sv-go (list ?xs...)))))
+rule slen-0 : (slen (list)) => 0
+rule slen-n : (slen (list ?x ?xs...)) => (+ 1 (slen (list ?xs...)))
+
+// ============================================================================
+// text-view : label a plain string result.
+// ============================================================================
+rule text-view : (text-view ?s) => (cat "\"" (cat ?s "\""))
+
+// count-view : the counter quine's state.
+rule count-view : (count-view (count ?n)) => (cat "counter = " (str ?n))

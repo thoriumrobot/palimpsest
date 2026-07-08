@@ -1,0 +1,7 @@
+#lang palimpsest
+#fuel 1000
+// The quine is an ATTRACTOR: start from a non-fixed point and the same rule
+// drives it to the self-reproducing term (code := data).
+rule q : (app ?code (quote ?data)) => (app ?data (quote ?data))
+main = (app anything-at-all (quote quine))
+run fixpoint(q)

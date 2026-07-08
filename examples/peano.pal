@@ -1,0 +1,17 @@
+#lang palimpsest
+#mode rewriting-as-running
+#fuel 100000
+// The safe core: a confluent, terminating term-rewriting system.
+// Peano arithmetic. `innermost` reduces to a unique normal form.
+
+rule add-zero : (+ ?x 0)      => ?x
+rule add-suc  : (+ ?x (S ?y)) => (S (+ ?x ?y))
+rule mul-zero : (* ?x 0)      => 0
+rule mul-suc  : (* ?x (S ?y)) => (+ (* ?x ?y) ?x)
+
+strategy eval = innermost(add-zero + add-suc + mul-zero + mul-suc)
+
+main = (* (S (S 0)) (S (S (S 0))))
+
+run eval
+show (+ (S (S 0)) (S (S 0))) with eval

@@ -1,0 +1,7 @@
+#lang palimpsest
+// P18 — The oscillator (period 2). One application swaps the pair; a second
+// swaps it back. The term returns to itself after exactly two rewrites — a
+// 2-cycle, not a fixed point. (Run with just `osc` to see the halfway state.)
+rule osc : (o ?a ?b) => (o ?b ?a)
+main = (o x y)
+run (osc ; osc)

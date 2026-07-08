@@ -1,0 +1,25 @@
+#lang palimpsest
+#fuel 500000
+import "../lib/prelude.pal"
+
+// User-supplied higher-order helpers, plugged into the library's open app forms.
+rule app-double : (app double ?n) => (* ?n 2)
+rule app-evenp  : (app evenp ?n)  => (even ?n)
+
+main = (sum (range 1 10))
+
+run normalize
+show (length (list a b c d)) with normalize
+show (append (list 1 2) (list 3 4)) with normalize
+show (reverse (list 1 2 3 4)) with normalize
+show (map double (list 1 2 3 4)) with normalize
+show (filter evenp (range 1 10)) with normalize
+show (sum (range 1 100)) with normalize
+show (product (range 1 5)) with normalize
+show (member 3 (list 1 2 3 4)) with normalize
+show (nth 2 (list a b c d)) with normalize
+show (max 3 (min 8 5)) with normalize
+show (take 3 (range 1 100)) with normalize
+show (drop 2 (list a b c d e)) with normalize
+show (concat (list (list 1 2) (list 3) (list 4 5))) with normalize
+show (cat "hello, " "world") with normalize

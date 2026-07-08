@@ -1,0 +1,8 @@
+#lang palimpsest
+// P11 — Swap every adjacent pair: (a b c d ...) becomes (b a d c ...).
+rule prepend : (prepend ?y (list ?ys...)) => (list ?y ?ys...)
+rule sa-0 : (swapadj (list)) => (list)
+rule sa-1 : (swapadj (list ?x)) => (list ?x)
+rule sa-n : (swapadj (list ?a ?b ?rest...)) => (prepend ?b (prepend ?a (swapadj (list ?rest...))))
+main = (swapadj (list a b c d e f))
+run innermost(rules)

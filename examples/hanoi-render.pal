@@ -1,0 +1,16 @@
+#lang palimpsest
+#fuel 500000
+// Companion to hanoi-quine.pal: solve Hanoi and render the moves as readable
+// text using the `str` primitive and the text library.
+import "../lib/prelude.pal"
+
+rule hanoi-0 : (hanoi 0 ?f ?t ?v) => (moves)
+rule hanoi-n : (hanoi ?n ?f ?t ?v) => (seq (hanoi (- ?n 1) ?f ?v ?t) (move ?f ?t) (hanoi (- ?n 1) ?v ?t ?f)) where (> ?n 0)
+rule seq-flatten : (seq (moves ?as...) ?m (moves ?bs...)) => (moves ?as... ?m ?bs...)
+
+rule rmove : (rmove (move ?f ?t)) => (cat (str ?f) (cat "->" (str ?t)))
+rule app-rmove : (app rmv ?m) => (rmove ?m)
+rule pretty : (pretty (moves ?ms...)) => (join "  " (map rmv (list ?ms...)))
+
+main = (pretty (hanoi 3 a c b))
+run normalize

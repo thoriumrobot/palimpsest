@@ -1,0 +1,17 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// TWO COUPLED MIND-BODY LOOPS (co-regulation). Alice's baseline is calm (3), Bob's
+// anxious (8). Each regulates toward their own baseline AND is pulled toward the
+// other's arousal (attunement). Starting far apart (0 and 10), they converge step
+// by step to a shared compromise and settle -- emotional co-regulation -- while
+// each keeps some individual baseline, so the gap narrows but never fully closes.
+import "../lib/mindbody.pal"
+rule step : (step (world (being ?a alice) (being ?b bob))) => (world (being ?a2 alice) (being ?b2 bob))
+  where ?a2 <- (clamp (toward (toward ?a 3) ?b) 0 10),
+        ?b2 <- (clamp (toward (toward ?b 8) ?a) 0 10)
+strategy solve = outermost(prim + rules)
+main = (trace (world (being 0 alice) (being 10 bob)) 8)
+rewrite self with solve
+display (loop-view main) with solve

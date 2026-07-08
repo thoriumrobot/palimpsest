@@ -1,0 +1,18 @@
+#lang palimpsest
+// option.pal — optional values: (some x) or none. Lets partial operations
+// (lookup, find, division) return a value that carries "no result" safely.
+import "logic.pal"
+
+rule some?-y : (some? (some ?x)) => true
+rule some?-n : (some? none) => false
+rule none?-y : (none? none) => true
+rule none?-n : (none? (some ?x)) => false
+
+rule with-default-some : (with-default (some ?x) ?d) => ?x
+rule with-default-none : (with-default none ?d) => ?d
+
+rule map-option-some : (map-option ?f (some ?x)) => (some (app ?f ?x))
+rule map-option-none : (map-option ?f none) => none
+
+rule or-else-some : (or-else (some ?x) ?other) => (some ?x)
+rule or-else-none : (or-else none ?other) => ?other

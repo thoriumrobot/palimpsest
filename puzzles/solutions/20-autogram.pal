@@ -1,0 +1,12 @@
+#lang palimpsest
+#fuel 200000
+// P20 — The autogram. A list that truthfully states its own length. `recount`
+// replaces the number with the actual element count, but ONLY while the claim is
+// wrong (the guard). It stops at the self-consistent fixed point — where the
+// number is itself one of the elements it counts.
+rule length-0 : (length (list)) => 0
+rule length-n : (length (list ?x ?xs...)) => (+ 1 (length (list ?xs...)))
+rule recount : (list counts ?n ?rest...) => (list counts ?len ?rest...) where ?len <- (length (list counts ?n ?rest...)), (<> ?n ?len)
+strategy solve = outermost(prim + rules)
+main = (list counts 0 a b)
+run solve

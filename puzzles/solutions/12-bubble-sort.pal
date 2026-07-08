@@ -1,0 +1,7 @@
+#lang palimpsest
+#fuel 500000
+// P12 — Bubble sort in ONE rule. Swap any adjacent out-of-order pair; repeat
+// until none remain. The guard makes the matcher search for an inversion.
+rule bubble : (list ?xs... ?a ?b ?ys...) => (list ?xs... ?b ?a ?ys...) where (> ?a ?b)
+main = (list 5 3 8 1 9 2 7 4 6)
+run repeat(oncetd(prim + rules))

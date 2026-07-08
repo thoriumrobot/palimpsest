@@ -1,0 +1,9 @@
+#lang palimpsest
+// P10 — Unriffle: deal one row alternately into two. The helper `glue` pushes
+// each pair onto the two result rows returned by the recursive call.
+rule unriffle-0 : (unriffle (list)) => (pair (list) (list))
+rule unriffle-1 : (unriffle (list ?x)) => (pair (list ?x) (list))
+rule unriffle-n : (unriffle (list ?x ?y ?rest...)) => (glue ?x ?y (unriffle (list ?rest...)))
+rule glue : (glue ?x ?y (pair (list ?as...) (list ?bs...))) => (pair (list ?x ?as...) (list ?y ?bs...))
+main = (unriffle (list a 1 b 2 c 3))
+run innermost(rules)

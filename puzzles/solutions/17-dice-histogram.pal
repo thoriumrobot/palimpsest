@@ -1,0 +1,16 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// Puzzle 17 — The self-tallying histogram.
+// Roll a fixed number of dice from a seed (deterministic via `rng`), rewrite the
+// file so `main` holds the roll (a quine, since the roll is reproducible), and
+// DISPLAY the distribution as a bar chart using `histogram` from lib/chart.pal.
+import "../../lib/chart.pal"
+rule roll-0 : (roll ?seed 0) => (series)
+rule roll-n : (roll ?seed ?k) => (rc (+ 1 (mod ?ns 6)) (roll ?ns (- ?k 1))) where (> ?k 0), ?ns <- (rng ?seed)
+rule rc : (rc ?x (series ?xs...)) => (series ?x ?xs...)
+strategy solve = outermost(prim + rules)
+main = (roll 7 18)
+rewrite self with solve
+display (histogram main 6) with solve

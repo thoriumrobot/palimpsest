@@ -1,0 +1,26 @@
+#lang palimpsest
+#fuel 200000
+// Companion to SELF-REWRITING.md, Part 1. Simple rewriting examples that
+// introduce terms, rules, strategies, and normalization.
+
+// booleans: a rule turns a redex into a simpler term
+rule not-t : (not true) => false
+rule not-f : (not false) => true
+
+// a recursive rule over a list, using a sequence variable ?xs...
+rule rev-0 : (reverse (list)) => (list)
+rule rev-n : (reverse (list ?x ?xs...)) => (append (reverse (list ?xs...)) ?x)
+rule append : (append (list ?ys...) ?z) => (list ?ys... ?z)
+
+// a conditional rule: keep only when a guard holds
+rule big-keep : (only-big (list ?x ?xs...)) => (cons ?x (only-big (list ?xs...))) where (> ?x 2)
+rule big-drop : (only-big (list ?x ?xs...)) => (only-big (list ?xs...)) where (<= ?x 2)
+rule big-0    : (only-big (list)) => (list)
+rule cons     : (cons ?x (list ?xs...)) => (list ?x ?xs...)
+
+strategy solve = outermost(prim + rules)
+main = (nothing)
+show (not true) with solve
+show (+ 21 21) with prim
+show (reverse (list a b c d)) with solve
+show (only-big (list 1 5 2 8 3)) with solve

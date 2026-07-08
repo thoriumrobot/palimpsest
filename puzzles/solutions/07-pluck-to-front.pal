@@ -1,0 +1,6 @@
+#lang palimpsest
+// P7 — Pluck a symbol to the front. Two sequence variables surround `star`
+// wherever it sits; the rule lifts it out and puts it first.
+rule pluck : (pluck (list ?xs... star ?ys...)) => (list star ?xs... ?ys...)
+main = (pluck (list a b star c d))
+run pluck

@@ -1,0 +1,8 @@
+#lang palimpsest
+// P9 — Riffle shuffle: interleave two rows, one card from each in turn.
+rule prepend : (prepend ?y (list ?ys...)) => (list ?y ?ys...)
+rule riffle-l : (riffle (list) ?ys) => ?ys
+rule riffle-r : (riffle ?xs (list)) => ?xs
+rule riffle-n : (riffle (list ?x ?xs...) (list ?y ?ys...)) => (prepend ?x (prepend ?y (riffle (list ?xs...) (list ?ys...))))
+main = (riffle (list a b c) (list 1 2 3))
+run innermost(rules)

@@ -1,0 +1,5 @@
+#lang palimpsest
+// P1 — Swap. One rule, two named variables trade places.
+rule swap : (swap ?a ?b) => (swap ?b ?a)
+main = (swap x y)
+run swap

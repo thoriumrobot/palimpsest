@@ -1,0 +1,19 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// SATURATING CONTROL (clamp / min / max / abs). The body has a constant upward
+// load (+2/tick). The mind corrects toward a set-point of 4, but its effort
+// SATURATES at +/-1 (a bounded will). A bounded controller cannot overcome a
+// larger steady load: arousal climbs, step by step, until it pins against the
+// ceiling -- the will is progressively overwhelmed. `abs` reports the growing
+// distress. The self is stable, but it is not the self the mind wanted.
+import "../lib/mindbody.pal"
+rule step : (step (being ?a (ctl ?d))) => (being ?na (ctl ?nd))
+  where ?eff <- (clamp (- 4 ?a) -1 1),
+        ?na  <- (clamp (+ (+ ?a 2) ?eff) 0 12),
+        ?nd  <- (abs (- 4 ?na))
+strategy solve = outermost(prim + rules)
+main = (trace (being 0 (ctl 4)) 10)
+rewrite self with solve
+display (loop-view main) with solve

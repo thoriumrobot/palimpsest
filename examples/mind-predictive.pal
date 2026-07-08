@@ -1,0 +1,19 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// PREDICTIVE-PROCESSING SELF-MODEL (active inference). State (pp BODY BELIEF PRIOR).
+// A stressor pushes the body toward 8. The mind minimizes prediction error two ways
+// at once: PERCEPTION moves the belief toward the body, and ACTION moves the body
+// toward the belief; the belief is also drawn toward a PRIOR ("I expect calm", 5).
+// Belief (10) and body (0) converge step by step, closing a prediction error of 10
+// down to a small residual: the prior biases perception, so the mind's picture of
+// itself settles just under the body rather than exactly on it.
+import "../lib/mindbody.pal"
+rule step : (step (pp ?body ?pred ?prior)) => (pp ?nbody ?npred ?prior)
+  where ?nbody <- (clamp (toward (toward ?body 8) ?pred) 0 10),
+        ?npred <- (clamp (toward (toward ?pred ?body) ?prior) 0 10)
+strategy solve = outermost(prim + rules)
+main = (trace (pp 0 10 5) 8)
+rewrite self with solve
+display (loop-view main) with solve

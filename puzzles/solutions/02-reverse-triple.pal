@@ -1,0 +1,5 @@
+#lang palimpsest
+// P2 — Reverse a triple. Name all three; write them back reversed.
+rule tri : (tri ?a ?b ?c) => (tri ?c ?b ?a)
+main = (tri 1 2 3)
+run tri

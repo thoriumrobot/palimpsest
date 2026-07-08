@@ -1,0 +1,7 @@
+#lang palimpsest
+#fuel 500000
+// P13 — Pancake flip: reverse the first k elements, leave the rest.
+import "../../lib/prelude.pal"
+rule flip : (flip ?k ?xs) => (append (reverse (take ?k ?xs)) (drop ?k ?xs))
+main = (flip 3 (list a b c d e))
+run normalize

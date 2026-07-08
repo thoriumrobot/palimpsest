@@ -1,0 +1,28 @@
+#lang palimpsest
+// dict.pal — association maps as (dict (entry k v) ...). `put` shadows (prepends)
+// so the most recent value for a key wins. `get` returns an option.
+import "logic.pal"
+import "option.pal"
+import "list.pal"
+
+rule dict-empty : (dict-empty) => (dict)
+
+rule put : (put ?k ?v (dict ?es...)) => (dict (entry ?k ?v) ?es...)
+
+rule get-empty : (get ?k (dict)) => none
+rule get-hit   : (get ?k (dict (entry ?k ?v) ?es...)) => (some ?v)
+rule get-miss  : (get ?k (dict (entry ?j ?v) ?es...)) => (get ?k (dict ?es...)) where (<> ?k ?j)
+
+rule get-or : (get-or ?k ?d ?dict) => (with-default (get ?k ?dict) ?d)
+rule has?   : (has? ?k ?dict) => (some? (get ?k ?dict))
+
+rule keys-empty : (keys (dict)) => (list)
+rule keys-n     : (keys (dict (entry ?k ?v) ?es...)) => (prepend ?k (keys (dict ?es...)))
+rule values-empty : (values (dict)) => (list)
+rule values-n     : (values (dict (entry ?k ?v) ?es...)) => (prepend ?v (values (dict ?es...)))
+rule size : (size (dict ?es...)) => (length (list ?es...))
+
+rule remove-empty : (remove ?k (dict)) => (dict)
+rule remove-hit   : (remove ?k (dict (entry ?k ?v) ?es...)) => (remove ?k (dict ?es...))
+rule remove-miss  : (remove ?k (dict (entry ?j ?v) ?es...)) => (dict-cons (entry ?j ?v) (remove ?k (dict ?es...))) where (<> ?k ?j)
+rule dict-cons : (dict-cons ?e (dict ?es...)) => (dict ?e ?es...)

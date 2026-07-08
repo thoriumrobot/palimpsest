@@ -1,0 +1,18 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// ENVIRONMENT 2: LIMIT CYCLE. The mind has two modes with hysteresis: while
+// "rising" it lets arousal climb until it feels too tense (>=8), then flips to
+// "falling" and drives arousal down until it feels too flat (<=2), then flips
+// back. Regulation with a switching delay never settles -- it oscillates forever
+// (a mood/sleep-wake-like cycle). The loop has no fixed point, only a stable orbit.
+import "../lib/mindbody.pal"
+rule step-rise-go   : (step (being ?a rise)) => (being (+ ?a 2) rise) where (< ?a 8)
+rule step-rise-flip : (step (being ?a rise)) => (being (- ?a 2) fall) where (>= ?a 8)
+rule step-fall-go   : (step (being ?a fall)) => (being (- ?a 2) fall) where (> ?a 2)
+rule step-fall-flip : (step (being ?a fall)) => (being (+ ?a 2) rise) where (<= ?a 2)
+strategy solve = outermost(prim + rules)
+main = (trace (being 2 rise) 14)
+rewrite self with solve
+display (loop-view main) with solve

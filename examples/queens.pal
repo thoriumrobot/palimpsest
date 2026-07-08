@@ -1,0 +1,36 @@
+#lang palimpsest
+#fuel 50000000
+// N-Queens solved by a backtracking DFS written as term rewriting, then drawn as
+// a board and independently verified. See examples/queens-quine.pal for the
+// self-rewriting version. `placed` holds columns newest-row-first.
+import "../lib/prelude.pal"
+import "../lib/render.pal"
+
+rule nqueens : (nqueens ?n) => (place 1 (cols) ?n)
+rule place-done : (place ?row ?placed ?n) => (found ?placed) where (> ?row ?n)
+rule place-try  : (place ?row ?placed ?n) => (try ?row ?placed ?n (range 1 ?n)) where (<= ?row ?n)
+rule try-empty : (try ?row ?placed ?n (list)) => nope
+rule try-col   : (try ?row ?placed ?n (list ?c ?cs...)) => (pick (safe? ?c ?placed) ?row ?placed ?n ?c (list ?cs...))
+rule pick-no  : (pick false ?row ?placed ?n ?c ?rest) => (try ?row ?placed ?n ?rest)
+rule pick-yes : (pick true ?row ?placed ?n ?c ?rest) => (after (place (+ ?row 1) (cols-add ?c ?placed) ?n) ?row ?placed ?n ?rest)
+rule after-found : (after (found ?sol) ?row ?placed ?n ?rest) => (found ?sol)
+rule after-nope  : (after nope ?row ?placed ?n ?rest) => (try ?row ?placed ?n ?rest)
+rule cols-add : (cols-add ?c (cols ?cs...)) => (cols ?c ?cs...)
+rule safe? : (safe? ?c ?placed) => (safe-d ?c 1 ?placed)
+rule safe-d-0 : (safe-d ?c ?d (cols)) => true
+rule safe-d-n : (safe-d ?c ?d (cols ?x ?rest...)) => (and (okq ?c ?x ?d) (safe-d ?c (+ ?d 1) (cols ?rest...)))
+rule okq  : (okq ?c ?x ?d) => (and (<> ?c ?x) (<> (dabs (- ?c ?x)) ?d))
+rule dabs : (dabs ?k) => (if (< ?k 0) (- 0 ?k) ?k)
+
+
+// independently verify the solution has no two queens attacking
+rule verify : (verify (found (cols ?cs...))) => (all-safe (cols ?cs...))
+rule all-safe-0 : (all-safe (cols)) => true
+rule all-safe-1 : (all-safe (cols ?x)) => true
+rule all-safe-n : (all-safe (cols ?x ?rest...)) => (and (safe-d ?x 1 (cols ?rest...)) (all-safe (cols ?rest...)))
+
+strategy solve = outermost(prim + rules)
+main = (nqueens 8)
+run solve
+show (verify (nqueens 8)) with solve
+display (chess main) with solve

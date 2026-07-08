@@ -1,0 +1,25 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 9000000
+#caps { rewrite: [self] }
+// ENVIRONMENT: BISTABLE + NOISE (tests `rng`; the richest environment). Two stable
+// moods -- low arousal (~2) and high (~8) -- are separated by a barrier at 5. The
+// mind deterministically pulls toward the nearer attractor, but pseudo-random
+// kicks (via `rng`) occasionally shove arousal across the barrier, so the system
+// dwells near one mood and then jumps to the other: metastable switching, a
+// noise-induced transition between outcomes that neither attractor shows alone.
+import "../lib/mindbody.pal"
+rule step : (step (being ?a (mood ?lab ?s))) => (being ?na (mood (mood-of ?na) ?ns))
+  where ?ns <- (rng ?s),
+        ?kick <- (- (mod ?ns 7) 3),
+        ?well <- (nearest-well ?a),
+        ?pull <- (clamp (- ?well ?a) -2 2),
+        ?na <- (clamp (+ (+ ?a ?pull) ?kick) 0 10)
+rule nearest-well-lo : (nearest-well ?a) => 2 where (< ?a 5)
+rule nearest-well-hi : (nearest-well ?a) => 8 where (>= ?a 5)
+rule mood-of-lo : (mood-of ?a) => low  where (< ?a 5)
+rule mood-of-hi : (mood-of ?a) => high where (>= ?a 5)
+strategy solve = outermost(prim + rules)
+main = (trace (being 2 (mood low 4242)) 24)
+rewrite self with solve
+display (loop-view main) with solve

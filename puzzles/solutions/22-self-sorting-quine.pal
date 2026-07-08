@@ -1,0 +1,13 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 500000
+#caps { rewrite: [self] }
+// P22 — The self-sorting quine (capstone). `main` is an unsorted list. The
+// one-rule bubble sort rewrites main into sorted order and writes it back (run
+// 1: WROTE). Once sorted, nothing rewrites it, so the file reproduces itself
+// byte-for-byte (run 2+: a quine). The program sorts its OWN source, and the
+// quine is the certificate that sorting is done.
+rule bubble : (list ?xs... ?a ?b ?ys...) => (list ?xs... ?b ?a ?ys...) where (> ?a ?b)
+strategy solve = repeat(oncetd(prim + rules))
+main = (list 5 3 8 1 9 2 7 4 6)
+rewrite self with solve

@@ -1,0 +1,22 @@
+#lang palimpsest
+// logic.pal — Booleans and conditionals.
+// Booleans are the symbols `true` and `false`.
+
+rule if-true  : (if true ?t ?e)  => ?t
+rule if-false : (if false ?t ?e) => ?e
+
+rule not-true  : (not true)  => false
+rule not-false : (not false) => true
+
+rule and-true  : (and true ?x)  => ?x
+rule and-false : (and false ?x) => false
+rule or-true   : (or true ?x)   => true
+rule or-false  : (or false ?x)  => ?x
+
+rule xor : (xor ?a ?b) => (if ?a (not ?b) ?b)
+
+// Structural equality on ANY two terms (the non-linear pattern matches only when
+// the two arguments are identical). Reduce the arguments first (e.g. via `where`
+// bindings) so you are comparing values, not unreduced expressions.
+rule equal?-yes : (equal? ?x ?x) => true
+rule equal?-no  : (equal? ?x ?y) => false

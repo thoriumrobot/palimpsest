@@ -1,0 +1,6 @@
+#lang palimpsest
+// P4 — Swap the ends, keep the middle. A sequence variable holds the interior
+// still while the two outer elements trade places.
+rule ends : (row ?a ?mid... ?z) => (row ?z ?mid... ?a)
+main = (row a b c d e)
+run ends

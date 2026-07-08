@@ -1,0 +1,25 @@
+#lang palimpsest
+// text.pal — assemble strings with the `cat` primitive. Useful for generating
+// code, reports, and human-readable output. Strings are opaque values.
+import "logic.pal"
+import "list.pal"
+
+rule surround   : (surround ?l ?r ?s) => (cat ?l (cat ?s ?r))
+rule parens     : (parens ?s)   => (surround "(" ")" ?s)
+rule brackets   : (brackets ?s) => (surround "[" "]" ?s)
+rule braces     : (braces ?s)   => (surround "{" "}" ?s)
+rule quote-str  : (quote-str ?s) => (surround "\"" "\"" ?s)
+
+rule join-empty : (join ?sep (list)) => ""
+rule join-1     : (join ?sep (list ?x)) => ?x
+rule join-n     : (join ?sep (list ?x ?y ?ys...)) => (cat ?x (cat ?sep (join ?sep (list ?y ?ys...))))
+
+rule unwords : (unwords ?xs) => (join " " ?xs)
+rule unlines : (unlines ?xs) => (join "\n" ?xs)
+rule commas  : (commas ?xs)  => (join ", " ?xs)
+
+rule repeat-str : (repeat-str ?n ?s) => (if (<= ?n 0) "" (cat ?s (repeat-str (- ?n 1) ?s)))
+
+// String helpers built on explode/implode (native primitives).
+rule str-length  : (str-length ?s) => (length (explode ?s))
+rule str-reverse : (str-reverse ?s) => (implode (reverse (explode ?s)))

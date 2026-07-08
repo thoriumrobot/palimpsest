@@ -1,0 +1,111 @@
+#lang palimpsest
+// list.pal — Lists as (list e1 e2 ...). Sequence variables (?xs...) make many
+// classic list operations single rules. Higher-order operations use an open
+// application form (app f x) / (app2 f a b) that programs extend with rules.
+import "logic.pal"
+import "arith.pal"
+
+rule length-0 : (length (list)) => 0
+rule length-n : (length (list ?x ?rest...)) => (+ 1 (length (list ?rest...)))
+
+rule append : (append (list ?xs...) (list ?ys...)) => (list ?xs... ?ys...)
+
+rule prepend : (prepend ?y (list ?ys...)) => (list ?y ?ys...)
+
+rule reverse-0 : (reverse (list)) => (list)
+rule reverse-n : (reverse (list ?x ?rest...)) => (append (reverse (list ?rest...)) (list ?x))
+
+rule map-0 : (map ?f (list)) => (list)
+rule map-n : (map ?f (list ?x ?rest...)) => (prepend (app ?f ?x) (map ?f (list ?rest...)))
+
+rule filter-0   : (filter ?p (list)) => (list)
+rule filter-n   : (filter ?p (list ?x ?rest...)) => (filter-pick (app ?p ?x) ?x ?p (list ?rest...))
+rule filter-yes : (filter-pick true ?x ?p ?rest)  => (prepend ?x (filter ?p ?rest))
+rule filter-no  : (filter-pick false ?x ?p ?rest) => (filter ?p ?rest)
+
+rule foldr-0 : (foldr ?f ?z (list)) => ?z
+rule foldr-n : (foldr ?f ?z (list ?x ?rest...)) => (app2 ?f ?x (foldr ?f ?z (list ?rest...)))
+
+rule sum      : (sum ?xs) => (foldr addf 0 ?xs)
+rule app2-add : (app2 addf ?a ?b) => (+ ?a ?b)
+rule product  : (product ?xs) => (foldr mulf 1 ?xs)
+rule app2-mul : (app2 mulf ?a ?b) => (* ?a ?b)
+
+rule member-0 : (member ?y (list)) => false
+rule member-n : (member ?y (list ?x ?rest...)) => (if (= ?y ?x) true (member ?y (list ?rest...)))
+
+// nth/take/drop guard their counter with `if (<= k 0)`. This forces the counter
+// to reduce, so they terminate correctly under BOTH normal-order and strict
+// evaluation. (A literal-0 base case would never be reached under normal order,
+// because the counter stays an unreduced (- k 1) while the list is peeled.)
+rule nth : (nth ?k (list ?x ?rest...)) => (if (<= ?k 0) ?x (nth (- ?k 1) (list ?rest...)))
+
+rule range : (range ?a ?b) => (if (<= ?a ?b) (prepend ?a (range (+ ?a 1) ?b)) (list))
+
+rule take-empty : (take ?k (list)) => (list)
+rule take : (take ?k (list ?x ?rest...)) => (if (<= ?k 0) (list) (prepend ?x (take (- ?k 1) (list ?rest...))))
+
+rule drop-empty : (drop ?k (list)) => (list)
+rule drop : (drop ?k (list ?x ?rest...)) => (if (<= ?k 0) (list ?x ?rest...) (drop (- ?k 1) (list ?rest...)))
+
+rule concat-0 : (concat (list)) => (list)
+rule concat-n : (concat (list ?x ?rest...)) => (append ?x (concat (list ?rest...)))
+
+// --- extended combinators --------------------------------------------------
+import "option.pal"
+
+rule empty?-y : (empty? (list)) => true
+rule empty?-n : (empty? (list ?x ?xs...)) => false
+
+rule foldl-0 : (foldl ?f ?z (list)) => ?z
+rule foldl-n : (foldl ?f ?z (list ?x ?xs...)) => (foldl ?f ?acc (list ?xs...)) where ?acc <- (app2 ?f ?z ?x)
+
+rule last-1 : (last (list ?x)) => ?x
+rule last-n : (last (list ?x ?y ?ys...)) => (last (list ?y ?ys...))
+rule init-1 : (init (list ?x)) => (list)
+rule init-n : (init (list ?x ?y ?ys...)) => (prepend ?x (init (list ?y ?ys...)))
+rule snoc : (snoc (list ?xs...) ?y) => (list ?xs... ?y)
+
+rule replicate : (replicate ?n ?x) => (if (<= ?n 0) (list) (prepend ?x (replicate (- ?n 1) ?x)))
+
+// Pairs.
+rule fst : (fst (pair ?a ?b)) => ?a
+rule snd : (snd (pair ?a ?b)) => ?b
+
+rule enumerate : (enumerate ?xs) => (enum-from 0 ?xs)
+rule enum-from-0 : (enum-from ?i (list)) => (list)
+rule enum-from-n : (enum-from ?i (list ?x ?xs...)) => (prepend (pair ?i ?x) (enum-from (+ ?i 1) (list ?xs...)))
+
+rule zip-l : (zip (list) ?ys) => (list)
+rule zip-r : (zip ?xs (list)) => (list)
+rule zip-n : (zip (list ?x ?xs...) (list ?y ?ys...)) => (prepend (pair ?x ?y) (zip (list ?xs...) (list ?ys...)))
+
+rule zipwith-l : (zipwith ?f (list) ?ys) => (list)
+rule zipwith-r : (zipwith ?f ?xs (list)) => (list)
+rule zipwith-n : (zipwith ?f (list ?x ?xs...) (list ?y ?ys...)) => (prepend (app2 ?f ?x ?y) (zipwith ?f (list ?xs...) (list ?ys...)))
+
+rule all-of-0 : (all-of ?p (list)) => true
+rule all-of-n : (all-of ?p (list ?x ?xs...)) => (and (app ?p ?x) (all-of ?p (list ?xs...)))
+rule any-of-0 : (any-of ?p (list)) => false
+rule any-of-n : (any-of ?p (list ?x ?xs...)) => (or (app ?p ?x) (any-of ?p (list ?xs...)))
+
+rule count-if-0 : (count-if ?p (list)) => 0
+rule count-if-n : (count-if ?p (list ?x ?xs...)) => (+ (bit (app ?p ?x)) (count-if ?p (list ?xs...)))
+rule bit-t : (bit true) => 1
+rule bit-f : (bit false) => 0
+
+rule find-0    : (find ?p (list)) => none
+rule find-n    : (find ?p (list ?x ?xs...)) => (find-pick (app ?p ?x) ?x ?p (list ?xs...))
+rule find-yes  : (find-pick true ?x ?p ?rest) => (some ?x)
+rule find-no   : (find-pick false ?x ?p ?rest) => (find ?p ?rest)
+
+rule index-of : (index-of ?y ?xs) => (index-from 0 ?y ?xs)
+rule index-from-0 : (index-from ?i ?y (list)) => none
+rule index-from-n : (index-from ?i ?y (list ?x ?xs...)) => (if (= ?x ?y) (some ?i) (index-from (+ ?i 1) ?y (list ?xs...)))
+
+rule flatten : (flatten ?xs) => (concat ?xs)
+
+rule minimum : (minimum (list ?x ?ys...)) => (foldr minf ?x (list ?x ?ys...))
+rule maximum : (maximum (list ?x ?ys...)) => (foldr maxf ?x (list ?x ?ys...))
+rule app2-minf : (app2 minf ?a ?b) => (min ?a ?b)
+rule app2-maxf : (app2 maxf ?a ?b) => (max ?a ?b)

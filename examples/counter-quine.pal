@@ -1,0 +1,15 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 100000
+#caps { rewrite: [self] }
+// A program that modifies its OWN source a little each run: it bumps the counter
+// until it reaches the target, then stops. While counting, each run rewrites the
+// file (WROTE) — self-modifying but not yet a quine. Once the counter reaches 3
+// the guard fails, `main` stops changing, and the file reproduces itself
+// byte-for-byte: it becomes a quine. Convergence to a fixed point = becoming a
+// quine.
+rule tick : (count ?n) => (count (+ ?n 1)) where (< ?n 3)
+strategy step = try(tick ; outermost(prim))
+main = (count 0)
+rewrite self with step
+display main with step

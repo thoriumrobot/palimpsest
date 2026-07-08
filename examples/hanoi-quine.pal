@@ -1,0 +1,29 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 500000
+#caps { rewrite: [self] }
+// A SELF-SOLVING QUINE.
+//
+// `main` starts as an unsolved Towers of Hanoi problem. `rewrite self with solve`
+// normalizes it and writes the result back into this file. The Hanoi rules below
+// expand the problem into its full optimal move sequence — so the first run
+// rewrites `main` into the solution (the file changes: WROTE). Once `main` holds
+// a flat (moves ...) list, nothing rewrites it further, so every later run
+// reproduces this file byte-for-byte: a FIXED POINT, i.e. a quine.
+//
+// The program is a quine exactly when the problem is solved. Reaching the quine
+// IS solving Hanoi; the fixed point certifies the computation is complete.
+// (Kleene's second recursion theorem guarantees such a self-reproducing fixed
+// point exists.)
+
+import "../lib/render.pal"
+rule hanoi-0 : (hanoi 0 ?f ?t ?v) => (moves)
+rule hanoi-n : (hanoi ?n ?f ?t ?v) => (seq (hanoi (- ?n 1) ?f ?v ?t) (move ?f ?t) (hanoi (- ?n 1) ?v ?t ?f)) where (> ?n 0)
+rule seq-flatten : (seq (moves ?as...) ?m (moves ?bs...)) => (moves ?as... ?m ?bs...)
+
+strategy solve = outermost(prim + rules)
+
+main = (hanoi 3 a c b)
+
+rewrite self with solve
+display (moves-view main) with solve

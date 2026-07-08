@@ -1,0 +1,7 @@
+#lang palimpsest
+// P8 — Reverse a list of any length, recursively.
+rule append : (append (list ?xs...) (list ?ys...)) => (list ?xs... ?ys...)
+rule rev-0 : (rev (list)) => (list)
+rule rev-n : (rev (list ?x ?xs...)) => (append (rev (list ?xs...)) (list ?x))
+main = (rev (list a b c d e))
+run innermost(rules)

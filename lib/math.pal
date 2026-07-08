@@ -1,0 +1,24 @@
+#lang palimpsest
+// math.pal — integer math beyond the built-in primitives. Shows conditional
+// rules (gcd via Euclid) and if-guarded recursion (pow, factorial).
+import "logic.pal"
+
+rule gcd-0 : (gcd ?a 0) => ?a
+rule gcd-n : (gcd ?a ?b) => (gcd ?b (mod ?a ?b)) where (> ?b 0)
+rule lcm   : (lcm ?a ?b) => (/ (* ?a ?b) (gcd ?a ?b))
+
+rule pow       : (pow ?b ?e) => (if (<= ?e 0) 1 (* ?b (pow ?b (- ?e 1))))
+rule factorial : (factorial ?n) => (if (<= ?n 0) 1 (* ?n (factorial (- ?n 1))))
+
+// Linear (accumulator) Fibonacci. The `where` bindings force the accumulators
+// to reduce each step; without them, normal-order evaluation would let them pile
+// up as unreduced thunks and blow up.
+rule fib      : (fib ?n) => (fib-go ?n 0 1)
+rule fib-go   : (fib-go ?n ?a ?b) => (fib-step (<= ?n 0) ?n ?a ?b)
+rule fib-stop : (fib-step true ?n ?a ?b) => ?a
+rule fib-next : (fib-step false ?n ?a ?b) => (fib-go ?m ?b ?s) where ?m <- (- ?n 1), ?s <- (+ ?a ?b)
+
+rule sign     : (sign ?n) => (if (< ?n 0) -1 (if (> ?n 0) 1 0))
+rule clamp    : (clamp ?lo ?hi ?x) => (if (< ?x ?lo) ?lo (if (> ?x ?hi) ?hi ?x))
+rule divides? : (divides? ?d ?n) => (= (mod ?n ?d) 0)
+rule sum-to   : (sum-to ?n) => (/ (* ?n (+ ?n 1)) 2)

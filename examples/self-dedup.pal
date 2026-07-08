@@ -1,0 +1,27 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 2000000
+#caps { rewrite: [self] }
+// SELF-REWRITING DEDUPLICATOR (tests structural equal? on arbitrary terms).
+// main holds a list of compound terms with duplicates; the self-rewrite removes
+// every later copy of each element (comparing whole terms structurally) and
+// writes the deduplicated list back. A duplicate-free list is a normal form -> quine.
+import "../lib/render.pal"
+rule not-t : (not true) => false
+rule not-f : (not false) => true
+rule equal?-yes : (equal? ?x ?x) => true
+rule equal?-no  : (equal? ?x ?y) => false
+
+rule dedup-0 : (dedup (list)) => (list)
+rule dedup-n : (dedup (list ?x ?xs...)) => (dcons ?x (dedup (drop-eq ?x (list ?xs...))))
+rule dcons   : (dcons ?x (list ?xs...)) => (list ?x ?xs...)
+
+rule drop-eq-0    : (drop-eq ?x (list)) => (list)
+rule drop-eq-hit  : (drop-eq ?x (list ?y ?ys...)) => (drop-eq ?x (list ?ys...)) where (equal? ?x ?y)
+rule drop-eq-miss : (drop-eq ?x (list ?y ?ys...)) => (kcons ?y (drop-eq ?x (list ?ys...))) where (not (equal? ?x ?y))
+rule kcons : (kcons ?y (list ?ys...)) => (list ?y ?ys...)
+
+strategy solve = outermost(prim + rules)
+main = (dedup (list (pt 1 2) (rgb 255 0 0) (pt 1 2) (pt 3 4) (rgb 255 0 0) (pt 3 4) (pt 1 2)))
+rewrite self with solve
+display (set-view main) with solve

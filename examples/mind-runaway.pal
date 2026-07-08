@@ -1,0 +1,16 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+// ENVIRONMENT 3: RUNAWAY. Positive feedback: fear drives arousal up, and high
+// arousal (>=4) feeds fear. Each reinforces the other, so both escalate without
+// bound -- a panic spiral / dysregulation. The loop has no fixed point and no
+// cycle; it diverges.
+import "../lib/mindbody.pal"
+rule step : (step (being ?a (fear ?f))) => (being (+ ?a ?f) (fear (nfear ?a ?f)))
+rule nfear-up   : (nfear ?a ?f) => (+ ?f 1) where (>= ?a 4)
+rule nfear-same : (nfear ?a ?f) => ?f       where (< ?a 4)
+strategy solve = outermost(prim + rules)
+main = (trace (being 2 (fear 1)) 9)
+rewrite self with solve
+display (loop-view main) with solve

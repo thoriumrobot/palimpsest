@@ -1,0 +1,15 @@
+#lang palimpsest
+// sort.pal — insertion sort and order predicates for integer lists.
+import "logic.pal"
+import "list.pal"
+
+rule insert-empty : (insert ?x (list)) => (list ?x)
+rule insert-le : (insert ?x (list ?y ?ys...)) => (list ?x ?y ?ys...) where (<= ?x ?y)
+rule insert-gt : (insert ?x (list ?y ?ys...)) => (prepend ?y (insert ?x (list ?ys...))) where (> ?x ?y)
+
+rule sort-empty : (sort (list)) => (list)
+rule sort-cons  : (sort (list ?x ?ys...)) => (insert ?x (sort (list ?ys...)))
+
+rule sorted?-0 : (sorted? (list)) => true
+rule sorted?-1 : (sorted? (list ?x)) => true
+rule sorted?-n : (sorted? (list ?x ?y ?ys...)) => (and (<= ?x ?y) (sorted? (list ?y ?ys...)))

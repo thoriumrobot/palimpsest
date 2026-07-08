@@ -1,0 +1,4 @@
+#lang palimpsest
+// A "legacy" source file, represented as a term in `main`. Running the
+// refactor program rewrites this line in place (atomically, reversibly).
+main = (block (loop i cond step (body a b)) (label L 1) (label L 1) (done))

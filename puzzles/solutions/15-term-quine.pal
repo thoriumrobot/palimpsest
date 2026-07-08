@@ -1,0 +1,7 @@
+#lang palimpsest
+// P15 — The fixed point. Under rule q, the term (app quine (quote quine))
+// rewrites to itself: q rebinds code := data := quine and rebuilds the same
+// term. A term that reproduces itself is a quine at the term level.
+rule q : (app ?code (quote ?data)) => (app ?data (quote ?data))
+main = (app quine (quote quine))
+run q

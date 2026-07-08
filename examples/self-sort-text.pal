@@ -1,0 +1,22 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 2000000
+#caps { rewrite: [self] }
+// SELF-REWRITING TEXT SORTER (tests explode / implode / str<).
+// main holds a string; the self-rewrite sorts its characters (explode -> insertion
+// sort by str< -> implode) and writes the sorted string back. A string is a normal
+// form, so the next run reproduces the file byte-for-byte: a quine.
+import "../lib/render.pal"
+rule not-t : (not true) => false
+rule not-f : (not false) => true
+rule go : (job ?s) => (implode (ssort (explode ?s)))
+rule ssort-0 : (ssort (list)) => (list)
+rule ssort-n : (ssort (list ?x ?xs...)) => (sins ?x (ssort (list ?xs...)))
+rule sins-0  : (sins ?x (list)) => (list ?x)
+rule sins-le : (sins ?x (list ?y ?ys...)) => (list ?x ?y ?ys...) where (not (str< ?y ?x))
+rule sins-gt : (sins ?x (list ?y ?ys...)) => (scons ?y (sins ?x (list ?ys...))) where (str< ?y ?x)
+rule scons : (scons ?y (list ?ys...)) => (list ?y ?ys...)
+strategy solve = outermost(prim + rules)
+main = (job "the quick brown fox")
+rewrite self with solve
+display (text-view main) with solve
