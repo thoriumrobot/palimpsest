@@ -1,0 +1,72 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 2000000
+#caps { rewrite: [self] }
+
+// ctmu-containment.pal — the CTMU's dual containment relation (topological
+// vs. descriptive), as a battery of checked theorems over Palimpsest's own
+// term algebra. Definitions and full commentary live in ../lib/ctmu.pal;
+// this file states and CHECKS three theorems (T1, T2, T3) about them, then
+// rewrites its own `main` line down to the computed report and becomes a
+// quine — the descriptive layer (the rules below) generates exactly the
+// term that ends up as the file's own topological body.
+//
+// Run once: every check below gets computed for real (status: WROTE).
+// Run again: the file is already its own fixed point (status: FIXED POINT).
+
+import "../lib/ctmu.pal"
+
+strategy solve = outermost(prim + rules)
+
+// T1 — topological containment is BOUNDED: a proper part is always
+// strictly smaller than its container. "Cupboard contains clothes."
+//   topcontains?(cupboard, shirt)          -> true,  a proper part
+//   topcontains?(cupboard, cupboard)       -> false, nothing contains itself
+//   topcontains?(cupboard, hat)            -> false, hat isn't there at all
+//   t1-holds?(cupboard, shirt)             -> true, and CHECKED, not asserted
+//
+// T2 — descriptive containment is NOT bounded by size: the single fixed,
+// finite schema `(family ?xs...)` contains instances of every size. "Clothes
+// define what a cupboard IS" — a compact description with unbounded reach,
+// which T1's relation structurally cannot have.
+//
+// T3 — dual containment, the CTMU's actual resolution of the set-of-all-sets
+// paradox: ONE object U on BOTH sides of the two DIFFERENT relations at
+// once, with no contradiction, because antisymmetry is a property of a
+// relation, and these are two different relations. U below literally
+// contains a schema shaped exactly like this file's own `subterm-go-eq` rule
+// (same arity, same variable structure — see ../lib/ctmu.pal) alongside a
+// sample expression that schema (read as a pattern) contains as an
+// instance. `dual-contains?` independently re-derives BOTH directions (via
+// `subterm?`, structural recursion, and `matches?`, the reflective
+// primitive) rather than being told the answer. The mirrored schema is
+// named `kin`, not `subterm?`, on purpose — see T3-HAZARD.
+//
+// T3-HAZARD — an honest negative result, not swept under the rug. If the
+// mirrored schema had instead been written with the SAME head symbol as a
+// rule that is actually loaded and running in this program (`subterm?`), it
+// would NOT stay inert as data: the live rule set treats every subterm of
+// `main` as something to normalize, with no notion of "this part is just
+// being mentioned, not used". `(subterm? ?s ?t)`, dropped in verbatim below,
+// is quietly caught: `subterm?`'s own entry rule matches unconditionally
+// (position 3 is a strict `!t`, but forcing an atom is a no-op) and hands
+// off to `subterm-go?`, whose `subterm-go-eq` guard fails (the literal
+// symbols `?s` and `?t` are not equal to each other) and whose
+// `subterm-go-list` case needs the third position to already be a list, so
+// it falls through to `subterm-go-atom` and collapses to `false` — silently
+// overwritten before it could ever be read back out as "the pattern
+// (subterm? ?s ?t)". This is the sharpest evidence in this file for why
+// CTMU needs two DIFFERENT containment relations rather than one: the
+// instant "currently-quoted description" and "currently-running process"
+// share a name, the distinction between mentioning and using collapses —
+// exactly the kind of conflation Russell's paradox exploits. Keeping the
+// vocabulary of quoted schemas disjoint from the vocabulary of loaded rules
+// (as T3 does, and as `verbatim` — see ../src/matcher.rs — does for rules
+// constructing fresh data on their own right-hand side) is the actual
+// engineering discipline
+// the CTMU's two-relation split corresponds to.
+
+main = (ctmu-report (t1 true false false 1 4 true) (t2 true true true true (some (dict (entry xs (list e e e))))) (t3 true) (t3-hazard (mirrored-as-data false) (intended "the pattern (subterm? ?s ?t), preserved as inert data") (actual "silently reduced to false by the live subterm? rules")))
+
+rewrite self with solve
+display main with solve

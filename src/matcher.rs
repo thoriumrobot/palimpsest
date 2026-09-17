@@ -206,6 +206,24 @@ pub fn subst(rhs: &Term, b: &Bindings) -> Result<Term, String> {
         return Err(format!("sequence variable ?{}... used outside a list", name));
     }
     match rhs {
+        // `(verbatim X)`: return X exactly as written in the rule's own
+        // source text, with NO substitution inside it at all — not even for
+        // term variables this same rule's left-hand side happens to bind.
+        // This is the one way a right-hand side can author brand-new
+        // pattern-shaped data (symbols like `?x` / `?xs...` that nothing on
+        // the left-hand side ever bound) instead of only ever passing
+        // through data it already captured. Without it, a rule can only ever
+        // reproduce a descriptive schema (a pattern containing `?`
+        // variables) by receiving it as an argument bound elsewhere — it can
+        // never mint one itself. `verbatim` is deliberately NOT named
+        // `quote`: that symbol is already an ordinary (uninterpreted, by
+        // convention) tag used throughout this codebase's canonical quine
+        // idiom, `(app ?code (quote ?data)) => (app ?data (quote ?data))`,
+        // where `?data` inside it MUST be substituted normally — hijacking
+        // `quote` here would silently break every quine example in the repo.
+        Term::List(xs) if xs.len() == 2 && matches!(&xs[0], Term::Sym(s) if s == "verbatim") => {
+            Ok(xs[1].clone())
+        }
         Term::List(xs) => {
             let mut out = Vec::new();
             for el in xs {
@@ -264,5 +282,42 @@ mod tests {
         let b = m("(s ?front... X ?back...)", "(s a b X c d)").unwrap();
         let out = subst(&read_term("(swapped ?back... ?front...)").unwrap(), &b).unwrap();
         assert_eq!(format!("{}", out), "(swapped c d a b)");
+    }
+
+    #[test]
+    fn verbatim_is_unsubstituted() {
+        // A rule `(mint ?n) => (verbatim (family ?xs...))` may never bind
+        // `?xs...` on its own left-hand side, yet its RHS must still be able
+        // to produce `(family ?xs...)` literally, as fresh pattern data. Bind
+        // only `?n`, and confirm `?xs...` inside `verbatim` passes through
+        // completely untouched (indeed, unbound entirely — it does not even
+        // need to appear in `b`).
+        let b = m("(mint ?n)", "(mint 3)").unwrap();
+        let out = subst(&read_term("(verbatim (family ?xs...))").unwrap(), &b).unwrap();
+        assert_eq!(format!("{}", out), "(family ?xs...)");
+
+        // `?n` IS bound here, but inside `verbatim` it is still left exactly
+        // as written — verbatim suppresses substitution unconditionally, it
+        // does not merely fill in gaps.
+        let out2 = subst(&read_term("(verbatim (holds ?n))").unwrap(), &b).unwrap();
+        assert_eq!(format!("{}", out2), "(holds ?n)");
+
+        // Outside a `verbatim` wrapper, ordinary substitution is unaffected.
+        let out3 = subst(&read_term("(holds ?n)").unwrap(), &b).unwrap();
+        assert_eq!(format!("{}", out3), "(holds 3)");
+
+        // The pre-existing quine idiom's `quote` is an ordinary, uninterpreted
+        // tag, not this new special form — a 2-element list headed by `quote`
+        // must NOT be caught by the `verbatim` special case, or every quine
+        // example in the repository would silently stop reproducing itself.
+        let bd = m("(app ?code (tag ?data))", "(app x (tag y))").unwrap();
+        let outd = subst(&read_term("(app ?data (tag ?data))").unwrap(), &bd).unwrap();
+        assert_eq!(format!("{}", outd), "(app y (tag y))");
+
+        // Same check with the literal symbol `quote` itself, exactly as the
+        // canonical quine rule `q` in examples/quine.pal uses it.
+        let bq = m("(app ?code (quote ?data))", "(app quine (quote quine))").unwrap();
+        let outq = subst(&read_term("(app ?data (quote ?data))").unwrap(), &bq).unwrap();
+        assert_eq!(format!("{}", outq), "(app quine (quote quine))");
     }
 }

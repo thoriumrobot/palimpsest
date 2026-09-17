@@ -90,6 +90,9 @@ A variable used twice in a pattern must match equal terms (non-linear matching):
 `(dup ?x ?x)` matches `(dup a a)` but not `(dup a b)`. This is how the standard
 library's `dedup-label` rule collapses two identical labels in a row.
 
+(There is a third, less common sigil, `!x` — a STRICT term variable, covered in
+§7's "strictness tip" once there's a reason to want it.)
+
 ## 5. Strategies: controlling the rewriting
 
 Rules say *what* may be rewritten. Strategies say *where* and *how often*. This
@@ -261,6 +264,15 @@ rule fib-next : (fib-step false ?n ?a ?b) => (fib-go ?m ?b ?s) where ?m <- (- ?n
 Because `?s <- (+ ?a ?b)` is evaluated immediately, the running totals stay small
 and `fib 40` returns instantly. Reach for `where` bindings whenever you write
 accumulator-style recursion.
+
+A related but different tool is the STRICT variable `!x` (in place of `?x`) in
+a rule's own left-hand side: where a `where` binding forces a value used on the
+*right*-hand side, `!x` forces the *subject* at that position before the rule
+even decides whether to match. This matters for rules that dispatch on shape —
+`(?xs...)` matches ANY list, with no way to tell "already a value" from "an
+unevaluated call to some other rule that happens to also be list-shaped" — see
+`README.md`, "Reflection, quotation, and strict evaluation", and `lib/ctmu.pal`
+for worked examples (`size`, `subterm?`).
 
 ## 8. Writing your own library
 
@@ -473,8 +485,6 @@ pattern). The miss case recurses, guarded by `(<> ?x ?y)`. The full program is
 
 - **Innermost on recursion loops.** If a recursive program exhausts fuel, switch
   from `innermost`/`eval-strict` to `outermost`/`normalize`.
-- **Multi-line items.** A rule or strategy split across lines won't parse. Keep
-  each on one line.
 - **Primitives wait for literals.** `(+ x 3)` with a symbolic `x` stays as-is;
   `prim` only fires when operands are actual numbers. That's intentional — it
   lets you rewrite symbolically and evaluate later.
@@ -483,6 +493,24 @@ pattern). The miss case recurses, guarded by `(<> ?x ?y)`. The full program is
   result."
 - **`rules` tries rules in definition order.** When two rules could match, the
   first one defined wins. Order base cases before recursive ones.
+- **Shape-generic rules (and `equal?`/`matches?`) compare exactly what's
+  written, not what it evaluates to.** A rule whose pattern is `(?xs...)`
+  matches ANY list-shaped subject immediately, including one that's really an
+  unevaluated call to some other rule — `(size (some-call 40))` would measure
+  the two-element *call*, not whatever 40-element list it actually denotes.
+  Force it first with a `where ?v <- EXPR` binding (or, when writing the shape-
+  generic rule itself, give it a STRICT `!x` argument instead of `?x` — see
+  §7's "strictness tip" and `README.md`). This is not a bug to work around
+  once; it's a standing property of comparing terms syntactically, and worth
+  checking for whenever a result looks like unreduced source rather than a
+  value.
+- **A right-hand side can't invent new `?x` vocabulary out of nothing.** It can
+  only splice a sequence variable (`?xs...`) that its OWN left-hand side bound.
+  Writing `(family ?xs...)` fresh into a right-hand side, with nothing on the
+  left-hand side ever binding `xs`, fails with "unbound sequence variable" —
+  wrap it as `(verbatim (family ?xs...))` to produce it as literal, unsplit
+  data instead (see `README.md`, "Reflection, quotation, and strict
+  evaluation").
 
 ## 15. Quick reference
 
@@ -502,10 +530,18 @@ Strategies: `id fail prim rules NAME NAME(args...)  s;s  s+s  try repeat topdown
 bottomup oncetd oncebu innermost outermost fixpoint all`.
 
 Primitives: `+ - * / mod  abs  min  max  < <= > >=  = <>  cat  str<  str  sym
-explode  implode  rng  padl  padr`. (`sym` is the inverse of `str`; `explode`/`implode`
-convert between a string and a list of one-character strings; `str<` compares
-strings lexicographically; `rng` is a deterministic splitmix64 hash of a seed, for
-reproducible pseudo-randomness.)
+explode  implode  rng  padl  padr  matches?  match-witness`. (`sym` is the
+inverse of `str`; `explode`/`implode` convert between a string and a list of
+one-character strings; `str<` compares strings lexicographically; `rng` is a
+deterministic splitmix64 hash of a seed, for reproducible pseudo-randomness;
+`matches?`/`match-witness` decide/witness pattern-instance membership,
+`exists sigma. sigma(pattern) = subject`, reifying the interpreter's own
+matcher as data.)
+
+Pattern variables: `?x` (term), `?xs...` (sequence, zero or more, non-linear if
+repeated), `!x` (STRICT term — forces the subject at that top-level position to
+its normal form before matching). Right-hand sides: `(verbatim T)` produces `T`
+with no substitution at all, for authoring fresh `?x`-containing data.
 
 Standard library (`import "../lib/prelude.pal"`): strategies `normalize eval
 eval-strict`. Logic `if and or not xor` and structural `equal?`; arithmetic `inc

@@ -173,14 +173,14 @@ fn exec_rewrite(
     };
     let target_text = fs::read_to_string(&target_path)
         .map_err(|e| format!("cannot read target {}: {}", target_path.display(), e))?;
-    let (main_idx, main_term) = find_main(&target_text)?;
+    let (main_start, main_end, main_term) = find_main(&target_text)?;
 
     // Rewrite the subject term.
     let new_term = prog
         .engine
         .apply(strat, &main_term, fuel)?
         .ok_or("rewrite strategy failed on target subject")?;
-    let new_text = splice_main(&target_text, main_idx, &new_term);
+    let new_text = splice_main(&target_text, main_start, main_end, &new_term);
 
     let label = match target {
         Target::Selff => "self".to_string(),

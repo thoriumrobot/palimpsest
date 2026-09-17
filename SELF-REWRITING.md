@@ -95,7 +95,10 @@ repeat. Everything that follows is built from exactly these parts.
 
 To make a program edit its own file we add three things:
 
-- a `main = TERM` line — the one line the program is allowed to rewrite;
+- a `main = TERM` item — the subject the program is allowed to rewrite. `TERM`
+  may span several physical lines (the parser groups it the same way it groups
+  any other multi-line rule or strategy); whatever its input shape, a rewrite
+  always writes the result back on a single line;
 - the directive `#mode rewrite-then-run`;
 - a capability grant `#caps { rewrite: [self] }` — permission to modify its own
   file, and nothing else;
@@ -459,4 +462,7 @@ at once, `./run_demo.sh` ends with the Hanoi, N-Queens, and rendered-output
 sections, and `verify-self-rewriting.sh` checks that each program solves, renders,
 and quines. For a sustained application of self-rewriting — ten dynamical-systems
 "mind↔body loop" programs that each rewrite into their classified trajectory and
-graph it — see `MIND-BODY.md` and the step-by-step `MINDBODY-TUTORIAL.md`.
+graph it — see `MIND-BODY.md` and the step-by-step `MINDBODY-TUTORIAL.md`. And
+for a self-rewriting program whose `main` is a multi-line, human-formatted
+report rather than a one-line problem statement — computing and then quining a
+whole battery of checked theorems in one pass — see `CTMU.md`.

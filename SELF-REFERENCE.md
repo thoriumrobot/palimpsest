@@ -75,6 +75,17 @@ rebuild the whole. Code that acts on a quoted copy of itself to reproduce itself
 is precisely a quine. This is Kleene's theorem in one line: the program has access
 to its own text (the `quote`) and uses it to reconstruct itself.
 
+(`quote` here is an ordinary, uninterpreted symbol — a naming convention this
+tutorial uses, not a language feature; `?data` inside it substitutes exactly
+like anywhere else. There IS a genuine language-level form for a related but
+different job — `(verbatim TERM)`, which makes a right-hand side produce `TERM`
+with NO substitution inside it at all, so a rule can author fresh
+pattern-shaped data (containing `?x` symbols nothing on its own left-hand side
+bound) instead of only ever copying data it already received. See "Reflection,
+quotation, and strict evaluation" in `README.md`, and `lib/ctmu.pal` for the
+idiom in use. It is named `verbatim`, not `quote`, precisely so it never
+collides with the tag this section just introduced.)
+
 ## 3. Attractors: falling into the fixed point
 
 A fixed point is even more interesting if nearby terms *flow into* it. Start with

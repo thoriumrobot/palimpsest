@@ -1,0 +1,237 @@
+#lang palimpsest
+// ctmu.pal — a formal model of the CTMU's dual containment relation, over
+// Palimpsest's own term algebra.
+//
+// The CTMU (Langan's Cognitive-Theoretic Model of the Universe) resolves the
+// set-of-all-sets paradox — every set has a powerset larger than itself, so
+// the "set of all sets" cannot consistently contain its own powerset under a
+// single notion of containment — by splitting "contains" into two relations
+// that point in complementary directions:
+//   * TOPOLOGICAL containment — a cupboard containing clothes: literal,
+//     extensional, structural nesting.
+//   * DESCRIPTIVE containment — the clothes defining what the cupboard IS:
+//     a finite schema picking out (possibly unboundedly many) instances.
+// A single object can then be a container in one sense while being contained
+// in the other, without contradiction, because antisymmetry is a property of
+// a *relation*, and these are two different relations.
+//
+// This module gives both relations a precise, decidable, executable meaning
+// over Palimpsest terms:
+//   * topological containment := the subterm relation on the term tree
+//     (`subterm?` / `topcontains?` below) — decidable by structural
+//     recursion, well-founded (every term is a finite tree), and bounded:
+//     a proper part is always strictly smaller than its container (`size`).
+//   * descriptive containment := the pattern-instance relation (`desccontains?`
+//     / `desc-witness` below), a thin wrapper around the native `matches?` /
+//     `match-witness` primitives added to the interpreter for this purpose
+//     (src/strategy.rs): term P, read as a schema (it may contain `?x` /
+//     `?xs...` variables), descriptively contains ground term T iff
+//     `exists sigma. sigma(P) = T`. This is NOT expressible as an ordinary
+//     Palimpsest rule, because a `rule` LHS is fixed at parse time — no
+//     existing rule can match a *runtime-computed* pattern against a subject.
+//     `matches?` reifies the interpreter's own meta-level matcher (the thing
+//     that decides which subjects a `rule` governs) as an object-level
+//     function over ordinary term data — exactly the kind of self-inspecting
+//     move CTMU's "Self-Configuring Self-Processing Language" (SCSPL) needs:
+//     a description that can itself be inspected and operated on as content.
+//   * `subterm?`, `topcontains?`, `size`, and `desccontains?` are all, of
+//     necessity, shape-generic (their dispatch has to work on ANY term, not
+//     one specific constructor), which means each one needs its relevant
+//     argument fully realized before it can be trusted — see "STRICT
+//     VARIABLES" (`!x` in place of `?x`) in src/strategy.rs, and the comment
+//     above `subterm?` below for exactly what that buys and what it costs.
+//
+// The two relations differ in kind, not just in name — and that difference
+// is exactly the mechanism behind the CTMU's resolution:
+//   * topological containment is bounded by the finite size of the
+//     container (Theorem T1 below);
+//   * descriptive containment is NOT bounded by size at all — one finite
+//     pattern can contain arbitrarily large instances (Theorem T2 below).
+// Because only one of the two relations is size-bounded, a single finite
+// object can sit on the "small" side of one relation and the "large" side of
+// the other simultaneously (Theorem T3, "dual containment").
+//
+// The bottom half of the file ("conspansion") turns this from a static pair
+// of predicates into a dynamical system: a sequence of states in which a
+// fixed, finite description continually and provably (`cverify`) both
+// topologically contains and descriptively governs an evolving, strictly
+// bounded body — modeling CTMU's claim that reality's boundaries stay fixed
+// while its content requantizes within them.
+
+import "prelude.pal"
+import "render.pal"
+
+// ===========================================================================
+// TOPOLOGICAL CONTAINMENT — the subterm relation
+// ===========================================================================
+// (subterm? S T) : S is T itself, or occurs (at any depth) among T's
+// elements — the reflexive-transitive closure of "is an immediate element
+// of". Decidable by structural recursion on T; terminates because every
+// Palimpsest term is a finite tree (well-foundedness).
+//
+// `subterm?` is the public entry point, and forces its second argument
+// (`!t`, a STRICT variable — see "STRICT VARIABLES" in src/strategy.rs)
+// before dispatching. This matters because the actual dispatch, in
+// `subterm-go?`, is unavoidably shape-generic: `(?xs...)` matches ANY
+// list-shaped term, with no way to tell "this is a fully-reduced value" from
+// "this is an unevaluated call to some other rule that happens to also be
+// list-shaped" — e.g. `(subterm? x (t2-instance 40))`, without forcing,
+// would decide membership in the two-element literal syntax `(t2-instance
+// 40)` rather than the 42-element list it actually denotes. `size` below has
+// the identical hazard for the identical reason, and is fixed the same way.
+// Once forced, `subterm-go?`'s own recursive calls (via `subtermof`) don't
+// need to re-force: a term already in normal form has every one of its
+// subterms already in normal form too, so the internal helpers stay lazy.
+rule subterm?      : (subterm? ?s !t) => (subterm-go? ?s ?t)
+rule subterm-go-eq   : (subterm-go? ?s ?t) => true where (equal? ?s ?t)
+rule subterm-go-list : (subterm-go? ?s (?xs...)) => (any-of (subtermof ?s) (list ?xs...))
+rule subterm-go-atom : (subterm-go? ?s ?t) => false
+rule app-subtermof   : (app (subtermof ?s) ?x) => (subterm-go? ?s ?x)
+
+// (topcontains? CONTAINER PART) : PART is a *proper* part of CONTAINER — the
+// everyday "cupboard contains clothes" relation. Irreflexive by construction:
+// nothing topologically contains itself (a cupboard is not one of the things
+// inside it), which is what makes it a strict partial order (Theorem T1).
+// Both arguments are forced at entry (`!container`/`!part`) for the same
+// reason `subterm?` forces its own, and so that `equal?` below is always
+// comparing two realized values rather than a mix of one forced and one not.
+rule topcontains? : (topcontains? !container !part) => (and (subterm-go? ?part ?container) (not (equal? ?part ?container)))
+
+// (size T) : node count of the term tree (every atom costs 1; every compound
+// term costs 1 for itself plus the size of each element). Used to state and
+// check Theorem T1. Same forcing-entry-point shape as `subterm?`, and for
+// the same reason: `size-go-list`'s pattern is unavoidably shape-generic.
+rule size          : (size !t) => (size-go ?t)
+rule size-go-list  : (size-go (?xs...)) => (size-sum (list ?xs...))
+rule size-go-atom  : (size-go ?a) => 1
+rule size-sum-0    : (size-sum (list)) => 1
+rule size-sum-n    : (size-sum (list ?x ?xs...)) => (+ (size-go ?x) (size-sum (list ?xs...)))
+
+// Theorem T1 (topological containment is bounded by size): if CONTAINER
+// topologically contains PART, then size(PART) < size(CONTAINER). Checked,
+// not just asserted, by `t1-holds?` against a concrete instance below.
+rule t1-holds? : (t1-holds? ?container ?part) => (and (topcontains? ?container ?part) (< (size ?part) (size ?container)))
+
+// ===========================================================================
+// DESCRIPTIVE CONTAINMENT — the pattern-instance relation
+// ===========================================================================
+// (desccontains? PATTERN TERM) : PATTERN, read as a schema, contains TERM as
+// an instance: exists sigma. sigma(PATTERN) = TERM. A thin, self-documenting
+// wrapper around the native `matches?` primitive. Only the SECOND argument
+// is forced (`!term`): PATTERN must stay exactly as written, unevaluated —
+// forcing it would defeat the entire point of `matches?`, which is to
+// compare a schema against a subject exactly the way a real `rule`
+// left-hand side would, and a rule's left-hand side is never pre-normalized
+// either. This asymmetry is not a loose end; it is the formal content of
+// "a description is read, not run".
+rule desccontains? : (desccontains? ?pattern !term) => (matches? ?pattern ?term)
+
+// (desc-witness PATTERN TERM) : the witnessing substitution sigma, reified as
+// `(some (dict (entry name value) ...))`, or `none`. Same asymmetry as
+// `desccontains?`, for the same reason.
+rule desc-witness : (desc-witness ?pattern !term) => (match-witness ?pattern ?term)
+
+// Theorem T2 (descriptive containment is NOT size-bounded): a single finite
+// pattern with a sequence variable descriptively contains instances of every
+// size. `(t2-holds? PATTERN N)` builds a size-N instance shaped to fit
+// PATTERN (`t2-instance` makes `(family e e ... e)`, N copies of the atom
+// `e`) and confirms that SAME fixed, caller-supplied pattern still contains
+// it — i.e. descriptive containment places no upper bound on the size of
+// what a bounded description contains, which is exactly what topological
+// containment (T1) cannot do. (PATTERN is taken as an argument, bound by
+// this rule's own left-hand side, rather than written fresh into a
+// right-hand side: a rule's RHS may only splice sequence variables that IT
+// bound — it cannot author new pattern-with-variables data out of nothing,
+// since the substitutor has no way to tell "quote this" from "splice this"
+// (that is what `verbatim` is for; see src/matcher.rs). That asymmetry is
+// itself worth noting: it is a *syntactic* trace, in the implementation, of
+// the same description/realization distinction the model is about — a
+// description can be carried and inspected as data, but a rule's own
+// realization step cannot spontaneously manufacture new unbound descriptive
+// vocabulary. `t2-instance` does not need its own forcing here: it is the
+// (unforced) SECOND argument to `desccontains?`, which now forces it.)
+rule t2-instance : (t2-instance ?n) => (cons-sym family (replicate ?n e))
+rule cons-sym-0  : (cons-sym ?h (list)) => (?h)
+rule cons-sym-n  : (cons-sym ?h (list ?x ?xs...)) => (?h ?x ?xs...)
+// `desccontains?` now forces its own second argument (see above), so
+// `t2-holds?` no longer needs to force `(t2-instance ?n)` itself before
+// calling it -- it can simply pass the call through unevaluated.
+rule t2-holds?   : (t2-holds? ?pattern ?n) => (desccontains? ?pattern (t2-instance ?n))
+
+// ===========================================================================
+// DUAL CONTAINMENT — the CTMU resolution, made checkable (Theorem T3)
+// ===========================================================================
+// (dual-contains? OUTER PATTERN INNER) holds when BOTH directions hold at
+// once, with respect to the two DIFFERENT relations: OUTER topologically
+// contains PATTERN (PATTERN is literally nested inside OUTER's own tree) AND
+// PATTERN descriptively contains INNER (INNER is an instance of the schema
+// PATTERN). This is the CTMU's escape from Russell/Cantor made concrete: no
+// single relation is ever asked to be both a container of, and contained by,
+// the same object — so no antisymmetric order is violated. Two different
+// relations are simply allowed to point opposite ways across the same
+// objects. `dual-contains?` does not stipulate this — it independently
+// recomputes both `topcontains?` (via `subterm?`, structural recursion) and
+// `desccontains?` (via the reflective `matches?` primitive) and conjoins them.
+rule dual-contains? : (dual-contains? ?outer ?pattern ?inner) => (and (topcontains? ?outer ?pattern) (desccontains? ?pattern ?inner))
+
+// ===========================================================================
+// CONSPANSION — dual containment as a dynamical process
+// ===========================================================================
+// CTMU: reality's boundaries stay fixed while its content perpetually
+// requantizes within them ("material contraction during space expansion").
+// A conspansion state is `(scspl DESC (cells ?xs...) BOUND)`:
+//   DESC   — a fixed, finite schema: literally the term `(cells ?xs...)`.
+//   cells  — the bounded, evolving body: a list of at most BOUND labels.
+//   BOUND  — the fixed capacity (the boundary that "remains fixed").
+// Each tick either grows the body by one labelled cell (topological
+// expansion) or, once it reaches BOUND, drops its oldest cell instead of
+// growing (requantization) — so length oscillates in {BOUND-1, BOUND}
+// forever while content keeps turning over. Labels are drawn from a fixed
+// 3-symbol palette by tick number, independent of body length, so the whole
+// (length, contents) state is driven by two independent periodic processes;
+// the joint state space is therefore FINITE, so by the pigeonhole principle
+// the trajectory MUST eventually re-enter an exact prior state — i.e. this
+// toy universe is provably periodic, not merely observed to be.
+rule clen-0 : (clen (cells)) => 0
+rule clen-n : (clen (cells ?x ?xs...)) => (+ 1 (clen (cells ?xs...)))
+rule label  : (label ?t) => (nth (mod ?t 3) (list p0 p1 p2))
+
+rule cstep    : (cstep (scspl ?desc (cells ?xs...) ?bound) ?t) => (cstep-go (< (clen (cells ?xs...)) ?bound) ?desc (cells ?xs...) ?bound ?t)
+rule cstep-grow  : (cstep-go true ?desc (cells ?xs...) ?bound ?t)     => (scspl ?desc (cells ?xs... (label ?t)) ?bound)
+rule cstep-drop  : (cstep-go false ?desc (cells ?x ?xs...) ?bound ?t) => (scspl ?desc (cells ?xs...) ?bound)
+
+// -- run the loop for N ticks, collecting every visited state --
+rule ctrace     : (ctrace ?s0 ?n) => (canalyze (ccollect ?s0 0 ?n))
+rule ccollect-0 : (ccollect ?s ?t 0) => (chist ?s)
+rule ccollect-n : (ccollect ?s ?t ?n) => (chcons ?s (ccollect ?next (+ ?t 1) (- ?n 1))) where (> ?n 0), ?next <- (cstep ?s ?t)
+rule chcons     : (chcons ?s (chist ?ss...)) => (chist ?s ?ss...)
+
+// -- classify the trajectory: exact settle, exact cycle (with its period), or
+// -- (not reachable in this finite-state design, but checked for honesty)
+// -- never-recurs-within-the-run ("bounded")
+rule canalyze      : (canalyze (chist ?ss...)) => (creport (cjudge (crevh (chist ?ss...))) (chist ?ss...))
+rule crevh          : (crevh (chist ?ss...)) => (crv (chist ?ss...) (crhist))
+rule crv-0          : (crv (chist) ?acc) => ?acc
+rule crv-n          : (crv (chist ?x ?xs...) (crhist ?as...)) => (crv (chist ?xs...) (crhist ?x ?as...))
+rule cjudge-settled : (cjudge (crhist ?x ?x ?rest...)) => (cresult settled ?x)
+rule cjudge-cycle   : (cjudge (crhist ?x ?rest...)) => (cresult (cycle (cfindp ?x (crhist ?rest...) 1)) ?x) where (chas? ?x (crhist ?rest...))
+rule cjudge-bounded : (cjudge (crhist ?x ?rest...)) => (cresult bounded ?x)
+rule chas?-0    : (chas? ?x (crhist)) => false
+rule chas?-hit  : (chas? ?x (crhist ?y ?ys...)) => true where (equal? ?x ?y)
+rule chas?-miss : (chas? ?x (crhist ?y ?ys...)) => (chas? ?x (crhist ?ys...)) where (not (equal? ?x ?y))
+rule cfindp-hit  : (cfindp ?x (crhist ?y ?ys...) ?k) => ?k where (equal? ?x ?y)
+rule cfindp-miss : (cfindp ?x (crhist ?y ?ys...) ?k) => (cfindp ?x (crhist ?ys...) (+ ?k 1)) where (not (equal? ?x ?y))
+
+// -- verify dual containment holds at EVERY tick of the executed trajectory,
+// -- not merely at a hand-picked instance: for every visited state, the fixed
+// -- schema is (a) topologically a literal part of the whole state term, and
+// -- (b) descriptively an instance-generator for that same tick's body.
+rule cverify   : (cverify (chist ?ss...)) => (cverify-go (list ?ss...))
+rule cverify-0 : (cverify-go (list)) => true
+rule cverify-n : (cverify-go (list ?s ?ss...)) => (and (cverify-one ?s) (cverify-go (list ?ss...)))
+rule cverify-one : (cverify-one (scspl ?desc (cells ?xs...) ?bound)) => (and (topcontains? (scspl ?desc (cells ?xs...) ?bound) ?desc) (desccontains? ?desc (cells ?xs...)))
+
+// -- a short, human-readable summary of a (creport ...) result --
+rule cview-settled : (cview (creport (cresult settled ?st) ?h)) => (cat "SETTLED at " (shw ?st))
+rule cview-cycle    : (cview (creport (cresult (cycle ?p) ?st) ?h)) => (cat "LIMIT CYCLE, period " (cat (str ?p) (cat " -- last state " (shw ?st))))
+rule cview-bounded  : (cview (creport (cresult bounded ?st) ?h)) => (cat "BOUNDED (no exact recurrence in this run) -- last state " (shw ?st))

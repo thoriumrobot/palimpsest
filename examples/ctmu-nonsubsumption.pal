@@ -1,0 +1,76 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 500000
+#caps { rewrite: [self] }
+
+// ctmu-nonsubsumption.pal — a constructive proof, not just a claim, that
+// topological containment (topcontains?) and descriptive containment
+// (desccontains?, ../lib/ctmu.pal) cannot be merged into one relation
+// without either (a) becoming incomplete as a decision procedure for
+// descriptive containment, or (b) becoming unsound as a bound on the size
+// of what a "container" holds -- the one property that makes topological
+// containment a meaningful, trustworthy notion of physical/structural
+// nesting in the first place.
+//
+// This is the empirical half of the paper "Two Kinds of Contains". The
+// proof text derives the same conclusion abstractly (Theorem 1); this file
+// builds the natural unification attempt and computes an explicit witness
+// against it. Both `topcontains?` and `desccontains?` already share one
+// convention -- CONTAINER argument first, CONTAINED/INSTANCE second -- so
+// the merge below compares like with like.
+
+import "../lib/ctmu.pal"
+
+strategy solve = outermost(prim + rules)
+
+// The natural "complete" merge: something counts as contained if EITHER
+// mechanism says so. This is the most generous possible single relation
+// built from the two -- if any unification is going to work, this is it.
+rule contains-merge? : (contains-merge? ?x ?y) => (or ?s ?d)
+  where
+  ?s <- (topcontains? ?x ?y),
+  ?d <- (desccontains? ?x ?y)
+
+rule proof : (proof) => (nonsubsumption-report
+
+    // ATTEMPT 1 -- purely structural (topcontains? by itself, exactly the
+    // well-founded relation of Lemma A). Correct on a genuinely structural
+    // case; INCOMPLETE on a genuinely descriptive one -- blind to a real
+    // instance because it is not literally nested inside the tiny pattern
+    // term.
+    (attempt-1-pure-structural
+      (case structural (topcontains? (cupboard shirt pants) shirt))
+      (case descriptive (topcontains? ?pattern ?instance)))
+
+    // ATTEMPT 2 -- the OR-merge: now correct on BOTH cases --
+    (attempt-2-merged-both-directions
+      (case structural (contains-merge? (cupboard shirt pants) shirt))
+      (case descriptive (contains-merge? ?pattern ?instance)))
+
+    // -- but at the cost of the one property that makes "structural
+    // containment" a sound, trustworthy notion in the first place: that a
+    // container is always at least as large as what it holds. Computed,
+    // not asserted:
+    (size-of-pattern (size ?pattern))
+    (size-of-instance (size ?instance))
+    (soundness-of-merge-as-a-bound (> (size ?instance) (size ?pattern)))
+
+    (conclusion
+      "no single relation decides both cases without becoming either"
+      "incomplete (attempt 1) or unsound as a size bound (attempt 2)"))
+
+  where
+  ?pattern <- (verbatim (family ?xs...)),
+  ?instance <- (t2-instance 40)
+  // `?instance` no longer needs to be forced here for CORRECTNESS --
+  // `size`, `topcontains?`, and `desccontains?` (../lib/ctmu.pal) now all
+  // take strict (`!`) arguments at exactly the positions that need a
+  // realized value, so passing `(t2-instance 40)` straight through would
+  // already force it at each call site. The binding is kept anyway because
+  // `?instance` is used four times below, and computing it once is simply
+  // better style than repeating the same call four times.
+
+main = (nonsubsumption-report (attempt-1-pure-structural (case structural true) (case descriptive false)) (attempt-2-merged-both-directions (case structural true) (case descriptive true)) (size-of-pattern 3) (size-of-instance 42) (soundness-of-merge-as-a-bound true) (conclusion "no single relation decides both cases without becoming either" "incomplete (attempt 1) or unsound as a size bound (attempt 2)"))
+
+rewrite self with solve
+display main with solve

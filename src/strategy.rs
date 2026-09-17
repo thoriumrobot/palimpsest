@@ -161,9 +161,45 @@ impl Engine {
         fuel: &mut u64,
         depth: usize,
     ) -> Result<Option<Term>, String> {
+        // STRICT VARIABLES (`!x` instead of `?x`) -- a pre-pass, not a change
+        // to the matcher itself. A pattern like `(size (?xs...))` matches
+        // ANY list-shaped subject on pure syntax, with no way to tell "this
+        // subject is already a fully-reduced value" from "this subject is an
+        // unevaluated call to some other rule that just happens to also be
+        // list-shaped" -- e.g. `(size (t2-instance 40))` would match
+        // `size`'s pattern immediately, on the two-element literal syntax
+        // `(t2-instance 40)`, before `t2-instance` ever gets a chance to
+        // expand into the 42-element list it actually denotes. This is the
+        // same hazard `equal?` (lib/logic.pal) already carries and warns
+        // about by convention ("reduce the arguments first"); strict
+        // variables make the fix enforceable instead of merely documented.
+        //
+        // Writing `!x` for one of a rule's TOP-LEVEL left-hand-side
+        // arguments (a direct child of the pattern list, not nested deeper)
+        // means: before matching, fully normalize (via `eval_cond`, the same
+        // `outermost(prim + rules)` evaluator a `where ?v <- EXPR` binding
+        // already uses) the subject's argument at that same position, then
+        // match as if the pattern had said `?x` all along. A subject that is
+        // already a value is unaffected (normalizing a normal form is a
+        // no-op), so this is purely additive: no existing rule mentions `!`,
+        // so no existing rule's behavior changes.
+        //
+        // Scope, deliberately: only TOP-LEVEL, FIXED-ARITY positions are
+        // supported. If `r.lhs`'s top level also contains a sequence
+        // variable (`?xs...`), a strict variable's subject position is not
+        // well-defined until AFTER matching decides how many elements the
+        // sequence variable consumes -- so forcing is skipped and the
+        // literal `!x` is left for the ordinary matcher, which does not
+        // recognize it and simply will not match (a clean, safe "this rule
+        // does not apply" rather than a crash; see
+        // `strict_vars_mixed_with_seq_var_do_not_match` below).
+        let (lhs, subject) = self.pre_force_strict_vars(&r.lhs, t, fuel, depth)?;
+        let lhs = lhs.as_ref().unwrap_or(&r.lhs);
+        let subject = subject.as_ref().unwrap_or(t);
+
         // Fast path: an unconditional rule takes the first match.
         if r.conds.is_empty() {
-            return match match_term(&r.lhs, t, Bindings::new()) {
+            return match match_term(lhs, subject, Bindings::new()) {
                 Some(b) => {
                     if *fuel == 0 {
                         return Err("out of fuel (rewrite step budget exhausted)".into());
@@ -179,7 +215,8 @@ impl Engine {
         // sequence variables, so a rule like the one-rule bubble sort can find
         // *any* out-of-order adjacent pair, not just the first decomposition.
         let conds = &r.conds;
-        let matched = match_where(&r.lhs, t, &mut |b| self.check_conds(conds, b, fuel, depth))?;
+        let matched =
+            match_where(lhs, subject, &mut |b| self.check_conds(conds, b, fuel, depth))?;
         match matched {
             Some(b) => {
                 if *fuel == 0 {
@@ -190,6 +227,51 @@ impl Engine {
             }
             None => Ok(None),
         }
+    }
+
+    /// Implements the STRICT VARIABLES pre-pass described in `apply_rule`.
+    /// Returns `(None, None)` (use the originals, unchanged) whenever the
+    /// shape doesn't cleanly apply: no strict variables present, the pattern
+    /// also has a top-level sequence variable, or the subject isn't a
+    /// same-length list. Otherwise returns the desugared pattern (`!x` ->
+    /// `?x`) and the subject with each strict-variable position replaced by
+    /// its normal form.
+    fn pre_force_strict_vars(
+        &self,
+        lhs: &Term,
+        t: &Term,
+        fuel: &mut u64,
+        depth: usize,
+    ) -> Result<(Option<Term>, Option<Term>), String> {
+        let Term::List(pat_items) = lhs else {
+            return Ok((None, None));
+        };
+        let has_strict = pat_items.iter().any(|p| p.as_strict_var().is_some());
+        if !has_strict {
+            return Ok((None, None));
+        }
+        let has_top_level_seq = pat_items.iter().any(|p| p.as_seq_var().is_some());
+        if has_top_level_seq {
+            return Ok((None, None));
+        }
+        let Term::List(subj_items) = t else {
+            return Ok((None, None));
+        };
+        if subj_items.len() != pat_items.len() {
+            return Ok((None, None));
+        }
+        let mut new_pat = Vec::with_capacity(pat_items.len());
+        let mut new_subj = Vec::with_capacity(subj_items.len());
+        for (p, s) in pat_items.iter().zip(subj_items.iter()) {
+            if let Some(name) = p.as_strict_var() {
+                new_pat.push(Term::Sym(format!("?{}", name)));
+                new_subj.push(self.eval_cond(s, fuel, depth)?);
+            } else {
+                new_pat.push(p.clone());
+                new_subj.push(s.clone());
+            }
+        }
+        Ok((Some(Term::List(new_pat)), Some(Term::List(new_subj))))
     }
 
     /// Evaluate a rule's `where` clauses against a candidate binding. Returns the
@@ -628,6 +710,28 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
             (Term::Str(x), Term::Str(y)) => Some(Term::Str(format!("{}{}", x, y))),
             _ => None,
         },
+        // -- reflection: descriptive containment as a first-class predicate ----
+        // `matches?` and `match-witness` reify the interpreter's own pattern
+        // matcher (the mechanism a `rule LHS` uses, meta-level, to select
+        // which subjects it governs) as an object-level function over ordinary
+        // term DATA. A "pattern" here is just a term that happens to contain
+        // `?x` / `?xs...` symbols; nothing distinguishes it syntactically from
+        // any other term until it is passed as the first argument here. This is
+        // the one thing the pure rule language cannot express on its own: a
+        // `rule` LHS is fixed at parse time, so a program can never match a
+        // *runtime-computed* pattern against a subject — every existing
+        // rule-based predicate (like library `equal?`) can only compare a
+        // subject against a pattern written literally into that rule's source.
+        // `matches?` decides descriptive containment: does the SCHEMA `a`
+        // (finitely written) contain the ground term `b` as an instance —
+        // `?sigma. sigma(a) = b`? Fires unconditionally at the root (like
+        // `equal?`), so `a` and `b` are compared exactly as they stand: this
+        // makes `matches?` a genuine reification of matching, not a shortcut
+        // for it.
+        "matches?" => Some(boolsym(match_term(a, b, Bindings::new()).is_some())),
+        // Constructive counterpart: reify the witnessing substitution itself
+        // (see `eval_match_witness` below) instead of just a boolean.
+        "match-witness" => Some(eval_match_witness(a, b)),
         "str<" => match (a, b) {
             (Term::Str(x), Term::Str(y)) => Some(boolsym(x < y)),
             _ => None,
@@ -654,6 +758,43 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// `match-witness`: like `matches?`, but on success returns the *substitution*
+/// `sigma` itself, reified as a term — `(some (dict (entry name val) ...))` —
+/// rather than just a boolean. This is the constructive half of descriptive
+/// containment: a bare `matches?` only asserts `exists sigma. sigma(a) = b`;
+/// this exhibits the witnessing `sigma`. Entries are sorted by variable name
+/// for determinism (a `HashMap`'s iteration order is not stable, and
+/// Palimpsest's self-rewriting quines depend on every primitive being
+/// reproducible byte-for-byte). A sequence-variable binding is rendered as
+/// `(list ...)`, matching the convention `explode` and library code already
+/// use for runtime-built sequences. Returns `none` when `a` does not match `b`.
+fn eval_match_witness(a: &Term, b: &Term) -> Term {
+    match match_term(a, b, Bindings::new()) {
+        None => Term::Sym("none".to_string()),
+        Some(bindings) => {
+            let mut names: Vec<&String> = bindings.keys().collect();
+            names.sort();
+            let mut entries = vec![Term::Sym("dict".to_string())];
+            for name in names {
+                let val = match &bindings[name] {
+                    Binding::One(t) => t.clone(),
+                    Binding::Seq(v) => {
+                        let mut lst = vec![Term::Sym("list".to_string())];
+                        lst.extend(v.iter().cloned());
+                        Term::List(lst)
+                    }
+                };
+                entries.push(Term::List(vec![
+                    Term::Sym("entry".to_string()),
+                    Term::Sym(name.clone()),
+                    val,
+                ]));
+            }
+            Term::List(vec![Term::Sym("some".to_string()), Term::List(entries)])
+        }
     }
 }
 
@@ -1058,7 +1199,7 @@ mod tests {
             ("(padl \"long\" 2)", "\"long\""),
         ];
         for (input, want) in cases {
-            let mut e = Engine::new();
+            let e = Engine::new();
             let mut fuel = 10000u64;
             let out = e
                 .apply(&parse_strategy("innermost(prim)").unwrap(), &read_term(input).unwrap(), &mut fuel)
@@ -1068,7 +1209,7 @@ mod tests {
         }
         // rng is deterministic, non-negative, and distinguishes distinct seeds.
         let r = |s: &str| {
-            let mut e = Engine::new();
+            let e = Engine::new();
             let mut fuel = 1000u64;
             let out = e.apply(&parse_strategy("prim").unwrap(), &read_term(s).unwrap(), &mut fuel).unwrap().unwrap();
             match out { Term::Int(n) => n, _ => panic!("rng not an int") }
@@ -1076,6 +1217,222 @@ mod tests {
         assert_eq!(r("(rng 1)"), r("(rng 1)"), "rng must be deterministic");
         assert!(r("(rng 1)") >= 0, "rng must be non-negative");
         assert_ne!(r("(rng 1)"), r("(rng 2)"), "distinct seeds should differ");
+    }
+
+    #[test]
+    fn reflective_matching_primitives() {
+        // `matches?`: descriptive containment as a decidable predicate — does
+        // pattern `a` (a finite schema) contain ground term `b` as an instance?
+        let cases = [
+            ("(matches? (foo ?x) (foo 1))", "true"),
+            ("(matches? (foo ?x) (bar 1))", "false"),
+            // non-linear: the SAME variable twice must bind equal subterms.
+            ("(matches? (foo ?x ?x) (foo 1 1))", "true"),
+            ("(matches? (foo ?x ?x) (foo 1 2))", "false"),
+            // a sequence variable descriptively contains lists of any length —
+            // one finite pattern subsumes an unbounded family of subjects.
+            ("(matches? (list ?xs...) (list))", "true"),
+            ("(matches? (list ?xs...) (list a b c))", "true"),
+            ("(matches? (list ?xs...) (pair a b))", "false"),
+            // the generic decomposition idiom used throughout lib/ (e.g. `shw`):
+            // `(?h ?rest...)` matches any nonempty compound term whatsoever.
+            ("(matches? (?h ?rest...) (pt 1 2))", "true"),
+            ("(matches? (?h ?rest...) 5)", "false"),
+        ];
+        for (input, want) in cases {
+            let e = Engine::new();
+            let mut fuel = 1000u64;
+            let out = e
+                .apply(&parse_strategy("prim").unwrap(), &read_term(input).unwrap(), &mut fuel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(format!("{}", out), want, "for {}", input);
+        }
+
+        // `match-witness`: the constructive counterpart — reify the witnessing
+        // substitution sigma such that sigma(a) = b, sorted by variable name.
+        let witness_cases = [
+            ("(match-witness (foo ?x) (foo 1))", "(some (dict (entry x 1)))"),
+            ("(match-witness (foo ?x) (bar 1))", "none"),
+            (
+                "(match-witness (pair ?x ?y) (pair 1 2))",
+                "(some (dict (entry x 1) (entry y 2)))",
+            ),
+            (
+                "(match-witness (list ?xs...) (list a b c))",
+                "(some (dict (entry xs (list a b c))))",
+            ),
+        ];
+        for (input, want) in witness_cases {
+            let e = Engine::new();
+            let mut fuel = 1000u64;
+            let out = e
+                .apply(&parse_strategy("prim").unwrap(), &read_term(input).unwrap(), &mut fuel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(format!("{}", out), want, "for {}", input);
+        }
+    }
+
+    #[test]
+    fn strict_var_forces_argument_before_matching() {
+        // `grab`'s ARGUMENT is `(mk 5)`, an unreduced call to another rule
+        // in the same engine. With an ordinary `?x`, `grab` fires on the
+        // literal, unreduced syntax `(mk 5)` -- exactly the hazard
+        // documented on `equal?` in lib/logic.pal, and the one that
+        // silently produced a wrong `size` in the CTMU model before this
+        // feature existed. With `!x`, the subject at that position is fully
+        // normalized (here: to `(pair 5 5)`) before `grab` ever matches.
+        let mut e = Engine::new();
+        e.add_rule(Rule {
+            name: "mk".into(),
+            lhs: read_term("(mk ?n)").unwrap(),
+            rhs: read_term("(pair ?n ?n)").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "grab-lazy".into(),
+            lhs: read_term("(grab-lazy ?x)").unwrap(),
+            rhs: read_term("?x").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "grab-strict".into(),
+            lhs: read_term("(grab-strict !x)").unwrap(),
+            rhs: read_term("?x").unwrap(),
+            conds: vec![],
+        });
+        let mut fuel = 1000u64;
+        let strat = parse_strategy("rules").unwrap();
+
+        let lazy = e
+            .apply(&strat, &read_term("(grab-lazy (mk 5))").unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{}", lazy), "(mk 5)", "lazy ?x sees the unreduced call");
+
+        let strict = e
+            .apply(&strat, &read_term("(grab-strict (mk 5))").unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{}", strict), "(pair 5 5)", "!x forces it first");
+
+        // A subject that is already a value is unaffected (forcing a normal
+        // form is a no-op) -- the feature is purely additive.
+        let already_value = e
+            .apply(&strat, &read_term("(grab-strict 5)").unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{}", already_value), "5");
+    }
+
+    #[test]
+    fn strict_var_nonlinear_forces_both_occurrences() {
+        // `!x` appearing twice must force EACH occurrence independently,
+        // then require the two (now-forced) values to be equal, exactly
+        // like non-linear `?x` already does once both sides are values.
+        let mut e = Engine::new();
+        e.add_rule(Rule {
+            name: "mk".into(),
+            lhs: read_term("(mk ?n)").unwrap(),
+            rhs: read_term("(pair ?n ?n)").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "same".into(),
+            lhs: read_term("(same !x !x)").unwrap(),
+            rhs: read_term("matched").unwrap(),
+            conds: vec![],
+        });
+        let mut fuel = 1000u64;
+        let strat = parse_strategy("rules").unwrap();
+
+        // Two different-looking expressions that force to the SAME value.
+        let hit = e
+            .apply(
+                &strat,
+                &read_term("(same (mk 5) (pair 5 5))").unwrap(),
+                &mut fuel,
+            )
+            .unwrap();
+        assert_eq!(hit.map(|t| format!("{}", t)), Some("matched".to_string()));
+
+        // Two expressions that force to DIFFERENT values: no match.
+        let miss = e
+            .apply(
+                &strat,
+                &read_term("(same (mk 5) (pair 5 6))").unwrap(),
+                &mut fuel,
+            )
+            .unwrap();
+        assert_eq!(miss, None);
+    }
+
+    #[test]
+    fn strict_var_mixed_with_top_level_seq_var_does_not_match() {
+        // Documented scope limit: if a sequence variable ALSO appears among
+        // the pattern's top-level elements, the strict position's subject
+        // is not well-defined before matching decides how many elements the
+        // sequence variable spans, so forcing is skipped entirely and the
+        // literal, un-recognized `!x` simply never matches anything --
+        // cleanly (no match, no crash, no silent partial-forcing).
+        let mut e = Engine::new();
+        e.add_rule(Rule {
+            name: "mixed".into(),
+            lhs: read_term("(mixed ?a... !x)").unwrap(),
+            rhs: read_term("used").unwrap(),
+            conds: vec![],
+        });
+        let mut fuel = 1000u64;
+        let out = e
+            .apply(
+                &parse_strategy("rules").unwrap(),
+                &read_term("(mixed 1 2 3)").unwrap(),
+                &mut fuel,
+            )
+            .unwrap();
+        assert_eq!(out, None);
+    }
+
+    #[test]
+    fn strict_var_in_conditional_rule_guard() {
+        // Strict variables must also work on rules WITH `where` clauses
+        // (the conditional path in `apply_rule` is separate from the
+        // unconditional fast path).
+        let mut e = Engine::new();
+        e.add_rule(Rule {
+            name: "mk".into(),
+            lhs: read_term("(mk ?n)").unwrap(),
+            rhs: read_term("(pair ?n ?n)").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "equal?-yes".into(),
+            lhs: read_term("(equal? ?x ?x)").unwrap(),
+            rhs: read_term("true").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "equal?-no".into(),
+            lhs: read_term("(equal? ?x ?y)").unwrap(),
+            rhs: read_term("false").unwrap(),
+            conds: vec![],
+        });
+        e.add_rule(Rule {
+            name: "big".into(),
+            lhs: read_term("(big !x)").unwrap(),
+            rhs: read_term("yes").unwrap(),
+            conds: vec![WhereClause::Guard(read_term("(equal? ?x (pair 5 5))").unwrap())],
+        });
+        let mut fuel = 1000u64;
+        let out = e
+            .apply(
+                &parse_strategy("rules").unwrap(),
+                &read_term("(big (mk 5))").unwrap(),
+                &mut fuel,
+            )
+            .unwrap();
+        assert_eq!(out.map(|t| format!("{}", t)), Some("yes".to_string()));
     }
 
     #[test]
@@ -1111,7 +1468,7 @@ mod tests {
             ("(str< \"a\" \"a\")", "false"),
         ];
         for (input, want) in cases {
-            let mut e = Engine::new();
+            let e = Engine::new();
             let mut fuel = 10000u64;
             let out = e
                 .apply(&parse_strategy("innermost(prim)").unwrap(), &read_term(input).unwrap(), &mut fuel)

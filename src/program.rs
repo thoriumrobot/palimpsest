@@ -438,28 +438,145 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
     parts
 }
 
-/// Find the `main = TERM` line in an arbitrary target file's text.
-pub fn find_main(text: &str) -> Result<(usize, Term), String> {
+/// Find the `main = TERM` logical item in an arbitrary target file's text.
+/// `TERM` may span multiple physical lines (the same "logical item" grouping
+/// `logical_items` uses to parse the file in the first place — indentation,
+/// wrapped lists and interleaved comments all work exactly as they do
+/// anywhere else in a program). Returns the inclusive physical-line range
+/// `[start_idx, end_idx]` the whole `main = ...` item occupies, so the
+/// caller can splice out precisely that span, and the parsed term.
+pub fn find_main(text: &str) -> Result<(usize, usize, Term), String> {
+    fn is_main_item(acc: &str) -> bool {
+        let acc = acc.trim_start();
+        acc.strip_prefix("main")
+            .map(|rest| rest.trim_start().starts_with('='))
+            .unwrap_or(false)
+    }
+    fn parse_main(acc: &str) -> Result<Term, String> {
+        let body = acc.trim_start().strip_prefix("main").unwrap();
+        let eq = body.trim_start().strip_prefix('=').unwrap();
+        read_term(eq.trim())
+    }
+
+    let mut acc = String::new();
+    let mut start = 0usize;
+    let mut last_idx = 0usize;
     for (idx, raw) in text.lines().enumerate() {
         let line = raw.trim();
-        if line.starts_with("main") {
-            if let Some(body) = line.strip_prefix("main") {
-                if let Some(eq) = body.trim_start().strip_prefix('=') {
-                    return Ok((idx, read_term(eq.trim())?));
-                }
-            }
+        if line.is_empty() || line.starts_with("//") {
+            continue;
         }
+        let cont_marker = starts_continuation(line);
+        if !acc.is_empty() && !cont_marker && is_complete(&acc) {
+            if is_main_item(&acc) {
+                return Ok((start, last_idx, parse_main(&acc)?));
+            }
+            acc.clear();
+        }
+        if acc.is_empty() {
+            start = idx;
+            acc.push_str(line);
+        } else {
+            acc.push(' ');
+            acc.push_str(line);
+        }
+        last_idx = idx;
+    }
+    if !acc.is_empty() && is_main_item(&acc) {
+        return Ok((start, last_idx, parse_main(&acc)?));
     }
     Err("target file has no 'main = ...' subject to rewrite".into())
 }
 
-/// Rebuild file text with the `main` line replaced by the rewritten term.
-pub fn splice_main(text: &str, line_idx: usize, new_term: &Term) -> String {
-    let mut lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
-    lines[line_idx] = format!("main = {}", new_term);
-    let mut out = lines.join("\n");
+/// Rebuild file text with the (possibly multi-line) `main = ...` item —
+/// physical lines `[start_idx, end_idx]` inclusive — replaced by a single
+/// line holding the rewritten term. The result of a rewrite is always
+/// written back on one line regardless of how many lines the input `main`
+/// spanned: that is what keeps repeated self-rewrites (and the quine check)
+/// well-defined, since `find_main` on the result must see exactly the same
+/// span shape a human author would get by hand-writing a one-line `main`.
+pub fn splice_main(text: &str, start_idx: usize, end_idx: usize, new_term: &Term) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out_lines: Vec<String> = Vec::with_capacity(lines.len());
+    out_lines.extend(lines[..start_idx].iter().map(|s| s.to_string()));
+    out_lines.push(format!("main = {}", new_term));
+    if end_idx + 1 < lines.len() {
+        out_lines.extend(lines[end_idx + 1..].iter().map(|s| s.to_string()));
+    }
+    let mut out = out_lines.join("\n");
     if text.ends_with('\n') {
         out.push('\n');
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_main_single_line() {
+        // The pre-existing shape used throughout examples/: `main = ...`
+        // entirely on one physical line. Must keep working unchanged.
+        let text = "#lang palimpsest\nmain = (app quine (quote quine))\nrewrite self with solve\n";
+        let (start, end, term) = find_main(text).unwrap();
+        assert_eq!(start, 1);
+        assert_eq!(end, 1);
+        assert_eq!(format!("{}", term), "(app quine (quote quine))");
+    }
+
+    #[test]
+    fn find_main_multi_line() {
+        // A `main = (...)` item that wraps across several physical lines,
+        // interleaved with whole-line comments, must be recognized as ONE
+        // logical item spanning the whole physical range -- the same
+        // grouping `logical_items` uses for the rest of the file.
+        let text = "\
+#lang palimpsest
+main = (report
+  // a comment in the middle changes nothing
+  (a 1)
+  (b 2))
+rewrite self with solve
+display main with solve
+";
+        let (start, end, term) = find_main(text).unwrap();
+        // line 0 = #lang, line 1 = 'main = (report', ..., line 4 = '  (b 2))'
+        assert_eq!(start, 1);
+        assert_eq!(end, 4);
+        assert_eq!(format!("{}", term), "(report (a 1) (b 2))");
+    }
+
+    #[test]
+    fn splice_main_collapses_multi_line_span_to_one_line() {
+        let text = "\
+#lang palimpsest
+main = (report
+  (a 1)
+  (b 2))
+rewrite self with solve
+";
+        let (start, end, _) = find_main(text).unwrap();
+        let new_term = read_term("(report 1 2)").unwrap();
+        let out = splice_main(text, start, end, &new_term);
+        assert_eq!(
+            out,
+            "#lang palimpsest\nmain = (report 1 2)\nrewrite self with solve\n"
+        );
+        // And the result is itself found as a single-line main, as required
+        // for a second rewrite pass (and the quine fixed-point check) to
+        // see the exact same span shape a hand-written one-liner would give.
+        let (start2, end2, term2) = find_main(&out).unwrap();
+        assert_eq!(start2, end2);
+        assert_eq!(format!("{}", term2), "(report 1 2)");
+    }
+
+    #[test]
+    fn find_main_does_not_confuse_maintainer_like_identifiers() {
+        let text = "#lang palimpsest\nmaintainer = (someone)\nmain = (real)\n";
+        let (start, end, term) = find_main(text).unwrap();
+        assert_eq!(start, 2);
+        assert_eq!(end, 2);
+        assert_eq!(format!("{}", term), "(real)");
+    }
 }

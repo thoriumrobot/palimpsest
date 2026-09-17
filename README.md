@@ -10,23 +10,28 @@ write-then-rename and a capability-checked write path contain best.
 This tree contains the interpreter, a **standard library written in Palimpsest**
 (including result renderers and a text-visualization library), runnable examples —
 among them ten **mind↔body loop** simulations that rewrite themselves into their
-own classified trajectory and graph it — a graded puzzle book
-(`puzzles/PUZZLES.md`), and five documents: a general walkthrough (`TUTORIAL.md`),
-a tour of self-rewriting programs (`SELF-REWRITING.md`), a tour of self-referential
-coding (`SELF-REFERENCE.md`), a reference on the mind↔body simulations
-(`MIND-BODY.md`), and a step-by-step tutorial on them (`MINDBODY-TUTORIAL.md`).
+own classified trajectory and graph it, and a formal model of the CTMU's
+topological/descriptive containment distinction proving the two relations
+cannot be merged into one (written up as a standalone paper,
+`NONSUBSUMPTION.md`) — a graded puzzle book (`puzzles/PUZZLES.md`), and six
+documents: a general walkthrough (`TUTORIAL.md`), a tour of self-rewriting
+programs (`SELF-REWRITING.md`), a tour of self-referential coding
+(`SELF-REFERENCE.md`), a reference on the mind↔body simulations (`MIND-BODY.md`),
+a step-by-step tutorial on them (`MINDBODY-TUTORIAL.md`), and the CTMU
+containment model (`CTMU.md`).
 
 ## Build & run
 
 ```sh
 cargo build --release
-cargo test --release          # 22 unit tests
+cargo test --release          # unit tests (see src/*.rs for current count)
 ./run_demo.sh                 # full tour: core, quines, refactor, safety, stdlib,
                               #   the N-Queens chess board, and rendered outputs
 ./puzzles/check.sh            # 22 permutation & self-reference puzzles
 ./verify-self-reference.sh    # 19 examples from SELF-REFERENCE.md
 ./verify-self-rewriting.sh    # 6 complex self-rewriting programs (solve, render, quine)
 ./verify-mindbody.sh          # 10 mind<->body loop environments (attractors + quine)
+./verify-ctmu.sh              # the CTMU containment model (3 self-rewriting proofs)
 ```
 
 Run a program:
@@ -60,6 +65,57 @@ practical programming possible:
    `outermost(s) = repeat(oncetd(s))`. This is what lets recursive, `if`-guarded
    library functions terminate; innermost (call-by-value) would loop on them.
 
+## Reflection, quotation, and strict evaluation
+
+Three more interpreter features, added while building a formal model that needed
+programs to inspect and construct their own descriptive vocabulary as data (see
+`CTMU.md`), close gaps the first three features didn't cover. All three are
+purely additive: no existing program's behavior changes.
+
+1. **`matches?` / `match-witness`** — native primitives (fire under `prim`) that
+   reify the interpreter's OWN pattern matcher — the mechanism that decides which
+   subjects a `rule` governs — as object-level functions over ordinary term data.
+   `(matches? PATTERN SUBJECT)` decides `exists sigma. sigma(PATTERN) = SUBJECT`;
+   `(match-witness PATTERN SUBJECT)` exhibits the witnessing substitution as
+   `(some (dict (entry name value) ...))`, or `none`. Nothing else in the
+   language can do this: a `rule` left-hand side is fixed at parse time, so no
+   rule can match a *runtime-computed* pattern against a subject. Like `equal?`,
+   both fire on their arguments exactly as written — see "strict variables"
+   below for how to force an argument to a value first when that matters.
+2. **`verbatim`** — a right-hand-side (and `where`-binding) form:
+   `(verbatim TERM)` substitutes to `TERM` exactly as written in the rule's own
+   source, with no substitution inside it at all — not even for variables that
+   rule's own left-hand side happens to bind. This is the one way a right-hand
+   side can author brand-new pattern-shaped data (containing `?x` / `?xs...`
+   symbols nothing on the left-hand side ever bound) instead of only ever
+   passing through descriptive vocabulary it already received as an argument.
+   Deliberately not named `quote`: that symbol is already an ordinary,
+   uninterpreted tag used throughout this codebase's canonical quine idiom,
+   `(app ?code (quote ?data)) => (app ?data (quote ?data))`, where `?data`
+   inside it must substitute normally — reusing `quote` for this would have
+   silently broken every quine example in the repository.
+3. **Strict variables** — `!x` in a rule's left-hand side, in place of `?x`,
+   at one of that pattern's TOP-LEVEL (direct-child) positions: before
+   matching, the engine fully normalizes the subject at that position (the
+   same evaluator a `where ?v <- EXPR` binding already uses), then matches as
+   if the pattern had said `?x` all along. This exists because some rules are
+   unavoidably shape-generic — `(size (?xs...))` matches ANY list, with no way
+   to tell "this subject is already a value" from "this subject is an
+   unevaluated call to some other rule that happens to also be list-shaped".
+   Without forcing, `(size (some-rule-call 40))` would measure the two-element
+   *call*, not whatever value it denotes — the exact hazard `equal?` already
+   carries and only documents by convention ("reduce the arguments first").
+   `!x` makes the fix enforceable: see `lib/ctmu.pal`'s `size`, `subterm?`, and
+   `topcontains?` for the idiom (a forcing public entry point delegating to a
+   lazy internal implementation), and `desccontains?` for the case where only
+   ONE argument (the candidate instance, never the pattern) should be forced.
+   Scope: only fixed-arity, top-level positions are supported — a pattern that
+   also has a top-level sequence variable (`?xs...`) skips forcing entirely
+   (the strict position isn't well-defined until matching decides how many
+   elements the sequence variable spans), and the literal `!x`, unrecognized,
+   simply fails to match anything: a clean "this rule doesn't apply", never a
+   crash.
+
 ## Standard library (`lib/`)
 
 Written entirely in Palimpsest. Import `lib/prelude.pal` to get everything plus
@@ -80,6 +136,7 @@ the evaluation strategies.
 | `render.pal` | result renderers (written in Palimpsest) for the `display` command: `shw` (generic term→string), `chess` (N-Queens board), `asm` (three-address code), `binview`, `moves-view`, `set-view`, `text-view` |
 | `chart.pal` | text-visualization library: `colplot` (column chart of value vs time), `overlay` (two curves, `o`/`x`/`*`), `histogram` (value distribution), `spark` (one-line sparkline) — used to auto-display the mind↔body environments |
 | `mindbody.pal` | the mind↔body loop engine (imports `render.pal` + `chart.pal`): `trace` runs a `step` loop, classifies the attractor (settled / cycle / runaway / bounded), and `loop-view` graphs it; helpers `toward clamp mix`. See `MIND-BODY.md` and `MINDBODY-TUTORIAL.md` |
+| `ctmu.pal` | a formal model of the CTMU's dual containment relation: `subterm?`/`topcontains?`/`size` (topological, bounded), `desccontains?`/`desc-witness` (descriptive, unbounded — wraps `matches?`/`match-witness`), `dual-contains?` (the paradox-resolving combination), and a `ctrace`/`cverify` conspansion engine. See `CTMU.md` |
 
 `normalize` / `eval` are normal-order (`outermost(prim + rules)`) — the default
 you want, terminating for recursive definitions. `eval-strict` is innermost
@@ -151,7 +208,11 @@ show (dbl (dbl 5)) with simplify(dbl)          // ==> 20
 
 Multi-line items: rules, strategies, and commands may span several lines. An item
 continues while its parentheses are open, while it ends in a continuation token
-(`=> = <- : + ; ,`), or while the next line starts with `where`/`+`/`;`/`,`.
+(`=> = <- : + ; ,`), or while the next line starts with `where`/`+`/`;`/`,`. This
+includes `main`: a self-rewriting program's `main = ...` may span multiple
+physical lines (`rewrite self` finds and replaces exactly that logical span,
+however many lines it occupies, and always writes the result back on one line)
+— useful for anything larger than a one-liner, like `examples/ctmu-*.pal`.
 
 Together these are enough to write a **small interpreter** for an expression
 language with variables and lexically-scoped `let`, evaluated entirely by
@@ -348,15 +409,25 @@ pure, so stochastic programs still self-rewrite to identical quines), and
 `padl`/`padr` (str,int→str, pad a string to a width). `str<`,
 `sym`, `explode`, and `implode` bridge symbols, strings, and lists (text
 processing, fresh names, ordering); `abs`/`min`/`max`/`rng` support clamped and
-noisy numeric dynamics; `padl`/`padr` align text output.
+noisy numeric dynamics; `padl`/`padr` align text output. `matches?`
+(term,term→bool) and `match-witness` (term,term→option) reify the
+interpreter's own pattern matcher as object-level functions — see
+"Reflection, quotation, and strict evaluation" above.
+
+Pattern variables: `?x` (term, matches any single subterm), `?xs...` (sequence,
+matches zero or more elements, non-linear if repeated), and `!x` (STRICT term
+variable — forces the subject at that top-level position to its normal form
+before matching; see "Reflection, quotation, and strict evaluation" above). A
+right-hand side may also use `(verbatim TERM)` to produce `TERM` completely
+unsubstituted, for authoring fresh pattern-shaped data.
 
 ## Implementation map
 
 | Concept | File |
 |---|---|
 | Terms, reader, canonical printer (round-trips) | `src/term.rs` |
-| Matching (`?x`, `?xs...`), non-linear, substitution | `src/matcher.rs` |
-| Strategy combinators, primitives, fuel, once/outermost, head-indexed dispatch | `src/strategy.rs` |
+| Matching (`?x`, `?xs...`, non-linear), substitution, `verbatim` | `src/matcher.rs` |
+| Strategy combinators, primitives (incl. `matches?`/`match-witness`), strict variables (`!x`), fuel, once/outermost, head-indexed dispatch | `src/strategy.rs` |
 | Capabilities, atomic writes, snapshot ledger, dry-run, undo | `src/safety.rs` |
 | Program loader with imports | `src/program.rs` |
 | CLI driver, `display` rendering, `undo` | `src/main.rs` |
@@ -398,4 +469,4 @@ noisy numeric dynamics; `padl`/`padr` align text output.
   is not. Accumulator-style helpers (`foldl`, `fib`) force their accumulators with
   `where` bindings to avoid an additional layer of blow-up.
 
-See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), and `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code.
+See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and `CTMU.md` for the formal containment model and its non-subsumption proof (`verify-ctmu.sh`), with the proof itself written up as a standalone paper in `NONSUBSUMPTION.md`.

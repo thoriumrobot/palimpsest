@@ -1,0 +1,56 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 5000000
+#caps { rewrite: [self] }
+
+// ctmu-conspansion.pal — CTMU's "conspansion": reality's boundaries stay
+// fixed while its content perpetually requantizes within them (material
+// contraction during space expansion). Full definitions and commentary for
+// every rule used here live in ../lib/ctmu.pal, under CONSPANSION.
+//
+// A conspansion state `(scspl DESC (cells ?xs...) BOUND)` pairs a FIXED,
+// finite schema DESC = `(cells ?xs...)` (the descriptive layer -- it never
+// changes) with a BOUNDED, evolving body (the topological layer -- it grows
+// by one labelled cell per tick, and once it reaches BOUND it drops its
+// oldest cell instead of growing). This file runs that process for 24
+// ticks from an empty body, and for EVERY one of the 25 visited states
+// checks -- not assumes -- both halves of dual containment at once:
+//   * DESC is topologically a literal part of the whole state term, and
+//   * DESC, read as a schema, descriptively contains that tick's body.
+// It then classifies the long-run behavior (the joint state space here is
+// finite by construction, so by the pigeonhole principle the trajectory
+// MUST eventually re-enter an exact prior state -- this is checked, not
+// merely argued), and finally rewrites itself to a fixed point exactly like
+// ctmu-containment.pal: run once (WROTE), run again (FIXED POINT).
+
+import "../lib/ctmu.pal"
+
+strategy solve = outermost(prim + rules)
+
+// Pull the recorded tick-by-tick history back out of an already-computed
+// `(creport VERDICT (chist ...))`, so the invariant check below can reuse
+// the SAME trajectory the classifier used instead of recomputing it.
+rule extract-hist : (extract-hist (creport ?verdict (chist ?ss...))) => (chist ?ss...)
+
+// `main` itself cannot carry a `where` clause (that is rule-definition
+// syntax only), so the computation lives in this nullary rule and `main`
+// just invokes it. NOTE the `(verbatim (cells ?xs...))` inside the binding
+// expression: a `where ?v <- EXPR` binding is substituted the same way a
+// rule's right-hand side is (see check_conds in src/strategy.rs), so a bare
+// `?xs...` here would hit "unbound sequence variable" -- this rule's own
+// left-hand side `(conspansion-compute)` binds nothing at all, so `xs`
+// could never come from there. `verbatim` is the general fix for exactly
+// this shape of problem: minting fresh `?x`-containing pattern data (the
+// fixed, never-changing DESCRIPTIVE schema, here) that nothing upstream
+// bound. See "Reflection, quotation, and strict evaluation" in README.md.
+rule conspansion-compute : (conspansion-compute) =>
+  (conspansion-report ?trajectory (invariant-holds-at-every-tick ?ok) (summary ?text))
+  where
+  ?trajectory <- (ctrace (scspl (verbatim (cells ?xs...)) (cells) 4) 24),
+  ?ok <- (cverify (extract-hist ?trajectory)),
+  ?text <- (cview ?trajectory)
+
+main = (conspansion-report (creport (cresult (cycle 6) (scspl (cells ?xs...) (cells p2 p1 p0 p2) 4)) (chist (scspl (cells ?xs...) (cells) 4) (scspl (cells ?xs...) (cells p0) 4) (scspl (cells ?xs...) (cells p0 p1) 4) (scspl (cells ?xs...) (cells p0 p1 p2) 4) (scspl (cells ?xs...) (cells p0 p1 p2 p0) 4) (scspl (cells ?xs...) (cells p1 p2 p0) 4) (scspl (cells ?xs...) (cells p1 p2 p0 p2) 4) (scspl (cells ?xs...) (cells p2 p0 p2) 4) (scspl (cells ?xs...) (cells p2 p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0 p2) 4) (scspl (cells ?xs...) (cells p1 p0 p2) 4) (scspl (cells ?xs...) (cells p1 p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0 p2) 4) (scspl (cells ?xs...) (cells p1 p0 p2) 4) (scspl (cells ?xs...) (cells p1 p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1) 4) (scspl (cells ?xs...) (cells p0 p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0) 4) (scspl (cells ?xs...) (cells p2 p1 p0 p2) 4))) (invariant-holds-at-every-tick true) (summary "LIMIT CYCLE, period 6 -- last state (scspl (cells ?xs...) (cells p2 p1 p0 p2) 4)"))
+
+rewrite self with solve
+display main with solve

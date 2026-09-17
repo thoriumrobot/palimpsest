@@ -39,6 +39,25 @@ impl Term {
         }
         None
     }
+
+    /// Is this symbol a STRICT term variable like `!x`? Unlike `?x`, a `!x`
+    /// appearing among a rule's top-level left-hand-side arguments tells the
+    /// engine to fully normalize (under the standard evaluator) the subject
+    /// term at that position BEFORE matching against it — see
+    /// `Engine::apply_rule` in strategy.rs, "STRICT VARIABLES", for exactly
+    /// what "top-level" and "fully normalize" mean and why this exists.
+    /// There is no strict sequence-variable form (`!xs...`): forcing a
+    /// variable-length splice would require deciding how many subject
+    /// elements it should even span before matching has happened, which is
+    /// not a well-defined pre-pass the way forcing one fixed argument is.
+    pub fn as_strict_var(&self) -> Option<&str> {
+        if let Term::Sym(s) = self {
+            if s.starts_with('!') && s.len() > 1 && !s.ends_with("...") {
+                return Some(&s[1..]);
+            }
+        }
+        None
+    }
 }
 
 /// Canonical renderer. This is the *inverse* of `read_term` for the subset of
