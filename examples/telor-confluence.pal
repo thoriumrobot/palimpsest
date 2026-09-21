@@ -1,0 +1,48 @@
+#lang palimpsest
+#mode run-only
+#fuel 5000000
+import "../lib/ars.pal"
+
+// telor-confluence.pal — a minimal, literal formalization of "telic
+// recursion" (Langan's own term for reality's local self-configuration
+// process) as a term rewriting system, checked for local confluence using
+// the Critical Pair Lemma (Huet 1980) implemented in ../lib/ars.pal.
+//
+// The model: an overlap between two independent local operators is
+// (pending X Y) — X and Y are the two operators' locally-preferred
+// outcomes for their shared region. Each operator resolves the overlap by
+// its own local rule:
+//   telor-left  : (pending ?x ?y) -> (resolved ?x ?x)
+//   telor-right : (pending ?x ?y) -> (resolved ?y ?y)
+// Neither rule can fire again once either has: their left side matches
+// only a `pending` term, and both produce a `resolved` term.
+strategy solve = outermost(prim + rules)
+
+main = (report
+
+  (all-critical-pairs
+    (rules (rule (pending ?x ?y) (resolved ?x ?x))
+           (rule (pending ?x ?y) (resolved ?y ?y))))
+
+  (locally-confluent?
+    (rules (rule (pending ?x ?y) (resolved ?x ?x))
+           (rule (pending ?x ?y) (resolved ?y ?y))))
+
+  (unjoinable-pairs
+    (rules (rule (pending ?x ?y) (resolved ?x ?x))
+           (rule (pending ?x ?y) (resolved ?y ?y))))
+
+  (order-dependence
+    (normalize (pending p q)
+      (rules (rule (pending ?x ?y) (resolved ?x ?x))
+             (rule (pending ?x ?y) (resolved ?y ?y))))
+    (normalize (pending q p)
+      (rules (rule (pending ?x ?y) (resolved ?x ?x))
+             (rule (pending ?x ?y) (resolved ?y ?y)))))
+
+  (single-coordinated-rule-restores-confluence
+    (locally-confluent? (rules (rule (pending ?x ?y) (resolved anchor anchor))))
+    (normalize (pending p q) (rules (rule (pending ?x ?y) (resolved anchor anchor))))
+    (normalize (pending q p) (rules (rule (pending ?x ?y) (resolved anchor anchor))))))
+
+run solve

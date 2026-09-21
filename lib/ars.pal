@@ -1,0 +1,254 @@
+#lang palimpsest
+// ars.pal — abstract rewriting systems: unification, critical pairs, and
+// local confluence, as executable Palimpsest code operating on rewrite
+// rules represented as ordinary Palimpsest terms.
+//
+// A rule is represented as (rule LHS RHS), where LHS and RHS are terms that
+// may contain ordinary Palimpsest pattern variables (?x). A ruleset is
+// (rules (rule L1 R1) (rule L2 R2) ...). Nothing here uses sequence
+// variables (?xs...) in the OBJECT rules being analyzed: this is
+// first-order term rewriting in the classical sense, the setting the
+// underlying theorems (critical pairs, local confluence, Newman's lemma)
+// are stated in.
+
+import "prelude.pal"
+
+// ===========================================================================
+// VARIABLES
+// ===========================================================================
+// A variable is any symbol whose printed form starts with "?". List-shaped
+// terms are checked structurally first (never touching `str`, which is only
+// defined on symbols/numbers/strings) so this is safe on every term shape.
+rule is-var-list : (is-var? (?xs...)) => false
+rule is-var-atom : (is-var? ?x) => (is-var-str? (str ?x))
+rule is-var-str? : (is-var-str? ?s) => (= (nth 0 (explode ?s)) "?")
+
+// ===========================================================================
+// SUBSTITUTIONS
+// ===========================================================================
+// A substitution is a lib/dict.pal dict keyed by variable-symbols (e.g.
+// ?x), mapping each to a term (possibly containing further variables).
+//
+// walk(T, sigma): if T is a variable bound in sigma, follow the binding
+// (recursively, to support chains like x->y->3) until an unbound variable
+// or a non-variable term is reached. Shallow: does not look inside a
+// compound bound value. That is instantiate's job.
+rule walk-var    : (walk ?t ?sigma) => (walk-lookup ?t (get ?t ?sigma) ?sigma) where (is-var? ?t)
+rule walk-nonvar : (walk ?t ?sigma) => ?t
+rule walk-lookup-some : (walk-lookup ?t (some ?v) ?sigma) => (walk ?v ?sigma)
+rule walk-lookup-none : (walk-lookup ?t none ?sigma) => ?t
+
+// instantiate(T, sigma): apply sigma throughout T, recursively, replacing
+// every variable occurrence (including inside whatever a variable's own
+// binding turns out to contain) with its fully-walked value. Unbound
+// variables are left as themselves.
+//
+// NOTE the `where (is-var? ?t), ?w <- (walk ?t ?sigma)` clause on
+// instantiate-var: the guard and the forcing bind are BOTH required.
+// Dropping the guard makes this rule fire on every call, including
+// non-variables, which is merely wasteful. Dropping the bind (writing
+// `(inst-walked (walk ?t ?sigma) ?t ?sigma)` directly instead) is a real
+// bug, not a style choice: `inst-walked`'s first two arguments are compared
+// non-linearly, and without forcing, that comparison runs on the
+// UNREDUCED call `(walk ?t ?sigma)` itself rather than on its value — which
+// is a 3-element list, so `instantiate-list` then matches it and starts
+// "instantiating" the pieces of the walk call as if they were data, which
+// does not terminate. This is the general shape of hazard `equal?`
+// (lib/logic.pal) already documents for its own callers; the fix here is
+// the same fix used throughout lib/ctmu.pal — force before comparing.
+rule instantiate-var  : (instantiate ?t ?sigma) => (inst-walked ?w ?t ?sigma) where (is-var? ?t), ?w <- (walk ?t ?sigma)
+rule instantiate-list : (instantiate (?xs...) ?sigma) => (delist (map (inst-tagged ?sigma) (list ?xs...)))
+rule instantiate-atom : (instantiate ?a ?sigma) => ?a
+rule inst-walked-same : (inst-walked ?w ?w ?sigma) => ?w
+rule inst-walked-diff : (inst-walked ?w ?t ?sigma) => (instantiate ?w ?sigma)
+rule app-inst : (app (inst-tagged ?sigma) ?x) => (instantiate ?x ?sigma)
+
+// rename-apart(T, tag): renumber every variable in T by appending TAG to
+// its name, so that two rules can be unified without their variables
+// colliding — the standard "standardize apart" step before computing a
+// critical pair between a rule and (possibly) itself.
+rule rename-apart-var  : (rename-apart ?x ?tag) => (sym (cat (str ?x) ?tag)) where (is-var? ?x)
+rule rename-apart-list : (rename-apart (?xs...) ?tag) => (delist (map (ra-tagged ?tag) (list ?xs...)))
+rule rename-apart-atom : (rename-apart ?a ?tag) => ?a
+rule app-ra : (app (ra-tagged ?tag) ?x) => (rename-apart ?x ?tag)
+
+// ===========================================================================
+// LIST / TERM PLUMBING
+// ===========================================================================
+// delist((list a b c)) = (a b c): drop the "list" wrapper list.pal's own
+// helpers use, reconstructing a term with exactly those elements.
+rule delist-0 : (delist (list)) => ()
+rule delist-n : (delist (list ?x ?xs...)) => (?x ?xs...)
+rule as-list  : (as-list (?xs...)) => (list ?xs...)
+
+// replace-at(T, i, new): T with its i-th element replaced by `new`.
+rule replace-at : (replace-at (?xs...) ?i ?new) => (delist (replace-idx (list ?xs...) ?i ?new))
+rule replace-idx-0 : (replace-idx (list ?x ?xs...) 0 ?new) => (list ?new ?xs...)
+rule replace-idx-n : (replace-idx (list ?x ?xs...) ?i ?new) => (prepend ?x (replace-idx (list ?xs...) ?m ?new)) where (> ?i 0), ?m <- (- ?i 1)
+
+// ===========================================================================
+// UNIFICATION
+// ===========================================================================
+// unify(T1, T2, sigma): the most general unifier extending sigma so that
+// T1 and T2 become syntactically identical, or `none` if no such extension
+// exists. Robinson's algorithm, with an occurs-check (unify(x, f(x)) is
+// correctly rejected rather than silently building a circular/infinite
+// term — see the test suite for a worked instance).
+rule unify : (unify ?t1 ?t2 ?sigma) => (unify-go ?w1 ?w2 ?sigma) where ?w1 <- (walk ?t1 ?sigma), ?w2 <- (walk ?t2 ?sigma)
+rule unify-go-eq   : (unify-go ?w ?w ?sigma) => (some ?sigma)
+rule unify-go-v1   : (unify-go ?w1 ?w2 ?sigma) => (unify-bind ?w1 ?w2 ?sigma) where (is-var? ?w1)
+rule unify-go-v2   : (unify-go ?w1 ?w2 ?sigma) => (unify-bind ?w2 ?w1 ?sigma) where (is-var? ?w2)
+rule unify-go-list : (unify-go (?xs...) (?ys...) ?sigma) => (unify-list (list ?xs...) (list ?ys...) ?sigma)
+rule unify-go-fail : (unify-go ?w1 ?w2 ?sigma) => none
+
+rule unify-bind : (unify-bind ?v ?t ?sigma) => (unify-bind-go ?occ ?v ?t ?sigma) where ?occ <- (occurs? ?v ?t ?sigma)
+rule unify-bind-occurs    : (unify-bind-go true ?v ?t ?sigma) => none
+rule unify-bind-no-occurs : (unify-bind-go false ?v ?t ?sigma) => (some (put ?v ?t ?sigma))
+
+rule occurs? : (occurs? ?v ?t ?sigma) => (occurs-go ?v ?w ?sigma) where ?w <- (walk ?t ?sigma)
+rule occurs-go-eq    : (occurs-go ?v ?v ?sigma) => true
+rule occurs-go-list  : (occurs-go ?v (?xs...) ?sigma) => (any-of (occursof ?v ?sigma) (list ?xs...))
+rule occurs-go-other : (occurs-go ?v ?w ?sigma) => false
+rule occursof-app : (app (occursof ?v ?sigma) ?x) => (occurs? ?v ?x ?sigma)
+
+rule unify-list-both-empty     : (unify-list (list) (list) ?sigma) => (some ?sigma)
+rule unify-list-len-mismatch-1 : (unify-list (list) (list ?y ?ys...) ?sigma) => none
+rule unify-list-len-mismatch-2 : (unify-list (list ?x ?xs...) (list) ?sigma) => none
+rule unify-list-step : (unify-list (list ?x ?xs...) (list ?y ?ys...) ?sigma) => (unify-list-cont ?r (list ?xs...) (list ?ys...)) where ?r <- (unify ?x ?y ?sigma)
+rule unify-list-cont-some : (unify-list-cont (some ?sigma2) ?restx ?resty) => (unify-list ?restx ?resty ?sigma2)
+rule unify-list-cont-none : (unify-list-cont none ?restx ?resty) => none
+
+// ===========================================================================
+// ONE-HOLE CONTEXTS
+// ===========================================================================
+// subterms(T): every subterm of T, each paired with the "one-hole context"
+// that reproduces T when the hole (the reserved marker `hole`) is filled
+// back in with that same subterm — (pair SUBTERM CONTEXT) for every
+// position, root included. `plug` fills a hole back in.
+rule subterms : (subterms ?t) => (append (list (pair ?t hole)) (subterms-body ?t))
+rule subterms-body-list : (subterms-body (?xs...)) => (subterms-idx (?xs...) 0 ?n) where ?n <- (length (list ?xs...))
+rule subterms-body-atom : (subterms-body ?a) => (list)
+rule subterms-idx-done : (subterms-idx ?t ?i ?n) => (list) where (>= ?i ?n)
+rule subterms-idx-step : (subterms-idx ?t ?i ?n) => (append (subterms-idx-here ?t ?i) (subterms-idx ?t ?j ?n)) where (< ?i ?n), ?j <- (+ ?i 1)
+rule subterms-idx-here : (subterms-idx-here ?t ?i) => (map (idxctx-tagged ?t ?i) (subterms ?e)) where ?e <- (nth ?i (as-list ?t))
+rule idxctx-app : (app (idxctx-tagged ?t ?i) ?pr) => (idxctx-build ?pr ?t ?i)
+rule idxctx-build : (idxctx-build (pair ?s ?c) ?t ?i) => (pair ?s ?newctx) where ?newctx <- (replace-at ?t ?i ?c)
+
+rule plug-hole : (plug hole ?r) => ?r
+rule plug-list : (plug (?xs...) ?r) => (delist (map (plug-tagged ?r) (list ?xs...)))
+rule plug-atom : (plug ?a ?r) => ?a
+rule plug-tagged-app : (app (plug-tagged ?r) ?x) => (plug ?x ?r)
+
+// nonvar-subterms(T): subterms(T) with variable positions dropped — by
+// convention (Huet 1980), overlapping a rule with a bare variable is not a
+// genuine conflict, since a variable already matches anything.
+rule nonvar-subterms : (nonvar-subterms ?t) => (filter not-var-pair (subterms ?t))
+rule not-var-pair : (not-var-pair (pair ?s ?c)) => (not (is-var? ?s))
+rule app-not-var-pair : (app not-var-pair ?x) => (not-var-pair ?x)
+
+// ===========================================================================
+// REWRITING (given a ruleset as data)
+// ===========================================================================
+// A ruleset is (rules (rule L1 R1) (rule L2 R2) ...). `rewrite-root` tries
+// each rule of a ruleset, in order, against the ROOT of a term. This is
+// ordinary one-directional matching — NOT `unify`: the subject being
+// rewritten must be treated as opaque data even where it happens to
+// contain "?"-looking symbols (exactly the case for a critical pair built
+// from a rule whose right-hand side has a variable not fixed by the
+// overlap), so only the RULE's own variables may bind. `matches?` /
+// `match-witness` (native primitives, src/strategy.rs) are exactly this:
+// one-directional, subject-is-opaque matching, distinct from `unify`
+// above, which is genuinely two-directional and is what critical pairs
+// need instead.
+rule rewrite-root-empty : (rewrite-root ?t (rules)) => none
+rule rewrite-root-cons  : (rewrite-root ?t (rules (rule ?l ?r) ?rest...)) => (rewrite-root-try ?mw ?t (rule ?l ?r) (rules ?rest...) ?r) where ?mw <- (match-witness ?l ?t)
+rule rewrite-root-hit  : (rewrite-root-try (some ?mwdict) ?t ?rl ?rest ?r) => (some ?applied) where ?applied <- (instantiate-mw ?r ?mwdict)
+rule rewrite-root-miss : (rewrite-root-try none ?t ?rl ?rest ?r) => (rewrite-root ?t ?rest)
+
+// instantiate-mw: like `instantiate`, but reads a `match-witness`-shaped
+// dict, whose keys are bare variable names (no leading "?" — see
+// src/strategy.rs, eval_match_witness) rather than this file's own
+// dict-of-substitutions convention.
+rule bare-name : (bare-name ?x) => (sym (implode ?dropped)) where ?dropped <- (drop 1 (explode (str ?x)))
+rule instantiate-mw-var  : (instantiate-mw ?t ?mw) => (mw-lookup ?res ?t) where (is-var? ?t), ?bn <- (bare-name ?t), ?res <- (get ?bn ?mw)
+rule instantiate-mw-list : (instantiate-mw (?xs...) ?mw) => (delist (map (instmw-tagged ?mw) (list ?xs...)))
+rule instantiate-mw-atom : (instantiate-mw ?a ?mw) => ?a
+rule mw-lookup-some : (mw-lookup (some ?v) ?t) => ?v
+rule mw-lookup-none : (mw-lookup none ?t) => ?t
+rule app-instmw : (app (instmw-tagged ?mw) ?x) => (instantiate-mw ?x ?mw)
+
+// `normalize` repeatedly tries to rewrite the ROOT of the term; if the root
+// itself has no redex, it normalizes every child (in case a child rewrite
+// creates a new root-level redex) and retries the root. This is ordinary
+// outermost rewriting, run here as data over data rather than by the host
+// engine over its own loaded rule set. Bounded by fuel; a non-terminating
+// rule set simply runs the host interpreter out of fuel, exactly as it
+// would for any other non-terminating Palimpsest program.
+rule normalize : (normalize ?t ?rs) => (normalize-try ?h ?t ?rs) where ?h <- (rewrite-root ?t ?rs)
+rule normalize-hit  : (normalize-try (some ?t2) ?t ?rs) => (normalize ?t2 ?rs)
+rule normalize-miss-list : (normalize-try none (?xs...) ?rs) => (normalize-retry (?xs...) ?new ?rs) where ?new <- (delist (map (norm-tagged ?rs) (list ?xs...)))
+rule normalize-miss-atom : (normalize-try none ?a ?rs) => ?a
+rule app-norm : (app (norm-tagged ?rs) ?x) => (normalize ?x ?rs)
+// If normalizing the children changed nothing, we are done (no root redex,
+// no child redex): this is the term's normal form. If they did change,
+// normalize again from the root, since a rewritten child may expose a new
+// root-level redex it did not have before.
+rule normalize-retry-same : (normalize-retry ?t ?t ?rs) => ?t
+rule normalize-retry-diff : (normalize-retry ?old ?new ?rs) => (normalize ?new ?rs)
+
+// ===========================================================================
+// CRITICAL PAIRS AND LOCAL CONFLUENCE
+// ===========================================================================
+// critical-pairs(rule1, rule2): standardizes the two rules apart, then for
+// every non-variable subterm of rule1's left side, tries to unify it with
+// rule2's whole left side. Each success yields one critical pair: the two
+// terms you get by resolving the same overlap via rule1 (rewrite at the
+// root) versus via rule2 (rewrite inside, at the overlapping position).
+// This is the Knuth-Bendix / critical pair construction (Knuth and Bendix
+// 1970; the completeness of checking only these overlaps is the Critical
+// Pair Lemma, Huet 1980).
+rule critical-pairs : (critical-pairs (rule ?l1 ?r1) (rule ?l2 ?r2)) =>
+  (cp-with-renamed ?ren1 ?ren2)
+  where
+  ?ren1 <- (rename-apart (rule ?l1 ?r1) "-a"),
+  ?ren2 <- (rename-apart (rule ?l2 ?r2) "-b")
+rule cp-with-renamed : (cp-with-renamed (rule ?l1 ?r1) (rule ?l2 ?r2)) => (cp-scan (nonvar-subterms ?l1) ?l1 ?r1 ?l2 ?r2)
+
+rule cp-scan-done : (cp-scan (list) ?l1 ?r1 ?l2 ?r2) => (list)
+rule cp-scan-step : (cp-scan (list (pair ?sub ?ctx) ?rest...) ?l1 ?r1 ?l2 ?r2) =>
+  (append (cp-try ?u ?r1 ?ctx ?r2) (cp-scan (list ?rest...) ?l1 ?r1 ?l2 ?r2))
+  where ?u <- (unify ?sub ?l2 (dict-empty))
+rule cp-try-none : (cp-try none ?r1 ?ctx ?r2) => (list)
+rule cp-try-some : (cp-try (some ?sigma) ?r1 ?ctx ?r2) => (list (pair ?sideA ?sideB))
+  where
+  ?sideA <- (instantiate ?r1 ?sigma),
+  ?plugged <- (plug ?ctx ?r2),
+  ?sideB <- (instantiate ?plugged ?sigma)
+
+// all-critical-pairs(ruleset): every critical pair from every ordered pair
+// of rules drawn from the ruleset, self-pairs included (a rule can overlap
+// with a freshly-renamed copy of itself).
+rule all-critical-pairs : (all-critical-pairs (rules ?rs...)) => (acp-outer (list ?rs...) (list ?rs...))
+rule acp-outer-done : (acp-outer (list) ?all) => (list)
+rule acp-outer-step : (acp-outer (list ?r1 ?rest...) ?all) => (append (acp-inner ?r1 ?all) (acp-outer (list ?rest...) ?all))
+rule acp-inner-done : (acp-inner ?r1 (list)) => (list)
+rule acp-inner-step : (acp-inner ?r1 (list ?r2 ?rest...)) => (append (critical-pairs ?r1 ?r2) (acp-inner ?r1 (list ?rest...)))
+
+// joinable?(a, b, ruleset): do a and b rewrite (under ruleset) to the same
+// normal form? locally-confluent?(ruleset): are ALL of its critical pairs
+// joinable? By the Critical Pair Lemma, this single check decides local
+// confluence outright — there is no need (and, for a possibly-infinite
+// rewrite relation, no way) to check every pair of one-step divergences
+// directly; checking the finitely many critical pairs is already
+// equivalent to checking all of them.
+rule joinable? : (joinable? ?a ?b ?rs) => (equal? ?na ?nb) where ?na <- (normalize ?a ?rs), ?nb <- (normalize ?b ?rs)
+rule locally-confluent? : (locally-confluent? ?rs) => (all-of (joinable-pair? ?rs) (all-critical-pairs ?rs))
+rule joinable-pair-app : (app (joinable-pair? ?rs) ?pr) => (joinable-pair-go ?pr ?rs)
+rule joinable-pair-go : (joinable-pair-go (pair ?a ?b) ?rs) => (joinable? ?a ?b ?rs)
+
+// unjoinable-pairs(ruleset): the critical pairs that FAIL to join — the
+// concrete witnesses of non-confluence, when there are any.
+rule unjoinable-pairs : (unjoinable-pairs ?rs) => (filter (unjoinable? ?rs) (all-critical-pairs ?rs))
+rule unjoinable-app : (app (unjoinable? ?rs) ?pr) => (unjoinable-go ?pr ?rs)
+rule unjoinable-go : (unjoinable-go (pair ?a ?b) ?rs) => (not ?j) where ?j <- (joinable? ?a ?b ?rs)
+

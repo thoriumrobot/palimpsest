@@ -8,17 +8,19 @@ is *irreversible file mutation*, which Rust's ownership model plus atomic
 write-then-rename and a capability-checked write path contain best.
 
 This tree contains the interpreter, a **standard library written in Palimpsest**
-(including result renderers and a text-visualization library), runnable examples —
-among them ten **mind↔body loop** simulations that rewrite themselves into their
-own classified trajectory and graph it, and a formal model of the CTMU's
-topological/descriptive containment distinction proving the two relations
-cannot be merged into one (written up as a standalone paper,
-`NONSUBSUMPTION.md`) — a graded puzzle book (`puzzles/PUZZLES.md`), and six
-documents: a general walkthrough (`TUTORIAL.md`), a tour of self-rewriting
-programs (`SELF-REWRITING.md`), a tour of self-referential coding
-(`SELF-REFERENCE.md`), a reference on the mind↔body simulations (`MIND-BODY.md`),
-a step-by-step tutorial on them (`MINDBODY-TUTORIAL.md`), and the CTMU
-containment model (`CTMU.md`).
+(including result renderers, a text-visualization library, and a small
+abstract-rewriting-systems toolkit for unification and confluence checking),
+runnable examples — among them ten **mind↔body loop** simulations that
+rewrite themselves into their own classified trajectory and graph it, a
+formal model of the CTMU's topological/descriptive containment distinction
+proving the two relations cannot be merged into one (`NONSUBSUMPTION.md`),
+and a confluence-theoretic test of the CTMU's account of local
+self-configuration (`TELIC-CONFLUENCE.md`) — a graded puzzle book
+(`puzzles/PUZZLES.md`), and six documents: a general walkthrough
+(`TUTORIAL.md`), a tour of self-rewriting programs (`SELF-REWRITING.md`), a
+tour of self-referential coding (`SELF-REFERENCE.md`), a reference on the
+mind↔body simulations (`MIND-BODY.md`), a step-by-step tutorial on them
+(`MINDBODY-TUTORIAL.md`), and the CTMU containment model (`CTMU.md`).
 
 ## Build & run
 
@@ -32,6 +34,7 @@ cargo test --release          # unit tests (see src/*.rs for current count)
 ./verify-self-rewriting.sh    # 6 complex self-rewriting programs (solve, render, quine)
 ./verify-mindbody.sh          # 10 mind<->body loop environments (attractors + quine)
 ./verify-ctmu.sh              # the CTMU containment model (3 self-rewriting proofs)
+./verify-telic.sh             # confluence test of CTMU's telic recursion
 ```
 
 Run a program:
@@ -137,6 +140,7 @@ the evaluation strategies.
 | `chart.pal` | text-visualization library: `colplot` (column chart of value vs time), `overlay` (two curves, `o`/`x`/`*`), `histogram` (value distribution), `spark` (one-line sparkline) — used to auto-display the mind↔body environments |
 | `mindbody.pal` | the mind↔body loop engine (imports `render.pal` + `chart.pal`): `trace` runs a `step` loop, classifies the attractor (settled / cycle / runaway / bounded), and `loop-view` graphs it; helpers `toward clamp mix`. See `MIND-BODY.md` and `MINDBODY-TUTORIAL.md` |
 | `ctmu.pal` | a formal model of the CTMU's dual containment relation: `subterm?`/`topcontains?`/`size` (topological, bounded), `desccontains?`/`desc-witness` (descriptive, unbounded — wraps `matches?`/`match-witness`), `dual-contains?` (the paradox-resolving combination), and a `ctrace`/`cverify` conspansion engine. See `CTMU.md` |
+| `ars.pal` | abstract rewriting systems: `unify` (occurs-checked unification), `subterms`/`plug` (one-hole contexts), `critical-pairs`/`all-critical-pairs` (the Knuth-Bendix construction), `locally-confluent?`/`unjoinable-pairs` (the Critical Pair Lemma), `normalize` (rewriting under a ruleset given as data). See `TELIC-CONFLUENCE.md` |
 
 `normalize` / `eval` are normal-order (`outermost(prim + rules)`) — the default
 you want, terminating for recursive definitions. `eval-strict` is innermost
@@ -469,4 +473,4 @@ unsubstituted, for authoring fresh pattern-shaped data.
   is not. Accumulator-style helpers (`foldl`, `fib`) force their accumulators with
   `where` bindings to avoid an additional layer of blow-up.
 
-See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and `CTMU.md` for the formal containment model and its non-subsumption proof (`verify-ctmu.sh`), with the proof itself written up as a standalone paper in `NONSUBSUMPTION.md`.
+See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and `CTMU.md` for the formal containment model and its non-subsumption proof (`verify-ctmu.sh`), with the proof itself written up as a standalone paper in `NONSUBSUMPTION.md`, and `TELIC-CONFLUENCE.md` for a confluence-theoretic test of the CTMU's account of local self-configuration (`verify-telic.sh`).
