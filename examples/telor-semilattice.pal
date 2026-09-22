@@ -1,0 +1,112 @@
+#lang palimpsest
+#mode run-only
+#fuel 3000000
+import "../lib/ars.pal"
+
+// telor-semilattice.pal — what kind of grammar guarantees that otherwise
+// independent telors reach the same decision at an overlap?
+// examples/telor-confluence.pal showed two independent, arbitrary local
+// preferences are generically NOT confluent. This file checks the positive
+// claim: if every telor resolves an overlap by combining the locally
+// visible values through a shared operation, agreement is guaranteed
+// exactly when that operation is a semilattice (commutative, associative,
+// idempotent) — the same algebraic signature CRDTs use for
+// order-independent, coordinator-free convergence.
+strategy solve = outermost(prim + rules)
+
+// A finite domain {a, b, c} with a < b < c, and "op" = max under that order
+// — the Cayley table IS the definition, in the same way a truth table
+// defines a small boolean function.
+main = (report
+
+  (max-is-a-semilattice
+    (is-commutative?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-associative?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-idempotent?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-semilattice?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      (list a b c)))
+
+  // A deliberately broken table: commutative and idempotent, but NOT
+  // associative — op(op(a,b),c) = op(b,c) = c, while op(a,op(b,c)) =
+  // op(a,c) = a.
+  (broken-table-is-not-a-semilattice
+    (is-commutative?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-idempotent?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-associative?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      (list a b c))
+    (is-semilattice?
+      (rules (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      (list a b c)))
+
+  // The point of a semilattice: folding several independent contributions
+  // in via op, in ANY order, converges on the same answer. Three different
+  // orderings of the same three contributions, both operations:
+  (max-order-independent
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      bottom (list a b c))
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      bottom (list c b a))
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      bottom (list b c a)))
+
+  (broken-order-dependent
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      bottom (list a b c))
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      bottom (list c b a))
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+      bottom (list b c a))))
+
+run solve

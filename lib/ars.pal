@@ -252,3 +252,62 @@ rule unjoinable-pairs : (unjoinable-pairs ?rs) => (filter (unjoinable? ?rs) (all
 rule unjoinable-app : (app (unjoinable? ?rs) ?pr) => (unjoinable-go ?pr ?rs)
 rule unjoinable-go : (unjoinable-go (pair ?a ?b) ?rs) => (not ?j) where ?j <- (joinable? ?a ?b ?rs)
 
+// ===========================================================================
+// FINITE ALGEBRAS: checking whether an operation is a semilattice
+// ===========================================================================
+// An operation is given as a ruleset with rules of the exact shape
+// (rule (op A B) C) for every pair (A, B) drawn from a finite domain — a
+// Cayley table, the standard way to present a small finite algebraic
+// structure, and directly executable here: `apply-op` computes op(a, b) by
+// normalizing (op a b) under exactly that ruleset (reusing `normalize`
+// above, so this needs no new rewriting machinery, only new rulesets to
+// feed it).
+//
+// Why this matters: a rewrite system built from several DIFFERENT rules
+// that each independently resolve an overlap (see examples/telor-*.pal) is
+// confluent at that overlap only if the values those rules produce always
+// agree — and the precise condition under which many independently-applied,
+// pairwise combinations of values are GUARANTEED to agree, regardless of
+// how many there are or what order they arrive in, is that the combining
+// operation is a semilattice: commutative, associative, and idempotent.
+// This is the same algebraic signature that underlies Conflict-free
+// Replicated Data Types (CRDTs) in distributed systems (Shapiro et al.
+// 2011): a CRDT's merge function is, by construction, a semilattice join,
+// which is exactly what makes independently-applied, arbitrarily-ordered
+// merges converge. `is-semilattice?` and `fold-op`'s order-independence
+// (both below) are two ways of checking the same property.
+rule apply-op : (apply-op ?op ?a ?b) => (normalize (op ?a ?b) ?op)
+
+rule is-idempotent? : (is-idempotent? ?op (list ?xs...)) => (all-of (idem-check ?op) (list ?xs...))
+rule idem-check-app : (app (idem-check ?op) ?x) => (equal? ?opxx ?x) where ?opxx <- (apply-op ?op ?x ?x)
+
+rule is-commutative? : (is-commutative? ?op ?domain) => (all-of (comm-check-outer ?op ?domain) ?domain)
+rule comm-check-outer-app : (app (comm-check-outer ?op ?domain) ?a) => (all-of (comm-check-inner ?op ?a) ?domain)
+rule comm-check-inner-app : (app (comm-check-inner ?op ?a) ?b) => (equal? ?ab ?ba) where ?ab <- (apply-op ?op ?a ?b), ?ba <- (apply-op ?op ?b ?a)
+
+rule is-associative? : (is-associative? ?op ?domain) => (all-of (assoc-check-a ?op ?domain) ?domain)
+rule assoc-check-a-app : (app (assoc-check-a ?op ?domain) ?a) => (all-of (assoc-check-b ?op ?a ?domain) ?domain)
+rule assoc-check-b-app : (app (assoc-check-b ?op ?a ?domain) ?b) => (all-of (assoc-check-c ?op ?a ?b) ?domain)
+rule assoc-check-c-app : (app (assoc-check-c ?op ?a ?b) ?c) => (equal? ?left ?right)
+  where
+  ?ab <- (apply-op ?op ?a ?b), ?left <- (apply-op ?op ?ab ?c),
+  ?bc <- (apply-op ?op ?b ?c), ?right <- (apply-op ?op ?a ?bc)
+
+// is-semilattice?(op, domain): op is commutative, associative, and
+// idempotent over every element/pair/triple drawn from `domain`. This is a
+// finite, brute-force check (it examines every pair and triple from
+// `domain`), decidable exactly because `domain` is finite — it is a claim
+// about op ON THAT DOMAIN, not a general proof for an infinite carrier set.
+rule is-semilattice? : (is-semilattice? ?op ?domain) => (and ?c (and ?a2 ?i))
+  where ?c <- (is-commutative? ?op ?domain), ?a2 <- (is-associative? ?op ?domain), ?i <- (is-idempotent? ?op ?domain)
+
+// fold-op(op, initial, values): combine `values` into `initial` one at a
+// time, left to right, via op. If op is commutative and associative, this
+// value does not depend on the order `values` are listed in — checking that
+// directly, for several different orderings of the same multiset, is the
+// most direct executable demonstration of what a semilattice buys: several
+// independent contributions, folded in via op in whatever order they
+// happen to arrive, converge on one answer.
+rule fold-op-0 : (fold-op ?op ?acc (list)) => ?acc
+rule fold-op-n : (fold-op ?op ?acc (list ?x ?xs...)) => (fold-op ?op ?acc2 (list ?xs...)) where ?acc2 <- (apply-op ?op ?acc ?x)
+
