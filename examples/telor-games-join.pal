@@ -1,0 +1,125 @@
+#lang palimpsest
+#mode run-only
+#fuel 20000000
+import "../lib/games.pal"
+
+// telor-games-join.pal — equilibria of JOIN GAMES (TELIC-GAMES.md, Section 4).
+//
+// Once the overlap is resolved by a semilattice join, the merge is
+// order-free and the overlap is a genuine normal-form game: each telor
+// chooses a contribution, the boundary becomes the join of all of them, and
+// each telor is paid by its own utility over that boundary value. The
+// semilattice settles WHETHER the telors agree (they always do: there is one
+// join). It does not settle WHAT they agree on. This file shows what game
+// theory says about that second question.
+strategy solve = outermost(prim + rules)
+
+// ---------------------------------------------------------------------------
+// A chain: bot < lo < mid < hi, join = max. (bot is the empty boundary.)
+// ---------------------------------------------------------------------------
+rule t-chain : (chain4) => (rules
+  (rule (op bot bot) bot) (rule (op bot lo) lo) (rule (op bot mid) mid) (rule (op bot hi) hi)
+  (rule (op lo bot) lo) (rule (op lo lo) lo) (rule (op lo mid) mid) (rule (op lo hi) hi)
+  (rule (op mid bot) mid) (rule (op mid lo) mid) (rule (op mid mid) mid) (rule (op mid hi) hi)
+  (rule (op hi bot) hi) (rule (op hi lo) hi) (rule (op hi mid) hi) (rule (op hi hi) hi))
+
+// Telor 0 peaks at lo, telor 1 at mid. Both utilities fall (weakly) above
+// the peak — the condition Corollary 4.3 shows is exactly what makes
+// "contribute your peak" weakly dominant on a chain.
+rule u-c00 : (utility chainpref 0 bot) => 0
+rule u-c01 : (utility chainpref 0 lo)  => 2
+rule u-c02 : (utility chainpref 0 mid) => 1
+rule u-c03 : (utility chainpref 0 hi)  => 0
+rule u-c10 : (utility chainpref 1 bot) => 0
+rule u-c11 : (utility chainpref 1 lo)  => 1
+rule u-c12 : (utility chainpref 1 mid) => 2
+rule u-c13 : (utility chainpref 1 hi)  => 1
+rule g-chain : (chain-game) => (join-game ?t bot chainpref (list (list bot lo mid hi) (list bot lo mid hi))) where ?t <- (chain4)
+
+// The same, except telor 0's utility RISES again above mid (lo > hi > mid):
+// a "kink" above the peak. Now the peak is no longer dominant.
+rule u-k00 : (utility kinked 0 bot) => 0
+rule u-k01 : (utility kinked 0 lo)  => 2
+rule u-k02 : (utility kinked 0 mid) => 0
+rule u-k03 : (utility kinked 0 hi)  => 1
+rule u-k1  : (utility kinked 1 ?x) => (utility chainpref 1 ?x)
+rule g-kinked : (kinked-game) => (join-game ?t bot kinked (list (list bot lo mid hi) (list bot lo mid hi))) where ?t <- (chain4)
+
+// ---------------------------------------------------------------------------
+// A diamond: bot < a, b < top, with a and b incomparable (a ⊔ b = top).
+// Read a = {p}, b = {q}, top = {p, q}: the union lattice on two facts.
+// ---------------------------------------------------------------------------
+rule t-diamond : (diamond) => (rules
+  (rule (op bot bot) bot) (rule (op bot a) a) (rule (op bot b) b) (rule (op bot top) top)
+  (rule (op a bot) a) (rule (op a a) a) (rule (op a b) top) (rule (op a top) top)
+  (rule (op b bot) b) (rule (op b a) top) (rule (op b b) b) (rule (op b top) top)
+  (rule (op top bot) top) (rule (op top a) top) (rule (op top b) top) (rule (op top top) top))
+
+// Two telors with incomparable peaks (a and b), each preferring the OTHER's
+// peak to the merged state top, and anything to the empty boundary.
+rule u-d0a : (utility rivals 0 a)   => 3
+rule u-d0b : (utility rivals 0 b)   => 2
+rule u-d0t : (utility rivals 0 top) => 1
+rule u-d0o : (utility rivals 0 bot) => 0
+rule u-d1a : (utility rivals 1 a)   => 2
+rule u-d1b : (utility rivals 1 b)   => 3
+rule u-d1t : (utility rivals 1 top) => 1
+rule u-d1o : (utility rivals 1 bot) => 0
+rule g-diamond : (diamond-game) => (join-game ?t bot rivals (list (list bot a b top) (list bot a b top))) where ?t <- (diamond)
+// The same telors, each restricted to "assert my peak" or "yield" (bot).
+rule g-hawkdove : (hawk-dove) => (join-game ?t bot rivals (list (list a bot) (list b bot))) where ?t <- (diamond)
+
+// "Parsimony" telor 0 wants a single-fact boundary (a or b, indifferent);
+// "plenitude" telor 1 wants the richest boundary (top). Neither can propose
+// top directly: contributions are single facts, D = {a, b}.
+rule u-m0a : (utility pp 0 a)   => 1
+rule u-m0b : (utility pp 0 b)   => 1
+rule u-m0t : (utility pp 0 top) => 0
+rule u-m1a : (utility pp 1 a)   => 0
+rule u-m1b : (utility pp 1 b)   => 0
+rule u-m1t : (utility pp 1 top) => 1
+rule g-pennies : (pennies) => (join-game ?t bot pp (list (list a b) (list a b))) where ?t <- (diamond)
+
+main = (report
+
+  // --- 4.1 The top trap: claiming everything is always an equilibrium ----
+  (chain-top-trap-is-nash       (nash? (chain-game) (prof hi hi)))
+  (chain-top-trap-is-dominated  (pareto-dominated? (chain-game) (prof hi hi)))
+  (diamond-top-trap-is-nash     (nash? (diamond-game) (prof top top)))
+  (diamond-top-trap-is-dominated (pareto-dominated? (diamond-game) (prof top top)))
+
+  // --- 4.2 Chains: contributing your peak is weakly dominant -------------
+  (chain-peaks-dominant
+    (weakly-dominant? (chain-game) 0 lo)
+    (weakly-dominant? (chain-game) 1 mid))
+  (chain-truthful-outcome (outcome (chain-game) (prof lo mid)))
+  (chain-truthful-is-nash (nash? (chain-game) (prof lo mid)))
+  (chain-truthful-is-pareto-dominated (pareto-dominated? (chain-game) (prof lo mid)))
+  // ... but only if utility does not rise again above the peak:
+  (kinked-peak-dominant (weakly-dominant? (kinked-game) 0 lo))
+  (kinked-witnesses (dominance-witnesses (kinked-game) 0 lo))
+
+  // --- 4.3 Incomparable peaks: truth-telling collides at top -------------
+  (diamond-peaks-dominant
+    (weakly-dominant? (diamond-game) 0 a)
+    (weakly-dominant? (diamond-game) 1 b))
+  (diamond-truthful-outcome (outcome (diamond-game) (prof a b)))
+  (diamond-truthful-is-nash (nash? (diamond-game) (prof a b)))
+  (diamond-pure-nash (pure-nash (diamond-game)))
+  (diamond-nash-outcomes (outcomes-of (diamond-game) (pure-nash (diamond-game))))
+
+  // Restricted to assert/yield, the overlap is an anti-coordination game
+  // (not Chicken in the strict sense here: collision, 1, beats mutual
+  // yielding, 0; the rules keep the name hawk-dove): two asymmetric pure
+  // equilibria, and a symmetric mixed one in which each
+  // telor asserts with probability 3/4 and the boundary lands on top with
+  // probability 9/16.
+  (hawk-dove-pure-nash (pure-nash (hawk-dove)))
+  (hawk-dove-mixed (mixed-2x2 (hawk-dove)))
+  (hawk-dove-p-top (prob-r0c0 (mixed-2x2 (hawk-dove))))
+
+  // --- 4.4 When top cannot be proposed, pure equilibria can vanish -------
+  (pennies-pure-nash (pure-nash (pennies)))
+  (pennies-mixed (mixed-2x2 (pennies))))
+
+run solve

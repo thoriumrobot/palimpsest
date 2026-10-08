@@ -1,0 +1,377 @@
+#lang palimpsest
+// games.pal — finite normal-form games as Palimpsest terms, and the
+// better-response dynamics of a game as an abstract rewriting system.
+//
+// Companion to lib/ars.pal. That file asks of a rule set "does the order in
+// which independent rewrites fire change the result?" This file asks the
+// game-theoretic version of the same question about independent local
+// maximizers ("telors"): given what each one wants, which joint choices are
+// stable (Nash equilibria), does independent local improvement ever stop
+// (finite improvement property), and when it stops, does WHERE it stops
+// depend on who happened to move first (confluence of the improvement
+// relation)? See TELIC-GAMES.md for the theory and examples/telor-games-*.pal
+// for the runs.
+//
+// ---------------------------------------------------------------------------
+// HOW A GAME IS GIVEN
+// ---------------------------------------------------------------------------
+// A game is any term G (usually a bare symbol) for which the program supplies
+// two open-application rules, in the same "open recursion by symbol" style
+// list.pal uses for map/filter:
+//
+//   (strategy-sets G)      => (list (list s s ...) (list s s ...) ...)
+//                              one strategy list per player; players are
+//                              numbered 0, 1, 2, ... in that order
+//   (payoff G I PROFILE)   => an integer: player I's payoff at PROFILE
+//
+// A PROFILE is (prof s0 s1 ... s{n-1}): one strategy per player.
+//
+// Join games (Section "JOIN GAMES" below) are built in: their payoffs are
+// computed by merging the profile through a Cayley table with ars.pal's
+// fold-op, exactly the overlap-resolution model of SEMILATTICE-GRAMMAR.md.
+
+import "ars.pal"
+
+// ===========================================================================
+// SMALL LIST HELPERS (structural, for list-valued elements like profiles)
+// ===========================================================================
+// list.pal's `member` compares with the `=` primitive, which is defined on
+// atoms only; profiles are lists, so membership here uses `equal?`
+// (structural, non-linear match) instead. Arguments must already be values.
+rule mem?-0 : (mem? ?x (list)) => false
+rule mem?-n : (mem? ?x (list ?y ?ys...)) => (or (equal? ?x ?y) (mem? ?x (list ?ys...)))
+
+rule dedup : (dedup ?xs) => (dedup-go ?xs (list))
+rule dedup-done : (dedup-go (list) ?acc) => ?acc
+rule dedup-step : (dedup-go (list ?x ?xs...) ?acc) => (dedup-pick ?m ?x (list ?xs...) ?acc) where ?m <- (mem? ?x ?acc)
+rule dedup-seen : (dedup-pick true ?x ?rest ?acc) => (dedup-go ?rest ?acc)
+rule dedup-new  : (dedup-pick false ?x ?rest (list ?acc...)) => (dedup-go ?rest (list ?acc... ?x))
+
+rule remove-idx-0 : (remove-idx 0 (list ?x ?xs...)) => (list ?xs...)
+rule remove-idx-n : (remove-idx ?k (list ?x ?xs...)) => (prepend ?x (remove-idx ?j (list ?xs...))) where (> ?k 0), ?j <- (- ?k 1)
+
+rule all-ge-0 : (all-ge (list) (list)) => true
+rule all-ge-n : (all-ge (list ?x ?xs...) (list ?y ?ys...)) => (and (>= ?x ?y) (all-ge (list ?xs...) (list ?ys...)))
+
+// permutations(list): every ordering of the list (as a list of lists).
+rule permutations-0 : (permutations (list)) => (list (list))
+rule permutations-n : (permutations (list ?x ?xs...)) => (concat (map (perm-pick (list ?x ?xs...)) ?idx)) where ?m <- (length (list ?xs...)), ?idx <- (range 0 ?m)
+rule app-perm-pick : (app (perm-pick ?l) ?k) => (map (prepend-to ?y) ?ps) where ?y <- (nth ?k ?l), ?rest <- (remove-idx ?k ?l), ?ps <- (permutations ?rest)
+rule app-prepend-to : (app (prepend-to ?y) ?l) => (prepend ?y ?l)
+
+// ===========================================================================
+// PROFILES, PLAYERS, DEVIATIONS
+// ===========================================================================
+rule profiles : (profiles ?g) => (cartesian ?sets) where ?sets <- (strategy-sets ?g)
+rule cartesian-0 : (cartesian (list)) => (list (prof))
+rule cartesian-n : (cartesian (list ?s ?ss...)) => (concat (map (cons-onto ?tails) ?s)) where ?tails <- (cartesian (list ?ss...))
+rule app-cons-onto : (app (cons-onto ?tails) ?x) => (map (prof-cons ?x) ?tails)
+rule app-prof-cons : (app (prof-cons ?x) (prof ?ys...)) => (prof ?x ?ys...)
+
+rule num-players : (num-players ?g) => (length ?sets) where ?sets <- (strategy-sets ?g)
+rule player-ids : (player-ids ?g) => (range 0 ?m) where ?n <- (num-players ?g), ?m <- (- ?n 1)
+rule player-pairs : (player-pairs ?g) => (concat (map (pairs-from ?ids) ?ids)) where ?ids <- (player-ids ?g)
+rule app-pairs-from : (app (pairs-from ?ids) ?i) => (map (mk-pair ?i) ?js) where ?js <- (filter (gt-than ?i) ?ids)
+rule app-mk-pair : (app (mk-pair ?i) ?j) => (pair ?i ?j)
+rule app-gt-than : (app (gt-than ?i) ?j) => (> ?j ?i)
+
+rule component : (component ?i (prof ?xs...)) => (nth ?i (list ?xs...))
+rule with-component : (with-component ?i ?s (prof ?xs...)) => (prof-of ?l) where ?l <- (replace-idx (list ?xs...) ?i ?s)
+rule prof-of : (prof-of (list ?xs...)) => (prof ?xs...)
+
+// deviations(G, i, p): every profile player i can reach from p by changing
+// only its own strategy (p itself included).
+rule deviations : (deviations ?g ?i ?p) => (map (set-comp ?i ?p) ?si) where ?sets <- (strategy-sets ?g), ?si <- (nth ?i ?sets)
+rule app-set-comp : (app (set-comp ?i ?p) ?s) => (with-component ?i ?s ?p)
+
+// payoffs(G, p): the payoff vector (list u0 u1 ...).
+rule payoffs : (payoffs ?g ?p) => (map (pay-of ?g ?p) ?ids) where ?ids <- (player-ids ?g)
+rule app-pay-of : (app (pay-of ?g ?p) ?i) => (payoff ?g ?i ?p)
+
+// ===========================================================================
+// EQUILIBRIUM, DOMINANCE, EFFICIENCY
+// ===========================================================================
+// best-response?(G, i, p): no unilateral change of i's strategy raises i's
+// payoff. nash?(G, p): that holds for every player. pure-nash(G): all pure
+// Nash equilibria, in profile-enumeration order.
+rule best-response? : (best-response? ?g ?i ?p) => (all-of (no-gain ?g ?i ?u) ?devs) where ?u <- (payoff ?g ?i ?p), ?devs <- (deviations ?g ?i ?p)
+rule app-no-gain : (app (no-gain ?g ?i ?u) ?q) => (<= ?v ?u) where ?v <- (payoff ?g ?i ?q)
+rule nash? : (nash? ?g ?p) => (all-of (br-at ?g ?p) ?ids) where ?ids <- (player-ids ?g)
+rule app-br-at : (app (br-at ?g ?p) ?i) => (best-response? ?g ?i ?p)
+rule pure-nash : (pure-nash ?g) => (filter (nash-at ?g) ?ps) where ?ps <- (profiles ?g)
+rule app-nash-at : (app (nash-at ?g) ?p) => (nash? ?g ?p)
+
+// weakly-dominant?(G, i, s): whatever everyone else does, s is at least as
+// good for player i as any strategy i could be playing instead.
+rule weakly-dominant? : (weakly-dominant? ?g ?i ?s) => (all-of (wd-at ?g ?i ?s) ?ps) where ?ps <- (profiles ?g)
+rule app-wd-at : (app (wd-at ?g ?i ?s) ?p) => (>= ?v ?u) where ?q <- (with-component ?i ?s ?p), ?v <- (payoff ?g ?i ?q), ?u <- (payoff ?g ?i ?p)
+
+// dominance-witnesses(G, i, s): the profiles p at which switching to s makes
+// player i strictly WORSE off — empty exactly when s is weakly dominant.
+rule dominance-witnesses : (dominance-witnesses ?g ?i ?s) => (filter (wd-fails ?g ?i ?s) ?ps) where ?ps <- (profiles ?g)
+rule app-wd-fails : (app (wd-fails ?g ?i ?s) ?p) => (not ?ok) where ?ok <- (app (wd-at ?g ?i ?s) ?p)
+
+// pareto-dominators(G, p): profiles that make nobody worse off and somebody
+// strictly better off than p.
+rule pareto-dominators : (pareto-dominators ?g ?p) => (filter (pdom ?g ?up) ?ps) where ?up <- (payoffs ?g ?p), ?ps <- (profiles ?g)
+rule app-pdom : (app (pdom ?g ?up) ?q) => (and ?ge (not ?same)) where ?uq <- (payoffs ?g ?q), ?ge <- (all-ge ?uq ?up), ?same <- (equal? ?uq ?up)
+rule pareto-dominated? : (pareto-dominated? ?g ?p) => (not ?e) where ?ds <- (pareto-dominators ?g ?p), ?e <- (empty? ?ds)
+
+// ===========================================================================
+// BETTER-RESPONSE DYNAMICS AS A REWRITING SYSTEM
+// ===========================================================================
+// "Each telor independently improves its own lot whenever it can" is a
+// non-deterministic one-step relation on profiles:
+//
+//     p  -->  q    iff  q differs from p only in player i's strategy and
+//                       payoff(G, i, q) > payoff(G, i, p)
+//
+// That relation is an abstract rewriting system, and its three standard
+// questions are exactly the game-theoretic ones:
+//   * normal forms      = profiles nobody can improve = pure Nash equilibria
+//   * termination       = the finite improvement property (FIP): every
+//                         sequence of independent improvements stops
+//   * confluence        = WHICH equilibrium is reached does not depend on
+//                         who happened to move first
+//
+// improvements(G, p): every q with p --> q.
+rule improvements : (improvements ?g ?p) => (concat (map (imp-by ?g ?p) ?ids)) where ?ids <- (player-ids ?g)
+rule app-imp-by : (app (imp-by ?g ?p) ?i) => (filter (gains ?g ?i ?u) ?devs) where ?u <- (payoff ?g ?i ?p), ?devs <- (deviations ?g ?i ?p)
+rule app-gains : (app (gains ?g ?i ?u) ?q) => (> ?v ?u) where ?v <- (payoff ?g ?i ?q)
+
+// improvement-rules(G): the relation above written out as ground rewrite
+// rules (rules (rule p q) ...), so that ars.pal's critical-pair machinery
+// (all-critical-pairs, unjoinable-pairs, locally-confluent?) can be pointed
+// at a game's dynamics with no new code. Only meaningful for terminating
+// games: ars.pal's `normalize` would run a cyclic one out of fuel.
+rule improvement-rules : (improvement-rules ?g) => (rules-of ?rs) where ?ps <- (profiles ?g), ?rs <- (concat (map (imp-rules-from ?g) ?ps))
+rule app-imp-rules-from : (app (imp-rules-from ?g) ?p) => (map (rule-from ?p) ?qs) where ?qs <- (improvements ?g ?p)
+rule app-rule-from : (app (rule-from ?p) ?q) => (rule ?p ?q)
+rule rules-of : (rules-of (list ?xs...)) => (rules ?xs...)
+
+// reachable-nash(G, p): every equilibrium reachable from p by SOME sequence
+// of independent improvements (depth-first search over the whole
+// improvement graph, not one particular schedule). For a terminating game,
+// more than one result from a single start is precisely a failure of
+// confluence: the scheduler, not the telors, picks the outcome.
+rule reachable-nash : (reachable-nash ?g ?p) => (rn-go ?g (list ?p) (list) (list))
+rule rn-done : (rn-go ?g (list) ?seen ?sinks) => ?sinks
+rule rn-step : (rn-go ?g (list ?p ?stack...) ?seen ?sinks) => (rn-visit ?m ?g ?p (list ?stack...) ?seen ?sinks) where ?m <- (mem? ?p ?seen)
+rule rn-seen : (rn-visit true ?g ?p ?stack ?seen ?sinks) => (rn-go ?g ?stack ?seen ?sinks)
+rule rn-new  : (rn-visit false ?g ?p ?stack ?seen ?sinks) => (rn-expand ?imps ?g ?p ?stack ?seen ?sinks) where ?imps <- (improvements ?g ?p)
+rule rn-sink : (rn-expand (list) ?g ?p ?stack (list ?seen...) (list ?sinks...)) => (rn-go ?g ?stack (list ?p ?seen...) (list ?sinks... ?p))
+rule rn-push : (rn-expand (list ?q ?qs...) ?g ?p (list ?stack...) (list ?seen...) ?sinks) => (rn-go ?g (list ?q ?qs... ?stack...) (list ?p ?seen...) ?sinks)
+
+// schedule-dependent-starts(G): the profiles from which more than one
+// equilibrium is reachable (empty iff the improvement system is confluent,
+// for a terminating game).
+rule schedule-dependent-starts : (schedule-dependent-starts ?g) => (filter (multi-nash ?g) ?ps) where ?ps <- (profiles ?g)
+rule app-multi-nash : (app (multi-nash ?g) ?p) => (> ?k 1) where ?r <- (reachable-nash ?g ?p), ?k <- (length ?r)
+
+// terminating?(G): does the game have the finite improvement property?
+// Equivalently (finite graph): is the improvement graph acyclic? Decided by
+// repeatedly deleting every node all of whose improvements lead outside the
+// remaining graph (Kahn-style peeling); a non-empty remainder that cannot be
+// peeled further contains a cycle.
+rule improvement-graph : (improvement-graph ?g) => (map (node-of ?g) ?ps) where ?ps <- (profiles ?g)
+rule app-node-of : (app (node-of ?g) ?p) => (node ?p ?qs) where ?qs <- (improvements ?g ?p)
+rule terminating? : (terminating? ?g) => (peel ?gr) where ?gr <- (improvement-graph ?g)
+rule peel-empty : (peel (list)) => true
+rule peel-n : (peel (list ?n ?ns...)) => (peel-next ?nk ?nall ?keep)
+  where ?live <- (map node-name (list ?n ?ns...)),
+        ?keep <- (filter (has-live-succ ?live) (list ?n ?ns...)),
+        ?nk <- (length ?keep), ?nall <- (length (list ?n ?ns...))
+rule peel-stuck : (peel-next ?k ?k ?keep) => false
+rule peel-more  : (peel-next ?k ?n ?keep) => (peel ?keep)
+rule app-node-name : (app node-name (node ?p ?qs)) => ?p
+rule app-has-live-succ : (app (has-live-succ ?live) (node ?p ?qs)) => (any-of (in-list ?live) ?qs)
+rule app-in-list : (app (in-list ?live) ?q) => (mem? ?q ?live)
+
+// ===========================================================================
+// SCHEDULED BEST-RESPONSE DYNAMICS
+// ===========================================================================
+// run-schedule(G, p, (list i0 i1 ...)): an explicit scheduler. At each step
+// the listed telor replaces its strategy with a best response (the FIRST
+// strict maximizer in its strategy list; it stays put if nothing strictly
+// improves). Returns the whole trajectory (list p p1 p2 ...). A trajectory
+// that returns to its start under a periodic schedule never settles.
+rule run-schedule : (run-schedule ?g ?p ?sched) => (rs-go ?g ?p ?sched (list ?p))
+rule rs-done : (rs-go ?g ?p (list) ?traj) => ?traj
+rule rs-step : (rs-go ?g ?p (list ?i ?is...) (list ?traj...)) => (rs-go ?g ?q (list ?is...) (list ?traj... ?q)) where ?q <- (best-response-move ?g ?i ?p)
+
+rule best-response-move : (best-response-move ?g ?i ?p) => (brm-scan ?g ?i ?devs ?p ?u) where ?u <- (payoff ?g ?i ?p), ?devs <- (deviations ?g ?i ?p)
+rule brm-done : (brm-scan ?g ?i (list) ?best ?bv) => ?best
+rule brm-step : (brm-scan ?g ?i (list ?q ?qs...) ?best ?bv) => (brm-cmp ?g ?i (list ?qs...) ?best ?bv ?q ?v) where ?v <- (payoff ?g ?i ?q)
+rule brm-take : (brm-cmp ?g ?i ?qs ?best ?bv ?q ?v) => (brm-scan ?g ?i ?qs ?q ?v) where (> ?v ?bv)
+rule brm-keep : (brm-cmp ?g ?i ?qs ?best ?bv ?q ?v) => (brm-scan ?g ?i ?qs ?best ?bv)
+
+// ===========================================================================
+// POTENTIALS
+// ===========================================================================
+// is-exact-potential?(G, PHI): PHI (given by rules (potential PHI p) => int)
+// is an exact potential for G — every unilateral change moves the mover's
+// payoff by exactly as much as it moves PHI (Monderer and Shapley 1996).
+// An exact potential is a single global function that every independent
+// local improvement strictly increases, so its existence implies FIP.
+rule is-exact-potential? : (is-exact-potential? ?g ?phi) => (all-of (ep-at ?g ?phi ?ids) ?ps) where ?ps <- (profiles ?g), ?ids <- (player-ids ?g)
+rule app-ep-at : (app (ep-at ?g ?phi ?ids) ?p) => (all-of (ep-player ?g ?phi ?p) ?ids)
+rule app-ep-player : (app (ep-player ?g ?phi ?p) ?i) => (all-of (ep-dev ?g ?phi ?p ?i) ?devs) where ?devs <- (deviations ?g ?i ?p)
+rule app-ep-dev : (app (ep-dev ?g ?phi ?p ?i) ?q) => (= ?du ?dphi)
+  where ?uq <- (payoff ?g ?i ?q), ?up <- (payoff ?g ?i ?p), ?du <- (- ?uq ?up),
+        ?fq <- (potential ?phi ?q), ?fp <- (potential ?phi ?p), ?dphi <- (- ?fq ?fp)
+
+// ms-violations(G): Monderer and Shapley's (1996) 4-cycle test, which
+// needs no candidate potential: G has an exact potential iff, around every
+// closed 4-step path in which two players i < j alternately change and then
+// restore their strategies, the movers' payoff changes sum to zero. Returns
+// each offending path as (ms-cycle p i a j b SUM); empty iff G is an exact
+// potential game.
+rule ms-violations : (ms-violations ?g) => (filter ms-nonzero ?all) where ?ps <- (profiles ?g), ?prs <- (player-pairs ?g), ?all <- (concat (map (ms-p ?g ?prs) ?ps))
+rule app-ms-p : (app (ms-p ?g ?prs) ?p) => (concat (map (ms-pair ?g ?p) ?prs))
+rule app-ms-pair : (app (ms-pair ?g ?p) (pair ?i ?j)) => (concat (map (ms-a ?g ?p ?i ?j ?sj) ?si)) where ?sets <- (strategy-sets ?g), ?si <- (nth ?i ?sets), ?sj <- (nth ?j ?sets)
+rule app-ms-a : (app (ms-a ?g ?p ?i ?j ?sj) ?a) => (map (ms-b ?g ?p ?i ?j ?a) ?sj)
+rule app-ms-b : (app (ms-b ?g ?p ?i ?j ?a) ?b) => (ms-cycle ?p ?i ?a ?j ?b ?sum)
+  where ?xi <- (component ?i ?p),
+        ?p1 <- (with-component ?i ?a ?p), ?p2 <- (with-component ?j ?b ?p1), ?p3 <- (with-component ?i ?xi ?p2),
+        ?d1 <- (pay-diff ?g ?i ?p1 ?p), ?d2 <- (pay-diff ?g ?j ?p2 ?p1),
+        ?d3 <- (pay-diff ?g ?i ?p3 ?p2), ?d4 <- (pay-diff ?g ?j ?p ?p3),
+        ?sum <- (+ (+ ?d1 ?d2) (+ ?d3 ?d4))
+rule pay-diff : (pay-diff ?g ?i ?to ?from) => (- ?a ?b) where ?a <- (payoff ?g ?i ?to), ?b <- (payoff ?g ?i ?from)
+rule app-ms-nonzero : (app ms-nonzero (ms-cycle ?p ?i ?a ?j ?b ?s)) => (<> ?s 0)
+
+// ===========================================================================
+// MIXED EQUILIBRIUM OF A 2x2 GAME (exact rational arithmetic)
+// ===========================================================================
+// For a two-player game with strategy lists (list r0 r1) and (list c0 c1),
+// the fully mixed equilibrium makes each player indifferent between its two
+// strategies. mixed-2x2 returns (mixed P Q): P = Pr[player 0 plays r0],
+// Q = Pr[player 1 plays c0], each as a reduced fraction (frac num den).
+// (Only an equilibrium if both lie strictly between 0 and 1.)
+rule mixed-2x2 : (mixed-2x2 ?g) => (mixed ?p ?q)
+  where ?sets <- (strategy-sets ?g), ?rs <- (nth 0 ?sets), ?cs <- (nth 1 ?sets),
+        ?r0 <- (nth 0 ?rs), ?r1 <- (nth 1 ?rs), ?c0 <- (nth 0 ?cs), ?c1 <- (nth 1 ?cs),
+        ?a00 <- (payoff ?g 0 (prof ?r0 ?c0)), ?a01 <- (payoff ?g 0 (prof ?r0 ?c1)),
+        ?a10 <- (payoff ?g 0 (prof ?r1 ?c0)), ?a11 <- (payoff ?g 0 (prof ?r1 ?c1)),
+        ?b00 <- (payoff ?g 1 (prof ?r0 ?c0)), ?b01 <- (payoff ?g 1 (prof ?r0 ?c1)),
+        ?b10 <- (payoff ?g 1 (prof ?r1 ?c0)), ?b11 <- (payoff ?g 1 (prof ?r1 ?c1)),
+        ?qn <- (- ?a11 ?a01), ?qd <- (- (- ?a00 ?a10) (- ?a01 ?a11)),
+        ?pn <- (- ?b11 ?b10), ?pd <- (- (- ?b00 ?b01) (- ?b10 ?b11)),
+        ?p <- (mk-frac ?pn ?pd), ?q <- (mk-frac ?qn ?qd)
+
+rule mk-frac : (mk-frac ?n ?d) => (frac-sign ?n2 ?d2) where ?k <- (gcd (abs ?n) (abs ?d)), ?n2 <- (/ ?n ?k), ?d2 <- (/ ?d ?k)
+rule frac-sign-neg : (frac-sign ?n ?d) => (frac ?n2 ?d2) where (< ?d 0), ?n2 <- (- 0 ?n), ?d2 <- (- 0 ?d)
+rule frac-sign-pos : (frac-sign ?n ?d) => (frac ?n ?d)
+// prob-r0c0: probability that the mixed equilibrium lands on (r0, c0).
+rule prob-r0c0 : (prob-r0c0 (mixed ?p ?q)) => (frac-mul ?p ?q)
+rule frac-mul : (frac-mul (frac ?a ?b) (frac ?c ?d)) => (mk-frac ?n ?m) where ?n <- (* ?a ?c), ?m <- (* ?b ?d)
+
+// ===========================================================================
+// JOIN GAMES: telors whose overlap is resolved by a merge operation
+// ===========================================================================
+// (join-game OP E UTIL SETS) is a game in which player i chooses a
+// contribution from the i-th list of SETS, the shared boundary becomes
+//     fold-op(OP, E, contributions)
+// (OP a Cayley table in ars.pal's (rules (rule (op x y) z) ...) form, E its
+// neutral "nothing contributed yet" element), and player i's payoff is
+// (utility UTIL i OUTCOME). OP may instead be a bare name whose merge the
+// program defines with host rules (merge NAME x y) => z: same semantics,
+// much faster, for exhaustive sweeps over many games. This is the overlap model of
+// SEMILATTICE-GRAMMAR.md with the contributions made strategic.
+rule join-sets : (strategy-sets (join-game ?op ?e ?u ?sets)) => ?sets
+// OP is forced to a value BEFORE dispatching on its shape: a game written
+// with an unevaluated table, e.g. (join-game (diamond) ...), would otherwise
+// fail the (rules ...) pattern and fall through to the named-merge branch.
+rule join-outcome : (outcome (join-game ?op ?e ?u ?sets) (prof ?xs...)) => (join-fold ?o ?e (list ?xs...)) where ?o <- ?op
+rule join-fold-table : (join-fold (rules ?rs...) ?e ?l) => (fold-op (rules ?rs...) ?e ?l)
+rule join-fold-named : (join-fold ?op ?e ?l) => (merge-all ?op ?e ?l)
+// (Program-supplied merges must also handle E as either argument.)
+rule merge-all-0 : (merge-all ?op ?acc (list)) => ?acc
+rule merge-all-n : (merge-all ?op ?acc (list ?x ?xs...)) => (merge-all ?op ?acc2 (list ?xs...)) where ?acc2 <- (merge ?op ?acc ?x)
+rule join-payoff : (payoff (join-game ?op ?e ?u ?sets) ?i ?p) => (utility ?u ?i ?o) where ?o <- (outcome (join-game ?op ?e ?u ?sets) ?p)
+rule outcomes-of : (outcomes-of ?g ?ps) => (map (outcome-in ?g) ?ps)
+rule app-outcome-in : (app (outcome-in ?g) ?p) => (outcome ?g ?p)
+
+// Utilities may be written as rules on (utility NAME i x), or given as data:
+// (utab (list TABLE0 TABLE1 ...)) with TABLEi = (list (pair x u) ...).
+rule utab-lookup : (utility (utab ?tabs) ?i ?x) => (utab-find ?x ?t) where ?t <- (nth ?i ?tabs)
+rule utab-find-hit  : (utab-find ?x (list (pair ?x ?u) ?rest...)) => ?u
+rule utab-find-miss : (utab-find ?x (list (pair ?y ?u) ?rest...)) => (utab-find ?x (list ?rest...))
+
+// all-utabs(DOMAIN, VALUES): every utility table assigning a value from
+// VALUES to each element of DOMAIN — for exhaustive checks over all
+// preference profiles on a small carrier.
+rule all-utabs : (all-utabs ?dom ?vals) => (map (utab-of ?dom) ?vs) where ?k <- (length ?dom), ?vss <- (replicate ?k ?vals), ?vs <- (cartesian ?vss)
+rule app-utab-of : (app (utab-of ?dom) (prof ?us...)) => (zip ?dom (list ?us...))
+
+// schedule-outcomes(OP, E, CONTRIBUTIONS): the set of boundary values the
+// SCHEDULER can produce from one fixed set of contributions by choosing the
+// arrival order. One element iff the merge is order-independent on this
+// input; more than one means the outcome is not a function of what the
+// telors chose, so the overlap is not yet a game among the telors at all —
+// the scheduler is an additional, decisive player.
+rule schedule-outcomes : (schedule-outcomes ?op ?e ?xs) => (dedup ?outs) where ?perms <- (permutations ?xs), ?outs <- (map (fold-with ?op ?e) ?perms)
+rule app-fold-with : (app (fold-with ?op ?e) ?l) => (fold-op ?op ?e ?l)
+
+// all-weak-orders(DOMAIN): one utility table per weak (pre)order on DOMAIN,
+// written with dense ranks 0..k-1 (13 tables for a 3-element domain).
+// Pure equilibria, dominance, Pareto comparisons and the improvement
+// relation depend on utilities only through comparisons, so for those
+// questions sweeping these tables sweeps EVERY ordinal preference on DOMAIN.
+// (Mixed equilibria and exact potentials are cardinal; they are not covered.)
+rule all-weak-orders : (all-weak-orders ?dom) => (filter dense-table ?tabs) where ?k <- (length ?dom), ?m <- (- ?k 1), ?vals <- (range 0 ?m), ?tabs <- (all-utabs ?dom ?vals)
+rule app-dense-table : (app dense-table ?t) => (all-of (val-in ?us) ?rng) where ?us <- (map snd-of ?t), ?mx <- (maximum ?us), ?rng <- (range 0 ?mx)
+rule app-snd-of : (app snd-of (pair ?x ?u)) => ?u
+rule app-val-in : (app (val-in ?us) ?v) => (member ?v ?us)
+
+// count-cyclic-2(OP, E, DOMAIN, TABLES): over every two-telor join game on
+// DOMAIN (both telors may contribute any element of DOMAIN) whose two
+// utility tables are drawn from TABLES, count the games WITHOUT the finite
+// improvement property. Written as an accumulator loop, one game at a
+// time, so the term being rewritten never holds more than one game.
+rule count-cyclic-2 : (count-cyclic-2 ?op ?e ?dom ?tabs) => (cc2-outer ?op ?e ?dom ?tabs ?tabs 0)
+rule cc2-outer-done : (cc2-outer ?op ?e ?dom (list) ?all ?acc) => ?acc
+rule cc2-outer-step : (cc2-outer ?op ?e ?dom (list ?t ?ts...) ?all ?acc) => (cc2-outer ?op ?e ?dom (list ?ts...) ?all ?acc2) where ?c <- (cc2-inner ?op ?e ?dom ?t ?all 0), ?acc2 <- (+ ?acc ?c)
+rule cc2-inner-done : (cc2-inner ?op ?e ?dom ?t0 (list) ?acc) => ?acc
+rule cc2-inner-step : (cc2-inner ?op ?e ?dom ?t0 (list ?t1 ?ts...) ?acc) => (cc2-inner ?op ?e ?dom ?t0 (list ?ts...) ?acc2) where ?tm <- (terminating? (join-game ?op ?e (utab (list ?t0 ?t1)) (list ?dom ?dom))), ?b <- (bit (not ?tm)), ?acc2 <- (+ ?acc ?b)
+
+// ===========================================================================
+// METAGAMES (Howard 1971) — conditional strategies
+// ===========================================================================
+// Langan reports incorporating the theory of metagames into the CTMU
+// (Noesis 45, 48) as the way two players of equal standing escape what a
+// correspondent called a "chaotic exchange of move and counter-move".
+// These rules make that
+// testable for any two-player game G.
+//
+// (meta21 G) is Howard's metagame 21G: player 0's strategies are the
+// functions f : S1 -> S0 ("if I expect you to play y, I play f(y)"), and
+// player 1's strategies are the functions h : F -> S1 over player 0's
+// conditional strategies. A profile (prof f h) is played out as
+//     s1 = h(f),  s0 = f(s1)
+// and paid as G pays (prof s0 s1). A function is written (fn v0 v1 ...),
+// listing its value at each element of its domain, in domain order.
+// (swap G) exchanges the two players' roles, so (meta21 (swap G)) is 12G.
+rule functions : (functions ?dom ?cod) => (map to-fn ?ps) where ?k <- (length ?dom), ?cods <- (replicate ?k ?cod), ?ps <- (cartesian ?cods)
+rule app-to-fn : (app to-fn (prof ?xs...)) => (fn ?xs...)
+rule fn-at : (fn-at (fn ?xs...) ?k) => (nth ?k (list ?xs...))
+rule pos : (pos ?x ?l) => (pos-go ?x ?l 0)
+rule pos-hit  : (pos-go ?x (list ?y ?ys...) ?k) => ?k where (equal? ?x ?y)
+rule pos-miss : (pos-go ?x (list ?y ?ys...) ?k) => (pos-go ?x (list ?ys...) ?j) where ?j <- (+ ?k 1)
+
+rule meta-sets : (strategy-sets (meta21 ?g)) => (list ?fs ?hs) where ?sets <- (strategy-sets ?g), ?s0 <- (nth 0 ?sets), ?s1 <- (nth 1 ?sets), ?fs <- (functions ?s1 ?s0), ?hs <- (functions ?fs ?s1)
+rule meta-outcome : (meta-play ?g (prof ?f ?h)) => (prof ?a ?b)
+  where ?sets <- (strategy-sets ?g), ?s0 <- (nth 0 ?sets), ?s1 <- (nth 1 ?sets),
+        ?fs <- (functions ?s1 ?s0), ?k <- (pos ?f ?fs), ?b <- (fn-at ?h ?k),
+        ?j <- (pos ?b ?s1), ?a <- (fn-at ?f ?j)
+rule meta-payoff : (payoff (meta21 ?g) ?i ?p) => (payoff ?g ?i ?q) where ?q <- (meta-play ?g ?p)
+
+rule swap-sets : (strategy-sets (swap ?g)) => (list ?b ?a) where ?sets <- (strategy-sets ?g), ?a <- (nth 0 ?sets), ?b <- (nth 1 ?sets)
+rule swap-payoff : (payoff (swap ?g) ?i (prof ?x ?y)) => (payoff ?g ?j (prof ?y ?x)) where ?j <- (- 1 ?i)
+rule app-unswap : (app unswap (prof ?x ?y)) => (prof ?y ?x)
+
+// Outcomes (profiles of G) sustained by pure equilibria of 21G and of 12G,
+// and the symmetric ones sustained in both.
+rule meta21-outcomes : (meta21-outcomes ?g) => (dedup ?os) where ?ne <- (pure-nash (meta21 ?g)), ?os <- (map (meta-play-in ?g) ?ne)
+rule app-meta-play-in : (app (meta-play-in ?g) ?p) => (meta-play ?g ?p)
+rule meta12-outcomes : (meta12-outcomes ?g) => (map unswap ?os) where ?os <- (meta21-outcomes (swap ?g))
+rule symmetric-meta-outcomes : (symmetric-meta-outcomes ?g) => (filter (in-list ?b) ?a) where ?a <- (meta21-outcomes ?g), ?b <- (meta12-outcomes ?g)

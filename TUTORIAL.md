@@ -376,7 +376,7 @@ From here the idea scales up: a program can rewrite its own source into the
 *solution* of a problem and only then become a quine. `SELF-REWRITING.md` is a
 dedicated tutorial that builds from these basics through Towers of Hanoi, an
 N-Queens solver that prints a chess board, a compiler, and a data-driven Turing
-machine — each of which renders its answer with the `display` command (see §15) and
+machine — each of which renders its answer with the `display` command (see §16) and
 the renderers in `lib/render.pal`. `SELF-REFERENCE.md` goes deeper on the theory
 (fixed points, attractors, cycles, autograms, fixpoint combinators), and
 `puzzles/PUZZLES.md` turns both into graded exercises.
@@ -511,8 +511,53 @@ pattern). The miss case recurses, guarded by `(<> ?x ?y)`. The full program is
   wrap it as `(verbatim (family ?xs...))` to produce it as literal, unsplit
   data instead (see `README.md`, "Reflection, quotation, and strict
   evaluation").
+- **A label that is also a function name gets evaluated.** In a result term
+  such as `(report (syntax-changes 18))`, `syntax-changes` is not inert if a
+  rule defines it: the strategy rewrites the label as a call. Use label names
+  that no rule mentions (`(changes 18)`).
 
-## 15. Quick reference
+## 15. Analyzing rule systems and games
+
+Two libraries turn Palimpsest on its own subject matter: rule systems, and agents whose choices interact.
+
+`lib/ars.pal` treats a rule set as *data*, `(rules (rule LHS RHS) ...)`, and asks the classic questions of rewriting theory about it: unification, critical pairs, local confluence. The textbook non-confluent system is two rules that rewrite the same term two ways:
+
+```
+show (locally-confluent? (rules (rule a b) (rule a c))) with solve    // ==> false
+```
+
+`lib/games.pal` (which imports `ars.pal`) does the same for finite games. A game is any symbol for which you supply two kinds of rules: the strategy lists and the payoffs. Here is the Prisoner's Dilemma:
+
+```
+#lang palimpsest
+#mode run-only
+#fuel 1000000
+import "../lib/games.pal"
+strategy solve = outermost(prim + rules)
+rule sets : (strategy-sets pd) => (list (list c d) (list c d))
+rule cc : (payoff pd ?i (prof c c)) => 3
+rule dd : (payoff pd ?i (prof d d)) => 1
+rule cd : (payoff pd ?i (prof c d)) => (if (= ?i 0) 0 5)
+rule dc : (payoff pd ?i (prof d c)) => (if (= ?i 0) 5 0)
+main = (nothing)
+show (pure-nash pd) with solve                          // ==> (list (prof d d))
+show (pareto-dominators pd (prof d d)) with solve       // ==> (list (prof c c))
+show (improvement-rules pd) with solve
+show (locally-confluent? (improvement-rules pd)) with solve   // ==> true
+```
+
+The third line prints the game's *better-response relation*, one rewrite rule per strict improvement a player can make:
+
+```
+(rules (rule (prof c c) (prof d c)) (rule (prof c c) (prof c d))
+       (rule (prof c d) (prof d d)) (rule (prof d c) (prof d d)))
+```
+
+That relation is an ordinary rule set, so the confluence checker applies to it directly. Its normal forms are the pure Nash equilibria. It terminates exactly when independent improvement always stops. It is confluent when the equilibrium reached does not depend on who moves first. The Prisoner's Dilemma is confluent, because every path leads to mutual defection. Many games are not; `TELIC-GAMES.md` works through them.
+
+Two habits from §7 and §14 matter here. Force a value with `where ?v <- EXPR` before a rule dispatches on its shape. And remember that one deterministic run returns one answer even when the rules allow several. To see the alternatives, ask for all of them: `reachable-nash` lists every equilibrium reachable under any order of moves, and `unjoinable-pairs` lists the conflicting critical pairs. `TELIC-GAMES.md` §9 documents the library function by function, with a traced execution.
+
+## 16. Quick reference
 
 Directives: `#lang`, `#mode {rewriting-as-running | rewrite-then-run}`, `#fuel N`,
 `#caps { rewrite: [self, file "p"] }`.
@@ -558,10 +603,19 @@ Renderers for the `display` command (`import "../lib/render.pal"`): `shw` (any
 term → its canonical string), `chess` (an N-Queens solution → a board), `asm`
 (three-address code), `binview`, `moves-view`, `set-view`, `text-view`.
 
+Analysis libraries (§15): `ars.pal` — `unify`, `critical-pairs`,
+`locally-confluent?`, `unjoinable-pairs`, `normalize` over a rule set given as
+data, and finite-algebra checks (`is-semilattice?`, `fold-op`); `games.pal` —
+`pure-nash`, `weakly-dominant?`, `pareto-dominators`, `mixed-2x2`,
+`improvement-rules`, `terminating?`, `reachable-nash`, `run-schedule`,
+`is-exact-potential?`, `ms-violations`, join games and metagames.
+
 For self-referential and self-rewriting programs, see `SELF-REFERENCE.md` and
 `SELF-REWRITING.md`; for a sustained application of the whole language —
 self-rewriting dynamical-systems simulations that graph their own trajectories —
 see `MIND-BODY.md` and the step-by-step `MINDBODY-TUTORIAL.md`. Graded exercises
-live in `puzzles/PUZZLES.md`.
+live in `puzzles/PUZZLES.md`. For rule systems and games as objects of study,
+see §15, and for the CTMU studies built on them, the "CTMU studies" section of
+`README.md`.
 
 Happy rewriting.

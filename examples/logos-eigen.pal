@@ -1,0 +1,38 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 20000000
+#caps { rewrite: [self] }
+// logos-eigen.pal — a syntax that is a fixed point of its own telic update
+// (LOGOS-SCSPL.md, Section 6).
+//
+// `main` holds a model's syntax W (initially empty: every weight 0) and a
+// count of episodes. One episode runs the telic model of lib/logos.pal for
+// 30 steps from the context (a) with sampler seed 1, letting the produced
+// tokens refine W. The rule `refine` replaces W by the result, but ONLY if
+// the result differs from W. `rewrite self` therefore iterates episodes until
+// it reaches a W that one more episode leaves unchanged, and writes that W
+// back into this file. On the next run `refine` cannot fire, nothing
+// changes, and the file reproduces itself byte for byte: a quine whose
+// content is a syntax that regenerates itself through its own use.
+// Langan describes the universe as "an eigenfunction of its own teleological
+// operator"; this is a finite, computable instance of that form, with the
+// limits discussed in LOGOS-SCSPL.md.
+
+import "../lib/logos.pal"
+strategy solve = outermost(prim + rules)
+
+rule v : (vocab eig) => (list a b c)
+rule k : (window eig) => 1
+rule cap : (cap eig) => 6
+rule mode : (mode eig) => telic
+rule pol : (policy eig) => sample
+rule cons-ab : (consonance eig a b) => 1
+rule cons-bc : (consonance eig b c) => 1
+rule cons-ca : (consonance eig c a) => 1
+rule cons-x : (consonance eig ?x ?y) => 0
+
+rule refine : (telic-fix ?m ?w ?n) => (telic-fix ?m ?w2 ?n2) where ?w2 <- (episode-update ?m ?w (list a) 1 30), (not (equal? ?w2 ?w)), ?n2 <- (+ ?n 1)
+
+main = (telic-fix eig (list) 0)
+
+rewrite self with solve

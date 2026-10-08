@@ -32,6 +32,11 @@ main = (report
     (rules (rule (pending ?x ?y) (resolved ?x ?x))
            (rule (pending ?x ?y) (resolved ?y ?y))))
 
+  // NOTE (revision, Oct 2026): these two runs are of two DIFFERENT
+  // overlaps, (pending p q) and (pending q p); under the deterministic
+  // strategy both fire telor-left. The order-dependence itself is the
+  // critical pair above: from ONE overlap, telor-left and telor-right reach
+  // different normal forms. The label is kept for verify-telic.sh.
   (order-dependence
     (normalize (pending p q)
       (rules (rule (pending ?x ?y) (resolved ?x ?x))

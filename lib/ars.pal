@@ -241,6 +241,15 @@ rule acp-inner-step : (acp-inner ?r1 (list ?r2 ?rest...)) => (append (critical-p
 // rewrite relation, no way) to check every pair of one-step divergences
 // directly; checking the finitely many critical pairs is already
 // equivalent to checking all of them.
+//
+// CAVEAT (implementation): `joinable?` follows ONE deterministic rewrite
+// path from each side (`normalize`, first matching rule wins) and compares
+// the results. A `true` verdict is therefore always correct: a common
+// reduct was found. A `false` verdict is conclusive only when both sides
+// are already normal forms (as in examples/telor-confluence.pal and
+// TELIC-GAMES.md §5.2) or the system is known to be confluent. Otherwise
+// some OTHER path might still join them, and an exhaustive search (for a
+// game's improvement relation, games.pal's `reachable-nash`) is needed.
 rule joinable? : (joinable? ?a ?b ?rs) => (equal? ?na ?nb) where ?na <- (normalize ?a ?rs), ?nb <- (normalize ?b ?rs)
 rule locally-confluent? : (locally-confluent? ?rs) => (all-of (joinable-pair? ?rs) (all-critical-pairs ?rs))
 rule joinable-pair-app : (app (joinable-pair? ?rs) ?pr) => (joinable-pair-go ?pr ?rs)

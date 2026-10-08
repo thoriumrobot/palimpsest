@@ -1,0 +1,133 @@
+#lang palimpsest
+#mode run-only
+#fuel 20000000
+import "../lib/games.pal"
+
+// telor-games-dynamics.pal — independent local improvement as a rewriting
+// system (TELIC-GAMES.md, Section 5).
+//
+// "Telors freely and independently maximize their local utility functions"
+// describes a process, not just a set of stable states: whenever some telor
+// can do better by changing its own contribution, it may. Written as a
+// one-step relation on profiles, p --> q, that process is an abstract
+// rewriting system, and the rewriting questions of TELIC-CONFLUENCE.md
+// become the game-theoretic ones:
+//     normal forms  = pure Nash equilibria
+//     termination   = finite improvement property (independent improving
+//                     never goes on forever)
+//     confluence    = which equilibrium is reached does not depend on which
+//                     telor the scheduler lets move first
+strategy solve = outermost(prim + rules)
+
+rule t-diamond : (diamond) => (rules
+  (rule (op bot bot) bot) (rule (op bot a) a) (rule (op bot b) b) (rule (op bot top) top)
+  (rule (op a bot) a) (rule (op a a) a) (rule (op a b) top) (rule (op a top) top)
+  (rule (op b bot) b) (rule (op b a) top) (rule (op b b) b) (rule (op b top) top)
+  (rule (op top bot) top) (rule (op top a) top) (rule (op top b) top) (rule (op top top) top))
+
+// --- Assert/yield on the diamond (same telors as telor-games-join.pal) ----
+rule u-d0a : (utility rivals 0 a)   => 3
+rule u-d0b : (utility rivals 0 b)   => 2
+rule u-d0t : (utility rivals 0 top) => 1
+rule u-d0o : (utility rivals 0 bot) => 0
+rule u-d1a : (utility rivals 1 a)   => 2
+rule u-d1b : (utility rivals 1 b)   => 3
+rule u-d1t : (utility rivals 1 top) => 1
+rule u-d1o : (utility rivals 1 bot) => 0
+rule g-hawkdove : (hawk-dove) => (join-game ?t bot rivals (list (list a bot) (list b bot))) where ?t <- (diamond)
+
+// --- Parsimony vs plenitude (matching pennies on the diamond) -------------
+rule u-m0a : (utility pp 0 a)   => 1
+rule u-m0b : (utility pp 0 b)   => 1
+rule u-m0t : (utility pp 0 top) => 0
+rule u-m1a : (utility pp 1 a)   => 0
+rule u-m1b : (utility pp 1 b)   => 0
+rule u-m1t : (utility pp 1 top) => 1
+rule g-pennies : (pennies) => (join-game ?t bot pp (list (list a b) (list a b))) where ?t <- (diamond)
+
+// --- A cycle even with every element available, and equilibria present ---
+// Telor 0 wants a single fact and does not care which (a = b > top > bot);
+// telor 1 wants the merged state (top > a = b > bot).
+rule u-c0a : (utility chase 0 a)   => 2
+rule u-c0b : (utility chase 0 b)   => 2
+rule u-c0t : (utility chase 0 top) => 1
+rule u-c0o : (utility chase 0 bot) => 0
+rule u-c1a : (utility chase 1 a)   => 2
+rule u-c1b : (utility chase 1 b)   => 2
+rule u-c1t : (utility chase 1 top) => 3
+rule u-c1o : (utility chase 1 bot) => 1
+rule g-chase : (chase-game) => (join-game ?t bot chase (list (list a b bot top) (list a b bot top))) where ?t <- (diamond)
+
+// --- Three telors on a path 0 — 1 — 2, two colors r, g -------------------
+// Each overlap (edge) pays BOTH of its telors the same amount: 2 if they
+// match there, 0 if not. Each telor also has a private bias worth 1:
+// telors 0 and 1 lean r, telor 2 leans g.
+rule edge-same : (w ?x ?x) => 2
+rule edge-diff : (w ?x ?y) => 0
+rule bias-0 : (bias 0 r) => 1
+rule bias-1 : (bias 1 r) => 1
+rule bias-2 : (bias 2 g) => 1
+rule bias-x : (bias ?i ?s) => 0
+rule path-sets : (strategy-sets path3) => (list (list r g) (list r g) (list r g))
+rule path-u0 : (payoff path3 0 (prof ?x ?y ?z)) => (+ (bias 0 ?x) (w ?x ?y))
+rule path-u1 : (payoff path3 1 (prof ?x ?y ?z)) => (+ (bias 1 ?y) (+ (w ?x ?y) (w ?y ?z)))
+rule path-u2 : (payoff path3 2 (prof ?x ?y ?z)) => (+ (bias 2 ?z) (w ?y ?z))
+// Candidate global utility: all biases plus all overlaps, each counted ONCE.
+rule path-phi : (potential path-phi (prof ?x ?y ?z)) => (+ (+ (bias 0 ?x) (+ (bias 1 ?y) (bias 2 ?z))) (+ (w ?x ?y) (w ?y ?z)))
+rule app-phi-of : (app phi-of ?p) => (potential path-phi ?p)
+
+// The same path, except the 0—1 overlap is OPPOSED: telor 0 is paid 2 for
+// matching there and telor 1 is paid 3 for mismatching (a matching-pennies
+// edge, weighted so it outweighs telor 1's agreeable 1—2 overlap).
+rule mis-same : (mis ?x ?x) => 0
+rule mis-diff : (mis ?x ?y) => 3
+rule opp-sets : (strategy-sets opposed3) => (list (list r g) (list r g) (list r g))
+rule opp-u0 : (payoff opposed3 0 (prof ?x ?y ?z)) => (w ?x ?y)
+rule opp-u1 : (payoff opposed3 1 (prof ?x ?y ?z)) => (+ (mis ?x ?y) (w ?y ?z))
+rule opp-u2 : (payoff opposed3 2 (prof ?x ?y ?z)) => (w ?y ?z)
+
+main = (report
+
+  // --- 5.2 Terminating but not confluent: the assert/yield game -----------
+  // The better-response relation, written out as ground rewrite rules and
+  // handed to the SAME critical-pair checker used in
+  // examples/telor-confluence.pal. The unjoinable critical pairs have
+  // exactly the shape of telor-left vs telor-right there: one overlap,
+  // two stable, different resolutions, chosen by who moves first.
+  (hawk-dove-improvement-rules (improvement-rules (hawk-dove)))
+  (hawk-dove-terminating (terminating? (hawk-dove)))
+  (hawk-dove-exact-potential (ms-violations (hawk-dove)))
+  (hawk-dove-locally-confluent (locally-confluent? (improvement-rules (hawk-dove))))
+  (hawk-dove-unjoinable (unjoinable-pairs (improvement-rules (hawk-dove))))
+  (hawk-dove-reachable-from-conflict (reachable-nash (hawk-dove) (prof a b)))
+  (hawk-dove-schedule-dependent-starts (schedule-dependent-starts (hawk-dove)))
+  (hawk-dove-telor0-moves-first (run-schedule (hawk-dove) (prof a b) (list 0 1)))
+  (hawk-dove-telor1-moves-first (run-schedule (hawk-dove) (prof a b) (list 1 0)))
+
+  // --- 5.3 Not terminating: matching pennies on the diamond (Thm 5.1) ---
+  (pennies-terminating (terminating? (pennies)))
+  (pennies-cycle (run-schedule (pennies) (prof a b) (list 0 1 0 1)))
+  (pennies-ms-violations (length (ms-violations (pennies))))
+
+  // --- 5.3 Not terminating even though equilibria exist ------------------
+  (chase-pure-nash (pure-nash (chase-game)))
+  (chase-terminating (terminating? (chase-game)))
+  (chase-cycle (run-schedule (chase-game) (prof a b) (list 0 1 0 1)))
+  (chase-cycle-outcomes (outcomes-of (chase-game) (run-schedule (chase-game) (prof a b) (list 0 1 0 1))))
+
+  // --- 5.4 Aligned overlaps: an exact potential game ---------------------
+  (path-is-exact-potential (is-exact-potential? path3 path-phi))
+  (path-ms-violations (ms-violations path3))
+  (path-terminating (terminating? path3))
+  (path-pure-nash (pure-nash path3))
+  (path-nash-potentials (map phi-of (pure-nash path3)))
+  (path-reachable-from-rgg (reachable-nash path3 (prof r g g)))
+  (path-schedule-dependent-starts (length (schedule-dependent-starts path3)))
+
+  // --- 5.4 One opposed overlap breaks it ---------------------------------
+  (opposed-ms-violations (length (ms-violations opposed3)))
+  (opposed-terminating (terminating? opposed3))
+  (opposed-pure-nash (pure-nash opposed3))
+  (opposed-cycle (run-schedule opposed3 (prof r r r) (list 1 2 0 1 2 0))))
+
+run solve

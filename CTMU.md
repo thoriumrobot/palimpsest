@@ -1,5 +1,7 @@
 # Modeling CTMU containment in Palimpsest
 
+*Part of a series of Palimpsest studies of CTMU mechanisms. The others concern telic recursion: `TELIC-CONFLUENCE.md` (confluence of local overlap resolution), `SEMILATTICE-GRAMMAR.md` (the algebra of convergent merges), `TELIC-GAMES.md` (telors as players, and the CTMU's global stage), and `LOGOS-SCSPL.md` (SCSPL compared with language-model processing). See "CTMU studies" in `README.md`.*
+
 This models one specific idea from Christopher Langan's Cognitive-Theoretic
 Model of the Universe (CTMU): that the word "contains" is ambiguous between
 two different relations, and that keeping them separate is what lets a

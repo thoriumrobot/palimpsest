@@ -8,19 +8,27 @@ is *irreversible file mutation*, which Rust's ownership model plus atomic
 write-then-rename and a capability-checked write path contain best.
 
 This tree contains the interpreter, a **standard library written in Palimpsest**
-(including result renderers, a text-visualization library, and a small
-abstract-rewriting-systems toolkit for unification and confluence checking),
-runnable examples — among them ten **mind↔body loop** simulations that
-rewrite themselves into their own classified trajectory and graph it, a
-formal model of the CTMU's topological/descriptive containment distinction
-proving the two relations cannot be merged into one (`NONSUBSUMPTION.md`),
-and a confluence-theoretic test of the CTMU's account of local
-self-configuration (`TELIC-CONFLUENCE.md`) — a graded puzzle book
-(`puzzles/PUZZLES.md`), and six documents: a general walkthrough
-(`TUTORIAL.md`), a tour of self-rewriting programs (`SELF-REWRITING.md`), a
-tour of self-referential coding (`SELF-REFERENCE.md`), a reference on the
-mind↔body simulations (`MIND-BODY.md`), a step-by-step tutorial on them
-(`MINDBODY-TUTORIAL.md`), and the CTMU containment model (`CTMU.md`).
+(including result renderers, a text-visualization library, a small
+abstract-rewriting-systems toolkit for unification and confluence checking, and
+a finite-games library), runnable examples — among them ten **mind↔body loop**
+simulations that rewrite themselves into their own classified trajectory and
+graph it — a graded puzzle book (`puzzles/PUZZLES.md`), and two groups of
+documents.
+
+*Guides:* a general walkthrough (`TUTORIAL.md`), a tour of self-rewriting
+programs (`SELF-REWRITING.md`), a tour of self-referential coding
+(`SELF-REFERENCE.md`), a reference on the mind↔body simulations
+(`MIND-BODY.md`) and a step-by-step tutorial on them (`MINDBODY-TUTORIAL.md`).
+
+*Studies of the CTMU* (Langan's Cognitive-Theoretic Model of the Universe), each
+taking one mechanism of the theory, giving it a precise meaning in Palimpsest's
+term language, and checking it by machine (see "CTMU studies" below):
+the containment model (`CTMU.md`) and its non-subsumption proof
+(`NONSUBSUMPTION.md`); a confluence test of telic recursion
+(`TELIC-CONFLUENCE.md`); the semilattice characterization of convergent merges
+(`SEMILATTICE-GRAMMAR.md`); a game-theoretic analysis of independent telors
+and of the CTMU's global stage (`TELIC-GAMES.md`); and a comparison of SCSPL
+with the internal processing of large language models (`LOGOS-SCSPL.md`).
 
 ## Build & run
 
@@ -35,6 +43,11 @@ cargo test --release          # unit tests (see src/*.rs for current count)
 ./verify-mindbody.sh          # 10 mind<->body loop environments (attractors + quine)
 ./verify-ctmu.sh              # the CTMU containment model (3 self-rewriting proofs)
 ./verify-telic.sh             # confluence test of CTMU's telic recursion
+./verify-semilattice.sh       # semilattice characterization of convergent merges
+./verify-games.sh             # game theory of independent telors (~50 s)
+python3 crosscheck/games_crosscheck.py  # independent Python re-derivation of TELIC-GAMES.md
+./verify-logos.sh             # SCSPL versus language-model processing (~60 s)
+python3 crosscheck/logos_crosscheck.py  # independent Python re-derivation of LOGOS-SCSPL.md
 ```
 
 Run a program:
@@ -45,6 +58,7 @@ Run a program:
 ./target/release/palimpsest examples/refactor.pal --dry-run
 ./target/release/palimpsest examples/quine.pal
 ./target/release/palimpsest examples/mind-homeostasis.pal   # a mind<->body loop, graphed
+./target/release/palimpsest examples/telor-games-join.pal   # equilibria of telor overlap games
 ./target/release/palimpsest undo examples/refactor.pal      # roll back last write
 ```
 
@@ -141,6 +155,8 @@ the evaluation strategies.
 | `mindbody.pal` | the mind↔body loop engine (imports `render.pal` + `chart.pal`): `trace` runs a `step` loop, classifies the attractor (settled / cycle / runaway / bounded), and `loop-view` graphs it; helpers `toward clamp mix`. See `MIND-BODY.md` and `MINDBODY-TUTORIAL.md` |
 | `ctmu.pal` | a formal model of the CTMU's dual containment relation: `subterm?`/`topcontains?`/`size` (topological, bounded), `desccontains?`/`desc-witness` (descriptive, unbounded — wraps `matches?`/`match-witness`), `dual-contains?` (the paradox-resolving combination), and a `ctrace`/`cverify` conspansion engine. See `CTMU.md` |
 | `ars.pal` | abstract rewriting systems: `unify` (occurs-checked unification), `subterms`/`plug` (one-hole contexts), `critical-pairs`/`all-critical-pairs` (the Knuth-Bendix construction), `locally-confluent?`/`unjoinable-pairs` (the Critical Pair Lemma), `normalize` (rewriting under a ruleset given as data). See `TELIC-CONFLUENCE.md` |
+| `games.pal` | finite normal-form games (imports `ars.pal`): `profiles`, `pure-nash`, `weakly-dominant?`/`dominance-witnesses`, `pareto-dominators`, `mixed-2x2` (exact fractions); better-response dynamics as a rewriting system — `improvements`, `improvement-rules` (feeds `ars.pal`'s critical-pair checker), `terminating?` (finite improvement property), `reachable-nash`/`schedule-dependent-starts` (confluence), `run-schedule` (explicit scheduler); potentials — `is-exact-potential?`, `ms-violations` (Monderer–Shapley 4-cycle test); join games `(join-game OP E UTIL SETS)`, `schedule-outcomes`, `all-weak-orders`, `count-cyclic-2`; Howard metagames — `meta21`, `swap`, `meta21-outcomes`/`meta12-outcomes`/`symmetric-meta-outcomes`. See `TELIC-GAMES.md` |
+| `logos.pal` | a toy autoregressive language model and an SCSPL-style variant (imports `games.pal`): pooling algebra — `pool`, `pool-outcomes`, `positional-outcomes` (attention as an online-softmax monoid, max-pooling as a semilattice); the model — `generate`, `actualize` (`sample`/`greedy`), `step` in `frozen` or `telic` mode, `run-world`, `run-log`; measurements — `utility`, `syntax-changes`, `last-change`, `window-repeats`, `context-function?`, `replay-syntax`, `distinct-transitions`; `greedy-path`/`best-path`; `episode-update` for the self-configuring fixed point. See `LOGOS-SCSPL.md` |
 
 `normalize` / `eval` are normal-order (`outermost(prim + rules)`) — the default
 you want, terminating for recursive definitions. `eval-strict` is innermost
@@ -473,4 +489,21 @@ unsubstituted, for authoring fresh pattern-shaped data.
   is not. Accumulator-style helpers (`foldl`, `fib`) force their accumulators with
   `where` bindings to avoid an additional layer of blow-up.
 
-See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and `CTMU.md` for the formal containment model and its non-subsumption proof (`verify-ctmu.sh`), with the proof itself written up as a standalone paper in `NONSUBSUMPTION.md`, and `TELIC-CONFLUENCE.md` for a confluence-theoretic test of the CTMU's account of local self-configuration (`verify-telic.sh`).
+## CTMU studies
+
+Five studies use Palimpsest as a laboratory for single mechanisms of the CTMU. None evaluates the theory as a whole, and each states how far its formal reading of Langan's prose reaches. Each is reproduced by one script.
+
+| document | question | result | check |
+|---|---|---|---|
+| `CTMU.md`, `NONSUBSUMPTION.md` | Can topological and descriptive containment be one relation? | No: one is bounded and one is unbounded; dual containment is consistent; conspansion is modelled as a verified period-6 cycle | `verify-ctmu.sh` |
+| `TELIC-CONFLUENCE.md` | Is independent local overlap resolution confluent? | No: an unjoinable critical pair; a single shared rule restores confluence (revised Oct 2026: the CTMU does posit a global coordinating principle, though not as a rule) | `verify-telic.sh` |
+| `SEMILATTICE-GRAMMAR.md` | Which merge rules make independent resolution order- and duplicate-insensitive? | Exactly the bounded semilattices (both directions proved) | `verify-semilattice.sh` |
+| `TELIC-GAMES.md` | Can independent telors be analyzed with game theory, and does the CTMU's two-stage telic recursion hold up? | Yes. Overlaps are well-posed games only under a semilattice merge. Improvement always terminates iff contributions are totally ordered. Termination need not be confluent. The global stage works under sufficient conditions (aligned utilities, logit noise, potential = generalized utility) that the text names but does not specify; metagames help in the Prisoner's Dilemma only | `verify-games.sh`, `crosscheck/games_crosscheck.py` |
+| `LOGOS-SCSPL.md` | Can SCSPL be structured like the internal processing of a large language model? | In part. Weight sharing, generation followed by sampling, and fixed versus context-dependent behavior correspond to SCSPL's distributed syntax, conspansion and two strata of syntax. LLM inference is standard recursion with fixed syntax, its products are strings, and attention is order-dependent and non-idempotent. A self-refining variant raises its utility from 16 to 29 of 30, and a fixed-point variant becomes a quine. Any computable self-refinement is still standard recursion on the joint state | `verify-logos.sh`, `crosscheck/logos_crosscheck.py` |
+
+The studies build on one another's code: `TELIC-GAMES.md` hands game dynamics to the critical-pair checker written for `TELIC-CONFLUENCE.md` (`lib/ars.pal`), and computes merges with the `fold-op` used in `SEMILATTICE-GRAMMAR.md`; `LOGOS-SCSPL.md` builds on `lib/games.pal` and the logit rule of `TELIC-GAMES.md` §6.3. `TELIC-GAMES.md` §9 documents the execution model, a traced run, how to read the output, and the full reproduction protocol, with exact fuel fingerprints. Quotations of Langan in the telic studies were checked word for word against *The Portable Chris Langan*.
+
+## Further reading
+
+See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and the CTMU studies listed above.
+

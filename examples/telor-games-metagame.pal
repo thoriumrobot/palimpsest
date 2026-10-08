@@ -1,0 +1,84 @@
+#lang palimpsest
+#mode run-only
+#fuel 200000000
+import "../lib/games.pal"
+
+// telor-games-metagame.pal — does the CTMU's own game-theoretic device
+// remove the failures of TELIC-GAMES.md? (TELIC-GAMES.md, Section 6.4.)
+//
+// Langan writes: "In Noesis 45, the theory of metagames was incorporated
+// into the CTMU" — the means by which players of equal standing "cooperate
+// to achieve mutual benefits", preventing what a correspondent called a
+// "chaotic exchange of move and counter-move"; where one player dominates the
+// other, he defers to his Newcomb resolution instead. Howard's metagame
+// 21G lets player 1 condition on player 0's conditional strategy; an
+// outcome is a (pure) metaequilibrium outcome if some equilibrium of 21G
+// plays it out. "Symmetric" outcomes are sustained whichever player sits at
+// the top of the conditional hierarchy (21G and 12G both).
+//
+// Every outcome set here was also recomputed independently (outside
+// Palimpsest) by brute force over all 4 x 16 conditional-strategy profiles.
+strategy solve = outermost(prim + rules)
+
+// Prisoner's Dilemma: the case metagames were designed for.
+rule pd-sets : (strategy-sets pd) => (list (list c d) (list c d))
+rule pd-cc0 : (payoff pd 0 (prof c c)) => 3
+rule pd-cd0 : (payoff pd 0 (prof c d)) => 0
+rule pd-dc0 : (payoff pd 0 (prof d c)) => 5
+rule pd-dd0 : (payoff pd 0 (prof d d)) => 1
+rule pd-1   : (payoff pd 1 (prof ?x ?y)) => (payoff pd 0 (prof ?y ?x))
+// PD's exact potential (TELIC-GAMES.md, Section 6.3): maximized at (d, d),
+// while the sum of payoffs is maximized at (c, c).
+rule pd-phi-cc : (potential pd-phi (prof c c)) => 0
+rule pd-phi-cd : (potential pd-phi (prof c d)) => 2
+rule pd-phi-dc : (potential pd-phi (prof d c)) => 2
+rule pd-phi-dd : (potential pd-phi (prof d d)) => 3
+rule app-welfare : (app (welfare-of ?g) ?p) => (sum ?u) where ?u <- (payoffs ?g ?p)
+
+// The diamond merge as host rules (same semantics as the Cayley table in
+// telor-games-join.pal, faster for the 64-profile metagames).
+rule merge-d-bot1 : (merge diamond bot ?y) => ?y
+rule merge-d-bot2 : (merge diamond ?x bot) => ?x
+rule merge-d-same : (merge diamond ?x ?x) => ?x
+rule merge-d-else : (merge diamond ?x ?y) => top
+
+// The assert/yield game (named hawk-dove) from telor-games-join.pal.
+rule u-d0a : (utility rivals 0 a)   => 3
+rule u-d0b : (utility rivals 0 b)   => 2
+rule u-d0t : (utility rivals 0 top) => 1
+rule u-d0o : (utility rivals 0 bot) => 0
+rule u-d1a : (utility rivals 1 a)   => 2
+rule u-d1b : (utility rivals 1 b)   => 3
+rule u-d1t : (utility rivals 1 top) => 1
+rule u-d1o : (utility rivals 1 bot) => 0
+rule g-hawkdove : (hawk-dove) => (join-game diamond bot rivals (list (list a bot) (list b bot)))
+
+// Parsimony vs plenitude (matching pennies) from telor-games-join.pal.
+rule u-m0a : (utility pp 0 a)   => 1
+rule u-m0b : (utility pp 0 b)   => 1
+rule u-m0t : (utility pp 0 top) => 0
+rule u-m1a : (utility pp 1 a)   => 0
+rule u-m1b : (utility pp 1 b)   => 0
+rule u-m1t : (utility pp 1 top) => 1
+rule g-pennies : (pennies) => (join-game diamond bot pp (list (list a b) (list a b)))
+
+main = (report
+  // PD: the joint optimum (c, c) becomes sustainable, alongside (d, d).
+  (pd-nash (pure-nash pd))
+  (pd-exact-potential (is-exact-potential? pd pd-phi))
+  (pd-welfare (map (welfare-of pd) (profiles pd)))
+  (pd-meta21 (meta21-outcomes pd))
+  (pd-symmetric (symmetric-meta-outcomes pd))
+
+  // Assert/yield ("hawk-dove"): the metagames sustain exactly the pure Nash
+  // outcomes, so the choice between the two settlements is untouched.
+  (hawk-dove-symmetric (symmetric-meta-outcomes (hawk-dove)))
+
+  // Matching pennies: stability now exists, but WHICH telor wins is fixed
+  // by which one sits at the top of the conditional hierarchy, and no
+  // outcome survives both orders. Order-dependence moves to the hierarchy.
+  (pennies-meta21 (meta21-outcomes (pennies)))
+  (pennies-meta12 (meta12-outcomes (pennies)))
+  (pennies-symmetric (symmetric-meta-outcomes (pennies))))
+
+run solve

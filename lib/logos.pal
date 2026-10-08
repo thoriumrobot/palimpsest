@@ -1,0 +1,217 @@
+#lang palimpsest
+// logos.pal — a toy autoregressive "language model" and an SCSPL-style
+// variant of it, for testing which structural properties the two share.
+// See LOGOS-SCSPL.md. Everything here is deterministic: randomness is the
+// `rng` primitive (a splitmix64 hash) applied to an explicit seed, so every
+// run, and the independent Python cross-check, reproduce the same tokens.
+
+import "games.pal"
+
+// ===========================================================================
+// 1. POOLING ALGEBRA: attention versus max-pooling
+// ===========================================================================
+// Attention pools the contributions of many positions into one readout.
+// With weights w = 2^score (base-2 softmax, exact in integers), a
+// contribution of value v is the accumulator (acc w w*v); accumulators
+// combine by componentwise addition, the identity is (acc 0 0), and the
+// readout is (sum w*v) / (sum w). This is the "online softmax" monoid used
+// to compute attention in blocks. It is commutative and associative but not
+// idempotent. Max-pooling is a semilattice.
+rule lift-attn : (lift attn (item ?t ?s ?v)) => (acc ?w ?wv) where ?w <- (pow 2 ?s), ?wv <- (* ?w ?v)
+rule lift-max  : (lift maxpool (item ?t ?s ?v)) => ?v
+rule merge-attn : (merge attn (acc ?a ?b) (acc ?c ?d)) => (acc ?x ?y) where ?x <- (+ ?a ?c), ?y <- (+ ?b ?d)
+rule merge-max-bot1 : (merge maxpool bottom ?y) => ?y
+rule merge-max  : (merge maxpool ?x ?y) => (max ?x ?y)
+rule readout-attn : (readout (acc ?w ?wv)) => (mk-frac ?wv ?w)
+rule readout-max  : (readout ?v) => ?v
+
+rule pool : (pool ?op ?e ?items) => (readout ?r) where ?ls <- (map (lift-with ?op) ?items), ?r <- (merge-all ?op ?e ?ls)
+rule app-lift-with : (app (lift-with ?op) ?x) => (lift ?op ?x)
+
+// pool-outcomes: the readouts obtainable by presenting the same items in
+// every possible order (the scheduler's options, as in TELIC-GAMES.md §3).
+rule pool-outcomes : (pool-outcomes ?op ?e ?items) => (dedup ?rs) where ?ps <- (permutations ?items), ?rs <- (map (pool-with ?op ?e) ?ps)
+rule app-pool-with : (app (pool-with ?op ?e) ?l) => (pool ?op ?e ?l)
+
+// Positional attention: the weight of the item arriving j-th is 2^(score+j)
+// (a recency bias, standing in for positional encoding). Position is
+// assigned by arrival order, so the order becomes part of the input.
+rule pool-positional : (pool-positional ?items) => (readout ?r) where ?r <- (pp-go ?items 0 (acc 0 0))
+rule pp-done : (pp-go (list) ?j ?acc) => ?acc
+rule pp-step : (pp-go (list (item ?t ?s ?v) ?rest...) ?j ?acc) => (pp-go (list ?rest...) ?j2 ?acc2)
+  where ?s2 <- (+ ?s ?j), ?l <- (lift attn (item ?t ?s2 ?v)), ?acc2 <- (merge attn ?acc ?l), ?j2 <- (+ ?j 1)
+rule positional-outcomes : (positional-outcomes ?items) => (dedup ?rs) where ?ps <- (permutations ?items), ?rs <- (map pos-pool ?ps)
+rule app-pos-pool : (app pos-pool ?l) => (pool-positional ?l)
+
+// ===========================================================================
+// 2. THE LOGOS MODEL
+// ===========================================================================
+// A model M is a symbol for which the program supplies:
+//   (vocab M)            => (list t ...)        the token set
+//   (window M)           => K                   how many recent tokens are read
+//   (consonance M x y)   => 0 or 1              utility of the transition x -> y
+//   (cap M)              => C                   weights live in [0, C]
+//   (mode M)             => frozen | telic
+//   (policy M)           => sample | greedy
+// A world is (world W CTX SEED): W the weights ("syntax"), CTX the tokens
+// produced so far ("state"/"products"), SEED the sampler's position.
+// W is a list of (cell x t s): the weight with which having read x
+// favours emitting t. Missing cells are 0.
+
+rule wget-none : (wget ?x ?t (list)) => 0
+rule wget-hit  : (wget ?x ?t (list (cell ?x ?t ?s) ?rest...)) => ?s
+rule wget-miss : (wget ?x ?t (list ?c ?rest...)) => (wget ?x ?t (list ?rest...))
+// Zero weights are not stored, so equal syntaxes have equal representations
+// whenever they were produced by the same sequence of updates.
+rule wset-none-0 : (wset ?x ?t 0 (list)) => (list)
+rule wset-none : (wset ?x ?t ?s (list)) => (list (cell ?x ?t ?s))
+rule wset-hit-0  : (wset ?x ?t 0 (list (cell ?x ?t ?o) ?rest...)) => (list ?rest...)
+rule wset-hit  : (wset ?x ?t ?s (list (cell ?x ?t ?o) ?rest...)) => (list (cell ?x ?t ?s) ?rest...)
+rule wset-miss : (wset ?x ?t ?s (list ?c ?rest...)) => (prepend ?c (wset ?x ?t ?s (list ?rest...)))
+
+rule last-k : (last-k ?k ?l) => (drop ?d ?l) where ?n <- (length ?l), ?d0 <- (- ?n ?k), ?d <- (max 0 ?d0)
+rule last-of : (last-of (list ?xs... ?x)) => ?x
+
+// GENERATION (the "inner expansion" phase): every possible next token with
+// its logit, the sum of the weights from the tokens in the window.
+rule logit : (logit ?m ?w ?ctx ?t) => (sum ?ss) where ?k <- (window ?m), ?win <- (last-k ?k ?ctx), ?ss <- (map (wget-for ?t ?w) ?win)
+rule app-wget-for : (app (wget-for ?t ?w) ?x) => (wget ?x ?t ?w)
+rule generate : (generate ?m ?w ?ctx) => (map (cand-for ?m ?w ?ctx) ?v) where ?v <- (vocab ?m)
+rule app-cand-for : (app (cand-for ?m ?w ?ctx) ?t) => (cand ?t ?l) where ?l <- (logit ?m ?w ?ctx ?t)
+rule logits-of : (logits-of ?m ?w ?ctx) => (map cand-logit ?cs) where ?cs <- (generate ?m ?w ?ctx)
+rule app-cand-logit : (app cand-logit (cand ?t ?l)) => ?l
+
+// SELECTION (the "requantization" phase): sample a token with probability
+// proportional to 2^logit (base-2 softmax at temperature 1), or take the
+// first maximum (temperature 0).
+rule actualize-sample : (actualize sample ?cs ?seed) => (pick-go ?r ?ws) where ?ws <- (map cand-weight ?cs), ?tot <- (sum (map wt-of ?ws)), ?h <- (rng ?seed), ?r <- (mod ?h ?tot)
+rule app-cand-weight : (app cand-weight (cand ?t ?l)) => (wt ?t ?w) where ?w <- (pow 2 ?l)
+rule app-wt-of : (app wt-of (wt ?t ?w)) => ?w
+rule pick-here : (pick-go ?r (list (wt ?t ?w) ?rest...)) => ?t where (< ?r ?w)
+rule pick-next : (pick-go ?r (list (wt ?t ?w) ?rest...)) => (pick-go ?r2 (list ?rest...)) where ?r2 <- (- ?r ?w)
+rule actualize-greedy : (actualize greedy (list (cand ?t ?l) ?rest...) ?seed) => (am-go (list ?rest...) ?t ?l)
+rule am-done : (am-go (list) ?bt ?bl) => ?bt
+rule am-take : (am-go (list (cand ?t ?l) ?rest...) ?bt ?bl) => (am-go (list ?rest...) ?t ?l) where (> ?l ?bl)
+rule am-keep : (am-go (list (cand ?t ?l) ?rest...) ?bt ?bl) => (am-go (list ?rest...) ?bt ?bl)
+
+// ONE STEP. In frozen mode the syntax W never changes (inference with fixed
+// weights). In telic mode the produced state feeds back into the syntax:
+// the transition just made is scored by the utility (consonance of the last
+// token with the new one), and every weight that produced the new token is
+// raised by 1 if the transition was consonant and lowered by 1 if not,
+// within [0, cap].
+rule step : (step ?m (world ?w ?ctx ?seed)) => (world ?w2 ?ctx2 ?seed2)
+  where ?cs <- (generate ?m ?w ?ctx), ?pol <- (policy ?m), ?t <- (actualize ?pol ?cs ?seed),
+        ?mode <- (mode ?m), ?w2 <- (update ?mode ?m ?w ?ctx ?t),
+        ?ctx2 <- (snoc ?ctx ?t), ?seed2 <- (+ ?seed 1)
+rule update-frozen : (update frozen ?m ?w ?ctx ?t) => ?w
+rule update-telic-empty : (update telic ?m ?w (list) ?t) => ?w
+rule update-telic : (update telic ?m ?w ?ctx ?t) => (tu-go ?m ?win ?t ?delta ?w)
+  where ?x <- (last-of ?ctx), ?c <- (consonance ?m ?x ?t), ?delta <- (- (* 2 ?c) 1), ?k <- (window ?m), ?win <- (last-k ?k ?ctx)
+rule tu-done : (tu-go ?m (list) ?t ?d ?w) => ?w
+rule tu-step : (tu-go ?m (list ?x ?xs...) ?t ?d ?w) => (tu-go ?m (list ?xs...) ?t ?d ?w2)
+  where ?old <- (wget ?x ?t ?w), ?cap <- (cap ?m), ?new <- (clamp 0 ?cap (+ ?old ?d)), ?w2 <- (wset ?x ?t ?new ?w)
+
+// run(M, world, n): the trajectory (list world0 world1 ... worldn).
+rule run-world : (run-world ?m ?w0 ?n) => (rw-go ?m ?w0 ?n (list ?w0))
+rule rw-done : (rw-go ?m ?w 0 ?acc) => ?acc
+rule rw-step : (rw-go ?m ?w ?n (list ?acc...)) => (rw-go ?m ?w2 ?n2 (list ?acc... ?w2)) where (> ?n 0), ?w2 <- (step ?m ?w), ?n2 <- (- ?n 1)
+
+rule final-world : (final-world ?trace) => (last-of ?trace)
+rule ctx-of : (ctx-of (world ?w ?ctx ?s)) => ?ctx
+rule syntax-of : (syntax-of (world ?w ?ctx ?s)) => ?w
+
+// ===========================================================================
+// 3. MEASUREMENTS
+// ===========================================================================
+// utility(M, ctx): number of consonant adjacent transitions.
+rule utility-0 : (utility ?m (list)) => 0
+rule utility-1 : (utility ?m (list ?x)) => 0
+rule utility-n : (utility ?m (list ?x ?y ?rest...)) => (+ ?c ?u) where ?c <- (consonance ?m ?x ?y), ?u <- (utility ?m (list ?y ?rest...))
+
+// replay-syntax(M, W0, ctx): rebuild the syntax from the initial weights and
+// the PRODUCTS alone, by re-applying the model's own update rule to each
+// transition of the produced token sequence. If this equals the evolved
+// syntax, the productions are a function of the products.
+rule replay-syntax : (replay-syntax ?m ?w0 ?ctx) => (rp-go ?m ?mode ?w0 (list) ?ctx) where ?mode <- (mode ?m)
+rule rp-done : (rp-go ?m ?mode ?w ?seen (list)) => ?w
+rule rp-step : (rp-go ?m ?mode ?w (list ?seen...) (list ?t ?rest...)) => (rp-go ?m ?mode ?w2 (list ?seen... ?t) (list ?rest...)) where ?w2 <- (update ?mode ?m ?w (list ?seen...) ?t)
+
+// run-log(M, world0, n): run n steps and record, at each step, a compact
+// record (rec WINDOW LOGITS CF CHANGED):
+//   WINDOW   the part of the context the model reads at that step;
+//   LOGITS   the logits it computes there;
+//   CF       whether the same logits are obtained from the INITIAL syntax
+//            plus a replay of the context so far (see replay-syntax), i.e.
+//            whether the next-token distribution is a fixed function of the
+//            full context (LOGOS-SCSPL.md, Proposition 2);
+//   CHANGED  whether the step changed the syntax.
+// Returns (log FINAL-WORLD RECORDS). Measurements read the log, so the
+// trajectory itself is never held as one large term.
+rule run-log : (run-log ?m (world ?w ?ctx ?seed) ?n) => (rl-go ?m (world ?w ?ctx ?seed) ?w ?n (list))
+rule rl-done : (rl-go ?m ?world ?w0 0 ?recs) => (log ?world ?recs)
+rule rl-step : (rl-go ?m (world ?w ?ctx ?seed) ?w0 ?n (list ?recs...)) => (rl-go ?m ?next ?w0 ?n2 (list ?recs... ?r))
+  where (> ?n 0), ?k <- (window ?m), ?win <- (last-k ?k ?ctx), ?ls <- (logits-of ?m ?w ?ctx),
+        ?wr <- (replay-syntax ?m ?w0 ?ctx), ?lr <- (logits-of ?m ?wr ?ctx), ?cf <- (equal? ?ls ?lr),
+        ?next <- (step ?m (world ?w ?ctx ?seed)), ?w2 <- (syntax-of ?next), ?same <- (equal? ?w ?w2),
+        ?ch <- (not ?same), ?r <- (rec ?win ?ls ?cf ?ch), ?n2 <- (- ?n 1)
+rule log-world : (log-world (log ?world ?recs)) => ?world
+rule log-recs : (log-recs (log ?world ?recs)) => ?recs
+
+rule app-rec-cf : (app rec-cf (rec ?win ?ls ?cf ?ch)) => ?cf
+rule app-rec-ch : (app rec-ch (rec ?win ?ls ?cf ?ch)) => ?ch
+// syntax-changes: how many steps changed the syntax.
+rule syntax-changes : (syntax-changes ?log) => (count-if rec-ch ?recs) where ?recs <- (log-recs ?log)
+// last-change: the last step (1-based) that changed the syntax, 0 if none.
+rule last-change : (last-change ?log) => (lc-go ?recs 1 0) where ?recs <- (log-recs ?log)
+rule lc-done : (lc-go (list) ?i ?last) => ?last
+rule lc-step : (lc-go (list (rec ?win ?ls ?cf ?ch) ?rest...) ?i ?last) => (lc-go (list ?rest...) ?i2 ?l2) where ?l2 <- (if ?ch ?i ?last), ?i2 <- (+ ?i 1)
+// context-function?: CF holds at every step.
+rule context-function? : (context-function? ?log) => (all-of rec-cf ?recs) where ?recs <- (log-recs ?log)
+// window-repeats: pairs of steps with the same window but different logits.
+// Zero for a frozen model by construction; non-zero means the next-token
+// distribution depends on more than the window, through history carried in
+// the syntax.
+rule window-repeats : (window-repeats ?log) => (wr-outer ?recs 0) where ?recs <- (log-recs ?log)
+rule wr-outer-done : (wr-outer (list) ?acc) => ?acc
+rule wr-outer-step : (wr-outer (list ?a ?rest...) ?acc) => (wr-outer (list ?rest...) ?acc2) where ?c <- (wr-inner ?a (list ?rest...) 0), ?acc2 <- (+ ?acc ?c)
+rule wr-inner-done : (wr-inner ?a (list) ?acc) => ?acc
+rule wr-inner-step : (wr-inner (rec ?v1 ?l1 ?c1 ?h1) (list (rec ?v2 ?l2 ?c2 ?h2) ?rest...) ?acc) => (wr-inner (rec ?v1 ?l1 ?c1 ?h1) (list ?rest...) ?acc2)
+  where ?sw <- (equal? ?v1 ?v2), ?sl <- (equal? ?l1 ?l2), ?hit <- (and ?sw (not ?sl)), ?acc2 <- (+ ?acc (bit ?hit))
+
+// distinct-transitions(ctx): how many different (x, y) transitions occur.
+rule distinct-transitions : (distinct-transitions ?ctx) => (length ?d) where ?ps <- (adjacent-pairs ?ctx), ?d <- (dedup ?ps)
+rule adjacent-pairs-0 : (adjacent-pairs (list)) => (list)
+rule adjacent-pairs-1 : (adjacent-pairs (list ?x)) => (list)
+rule adjacent-pairs-n : (adjacent-pairs (list ?x ?y ?rest...)) => (prepend (pair ?x ?y) (adjacent-pairs (list ?y ?rest...)))
+
+// ===========================================================================
+// 4. STEP-WISE VERSUS WHOLE-PATH SELECTION ("sum over futures")
+// ===========================================================================
+// With a pair score (pairscore P x y) supplied by the program:
+// greedy-path chooses each token to maximize the immediate score (selection
+// that is Markovian in token time, as in ordinary decoding); best-path
+// chooses the whole continuation of length L that maximizes the total score
+// (selection over complete futures, in which later tokens determine earlier
+// choices).
+rule path-score : (path-score ?p (list ?x)) => 0
+rule path-score-n : (path-score ?p (list ?x ?y ?rest...)) => (+ ?s ?r) where ?s <- (pairscore ?p ?x ?y), ?r <- (path-score ?p (list ?y ?rest...))
+rule greedy-path : (greedy-path ?p ?v ?start ?n) => (gp-go ?p ?v (list ?start) ?n)
+rule gp-done : (gp-go ?p ?v ?path 0) => ?path
+rule gp-step : (gp-go ?p ?v ?path ?n) => (gp-go ?p ?v ?path2 ?n2) where (> ?n 0), ?x <- (last-of ?path), ?cs <- (map (ps-cand ?p ?x) ?v), ?t <- (actualize greedy ?cs 0), ?path2 <- (snoc ?path ?t), ?n2 <- (- ?n 1)
+rule app-ps-cand : (app (ps-cand ?p ?x) ?t) => (cand ?t ?s) where ?s <- (pairscore ?p ?x ?t)
+rule best-path : (best-path ?p ?v ?start ?n) => (bp-go ?p ?paths none -1000000) where ?vs <- (replicate ?n ?v), ?tails <- (cartesian ?vs), ?paths <- (map (with-start ?start) ?tails)
+rule app-with-start : (app (with-start ?s) (prof ?xs...)) => (list ?s ?xs...)
+rule bp-done : (bp-go ?p (list) ?best ?bs) => ?best
+rule bp-take : (bp-go ?p (list ?q ?rest...) ?best ?bs) => (bp-go ?p (list ?rest...) ?q ?s) where ?s <- (path-score ?p ?q), (> ?s ?bs)
+rule bp-keep : (bp-go ?p (list ?q ?rest...) ?best ?bs) => (bp-go ?p (list ?rest...) ?best ?bs)
+
+// ===========================================================================
+// 5. A SELF-CONFIGURING FIXED POINT
+// ===========================================================================
+// episode-update(M, W, ctx0, seed, n): run one telic episode of n steps
+// from a fixed start and seed, and return the resulting syntax. A syntax W
+// with episode-update(W) = W is a fixed point of the system's own telic
+// update. examples/logos-eigen.pal rewrites its own source until it holds
+// such a W, after which the file reproduces itself (a quine).
+rule episode-update : (episode-update ?m ?w ?ctx0 ?seed ?n) => (syntax-of ?f) where ?tr <- (run-world ?m (world ?w ?ctx0 ?seed) ?n), ?f <- (last-of ?tr)

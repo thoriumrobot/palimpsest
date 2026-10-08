@@ -1,8 +1,17 @@
 # A Semilattice Characterization of Convergent Local Self-Configuration
 
+> **Revision note (October 2026).** This version corrects the earlier text in five places.
+> 1. The merge rule and the fold are now written in the orientation the code computes, $(w \sqcup v)$, accumulated value first (§3.2).
+> 2. The worked example in §3.3 is recomputed; the earlier version contained a garbled chain of equalities.
+> 3. The empty boundary $e$ is now required to be an identity (a *bounded* semilattice). This makes both directions of the characterization true as stated.
+> 4. The necessity halves of Theorem 1 and of the idempotence result (now Theorem 2) are proved rather than called trivial.
+> 5. The context of the "decoheres" quotation is described accurately (§3.1).
+>
+> Every computed value is unchanged. The game-theoretic sequel, `TELIC-GAMES.md`, also discusses the CTMU's Telic Principle, which this paper did not consider.
+
 ## Abstract
 
-The Cognitive-Theoretic Model of the Universe (CTMU) accounts for the local self-configuration of reality through *telic recursion*, a process carried out by many local operators, or *telors*, each maximizing a local utility function independently of the others. Where two telors' domains overlap, the model requires that a single, well-defined outcome results, yet the source material states independence without stating a mechanism by which overlapping outcomes are reconciled. This paper answers the resulting grammatical question directly: what algebraic structure must a telor's local combination rule have for independently-computed outcomes to be guaranteed to agree wherever they overlap? We formalize overlap resolution as a term rewriting system parameterized by a binary combination operation and prove that the system is confluent, in the specific sense of being invariant to the order in which independent contributions are incorporated, if and only if that operation is a semilattice: commutative, associative, and idempotent. The sufficiency direction is proved directly, by induction, rather than assumed; necessity follows from exhibiting a counterexample for each axiom independently. The characterization is verified computationally, over finite algebras represented as term-rewriting rule sets, using facilities written for this purpose. We further show that idempotence and the pair (commutativity, associativity) discharge logically distinct responsibilities: the former guarantees robustness to a contribution being incorporated more than once, the latter to the order contributions arrive in. We further show that a constant combination rule, while formally an admissible degenerate solution restricted to a one-element codomain, achieves convergence only by discarding all local information. The semilattice signature identified here coincides with the algebraic basis of Conflict-free Replicated Data Types in distributed computing, which solve the identical coordination problem under the identical constraints.
+The Cognitive-Theoretic Model of the Universe (CTMU) accounts for the local self-configuration of reality through *telic recursion*, a process carried out by many local operators, or *telors*, each maximizing a local utility function independently of the others. Where two telors' domains overlap, the model requires that a single, well-defined outcome results, yet the source material states independence without stating a mechanism by which overlapping outcomes are reconciled. This paper answers the resulting grammatical question directly: what algebraic structure must a telor's local combination rule have for independently-computed outcomes to be guaranteed to agree wherever they overlap? We formalize overlap resolution as a term rewriting system parameterized by a binary combination operation and prove that the system is confluent, in the specific sense of being invariant to the order in which independent contributions are incorporated, if and only if that operation is a bounded semilattice: commutative, associative, idempotent, and with the empty boundary as identity. Both directions are proved. Sufficiency is proved by adjacent transpositions; necessity is proved by deriving each axiom from the convergence requirement on two- and three-element inputs, and is illustrated by a counterexample for each axiom. The characterization is verified computationally, over finite algebras represented as term-rewriting rule sets, using facilities written for this purpose. We further show that idempotence and the pair (commutativity, associativity) discharge logically distinct responsibilities: the former guarantees robustness to a contribution being incorporated more than once, the latter to the order contributions arrive in. We further show that a constant combination rule, while formally an admissible degenerate solution restricted to a one-element codomain, achieves convergence only by discarding all local information. The semilattice signature identified here coincides with the algebraic basis of Conflict-free Replicated Data Types in distributed computing, which solve the identical coordination problem under the identical constraints.
 
 ## 1. Introduction
 
@@ -35,6 +44,8 @@ A rewriting system is *confluent with respect to a given equivalence on initial 
 - (associativity) $(x \sqcup y) \sqcup z = x \sqcup (y \sqcup z)$;
 - (idempotence) $x \sqcup x = x$.
 
+It is a *bounded* semilattice with identity $e \in S$ if, in addition, $x \sqcup e = e \sqcup x = x$ for all $x$. In the model below, $e$ is the empty boundary, "nothing contributed yet". Requiring it to be an identity says only that a single contribution $v$ arriving at an empty boundary produces $v$.
+
 Semilattices are the algebraic structures underlying join operations in lattice theory, and, independently of that lineage, the structures used to define Conflict-free Replicated Data Types (CRDTs) in distributed systems, where $\sqcup$ is the *merge* function by which independent replicas reconcile divergent updates without coordination (Shapiro, Preguiça, Baquero, and Zawirski 2011). The coincidence is not superficial: a CRDT's convergence guarantee and the guarantee sought here for telors are the same theorem, applied to different subject matter.
 
 ## 3. Local Overlap Resolution
@@ -43,15 +54,19 @@ Semilattices are the algebraic structures underlying join operations in lattice 
 
 The CTMU accounts for reality's local self-configuration through a process Langan calls *telic recursion*: local operators, called *telors*, each maximize a local utility function over their own neighborhood, with no global process directing the ensemble. In Langan's own words, "local telors freely and independently maximize their local utility functions" (Langan 2002). The model states this independence as a substantive commitment, not an approximation to be refined away: telic recursion is offered as the general account of how local configuration proceeds, and the independence of its constituent telors is offered without qualification.
 
-Independence of this kind carries an evident risk, which Langan states directly rather than leaves implicit. Answering a reader's question, in a separate piece, about what happens when a system of many independently-acting local parts fails to remain a single coherent whole, Langan writes that such a system "pathologically decoheres into independent and mutually irrelevant subrealities" (Langan, correspondence). The model requires, in other words, that this decoherence not occur; it does not, in the material examined for this paper, supply an explicit rule by which it is prevented at the level of two telors resolving a shared boundary. That omission is the gap this paper closes: not by arguing whether decoherence occurs in the CTMU as a matter of general assertion, but by determining what a telor's local rule would need to satisfy for the specific failure mode Langan names to be structurally excluded.
+Independence of this kind carries an evident risk, which Langan states directly rather than leaves implicit. In a separate piece, a reader suggested that one could accept the "philosophy of wholeness" without identifying it with God. Langan replied that the wave function of the universe "must be coherent in order for the universe to be self-consistent. Otherwise, it pathologically decoheres into independent and mutually irrelevant subrealities" (Langan, correspondence). That remark concerns the universe as a whole, not telor overlaps specifically. Langan also allows ordinary local decoherence: he calls local telic operators "mutually decoherent" and says "deviations from perfect complementarity are ubiquitous". What the model requires, then, is *global* coherence. The source assigns that job to a global principle, the Telic Principle, "a global (syntactic) invariant that works to minimize the total deviation". It does not supply an explicit rule by which disagreement is prevented at the level of two telors resolving a shared boundary. (`TELIC-GAMES.md` §6 examines what such a global principle would need to do.) That omission is the gap this paper closes: not by arguing whether decoherence occurs in the CTMU as a matter of general assertion, but by determining what a telor's local rule would need to satisfy for the specific failure mode Langan names to be structurally excluded.
 
 ### 3.2 A rewriting model of overlap resolution
 
 Represent a shared boundary between two telors as a state accumulating contributions one at a time. Fix a finite set $D$ (the values telors may locally propose) and a distinguished initial value $e \notin D$ representing "nothing yet contributed." States are terms of the form $(\mathtt{state}\ v)$ for $v \in D \cup \{e\}$, and incoming contributions are incorporated by a single rule schema, instantiated once for every pair $(v, w) \in D \times (D \cup \{e\})$:
 
-$$(\mathtt{merge}\ v\ (\mathtt{state}\ w)) \;\to\; (\mathtt{state}\ (v \sqcup w))$$
+$$(\mathtt{merge}\ v\ (\mathtt{state}\ w)) \;\to\; (\mathtt{state}\ (w \sqcup v))$$
 
-where $\sqcup$ is whatever combination operation the telors in question use. A finite sequence of contributions $[v_1, \dots, v_n]$, applied in that order starting from $(\mathtt{state}\ e)$, realizes a derivation whose final state is $(\mathtt{state}\ (v_n \sqcup (\cdots \sqcup (v_1 \sqcup e))))$, i.e. the left fold of $\sqcup$ over the sequence with seed $e$. Write $\mathrm{fold}(\sqcup, e, L)$ for this final value, for a list $L$.
+where $\sqcup$ is whatever combination operation the telors in question use, the accumulated value written first. A finite sequence of contributions $[v_1, \dots, v_n]$, applied in that order starting from $(\mathtt{state}\ e)$, realizes a derivation whose final state is $(\mathtt{state}\ ((\cdots((e \sqcup v_1) \sqcup v_2) \cdots) \sqcup v_n))$, the left fold of $\sqcup$ over the sequence with seed $e$:
+
+$$\mathrm{fold}(\sqcup, e, []) = e, \qquad \mathrm{fold}(\sqcup, e, v :: L') = \mathrm{fold}(\sqcup, e \sqcup v, L').$$
+
+This is exactly what `lib/ars.pal`'s `fold-op` computes (`(apply-op OP acc x)` at each step). For a commutative operation the orientation is immaterial; for the non-commutative examples of §3.3 it matters, so it is fixed here. Throughout, $e$ is assumed to be an identity, $e \sqcup v = v \sqcup e = v$, so that a single contribution to an empty boundary yields itself.
 
 Two telors converging on the same boundary, having independently observed the same set of contributions in different orders (because they learned of them through different paths, or because nothing coordinates the order in which independent local events are noticed), correspond to two derivations realizing two different orderings of the same multiset. The system is confluent, in the sense of Section 2.1, exactly when $\mathrm{fold}(\sqcup, e, L)$ does not depend on the order of $L$, for every finite multiset of contributions the telors might see.
 
@@ -61,15 +76,20 @@ Before stating the positive result, it is worth recording that the requirement i
 
 $$\sqcup_{\mathrm{left}}(x, y) = x \qquad \qquad \sqcup_{\mathrm{right}}(x, y) = y$$
 
-Both are perfectly well-defined local rules; each telor, using only information available at its own boundary, always knows what to propose. Neither, however, is a fixed shared operation both telors apply identically ($\sqcup_{\mathrm{left}}$ and $\sqcup_{\mathrm{right}}$ are two different functions of the same two arguments), and $\mathrm{fold}(\sqcup_{\mathrm{left}}, e, [p,q]) = q$ while $\mathrm{fold}(\sqcup_{\mathrm{right}}, e, [p,q]) = q$ but $\mathrm{fold}(\sqcup_{\mathrm{left}}, e, [q,p]) = p \neq \mathrm{fold}(\sqcup_{\mathrm{right}}, e, [q,p]) = p$; more directly, a telor using $\sqcup_{\mathrm{left}}$ and a telor using $\sqcup_{\mathrm{right}}$, presented with the same pair $(p, q)$, produce $p$ and $q$ respectively: two different, both locally well-justified, and permanently unreconciled outcomes from the identical situation. This is the concrete shape of the decoherence Langan names: not a single malfunctioning telor, but two telors that are each behaving exactly as independence permits.
+Both are perfectly well-defined local rules; each telor, using only information available at its own boundary, always knows what to propose. Extend both so that $e$ is an identity. Each rule is then order-dependent on its own:
+
+- $\mathrm{fold}(\sqcup_{\mathrm{left}}, e, [p,q]) = p \sqcup_{\mathrm{left}} q = p$, but $\mathrm{fold}(\sqcup_{\mathrm{left}}, e, [q,p]) = q$;
+- $\mathrm{fold}(\sqcup_{\mathrm{right}}, e, [p,q]) = q$, but $\mathrm{fold}(\sqcup_{\mathrm{right}}, e, [q,p]) = p$.
+
+Neither is a fixed shared operation both telors apply identically ($\sqcup_{\mathrm{left}}$ and $\sqcup_{\mathrm{right}}$ are two different functions of the same two arguments). More directly, a telor using $\sqcup_{\mathrm{left}}$ and a telor using $\sqcup_{\mathrm{right}}$, presented with the same pair $(p, q)$, produce $p$ and $q$ respectively: two different, both locally well-justified, and permanently unreconciled outcomes from the identical situation. This is the concrete shape of local disagreement: not a single malfunctioning telor, but two telors that are each behaving exactly as independence permits. Whether such local disagreement amounts to the global decoherence Langan warns of depends on what the CTMU's global stage can do about it (`TELIC-GAMES.md` §6).
 
 ## 4. The Semilattice Theorem
 
 ### 4.1 Statement
 
-**Theorem 1.** Let $D$ be a finite set, $e \notin D$, and $\sqcup: (D \cup \{e\}) \times (D \cup \{e\}) \to D \cup \{e\}$ a binary operation. Then $\mathrm{fold}(\sqcup, e, L)$ depends only on the multiset of elements of $L$, for every finite list $L$ over $D$, if $\sqcup$ is commutative and associative on $D \cup \{e\}$.
+**Theorem 1.** Let $D$ be a finite set, $e \notin D$, and $\sqcup: (D \cup \{e\}) \times (D \cup \{e\}) \to D \cup \{e\}$ a binary operation with identity $e$. Then $\mathrm{fold}(\sqcup, e, L)$ depends only on the multiset of elements of $L$, for every finite list $L$ over $D$, **if and only if** $\sqcup$ is commutative and associative on $D$.
 
-Idempotence is not required for Theorem 1 as stated; its role is separate and is treated in Section 4.3. Observe also that Theorem 1's converse, that commutativity and associativity are necessary for reordering-invariance, holds trivially: if $\sqcup$ fails commutativity at some pair, or associativity at some triple, that failure is itself a pair or triple of orderings on which $\mathrm{fold}$ disagrees.
+Idempotence is not required for Theorem 1; its role is separate and is treated in Section 4.3.
 
 ### 4.2 Proof
 
@@ -79,19 +99,25 @@ Let $L = [v_1, \dots, v_{i-1}, v_i, v_{i+1}, v_{i+2}, \dots, v_n]$ and let $L'$ 
 
 $$(a \sqcup v_i) \sqcup v_{i+1} \qquad \text{versus} \qquad (a \sqcup v_{i+1}) \sqcup v_i.$$
 
-By associativity, $(a \sqcup v_i) \sqcup v_{i+1} = a \sqcup (v_i \sqcup v_{i+1})$. By commutativity, $v_i \sqcup v_{i+1} = v_{i+1} \sqcup v_i$, so $a \sqcup (v_i \sqcup v_{i+1}) = a \sqcup (v_{i+1} \sqcup v_i)$. By associativity again, $a \sqcup (v_{i+1} \sqcup v_i) = (a \sqcup v_{i+1}) \sqcup v_i$. Chaining these equalities gives $(a \sqcup v_i) \sqcup v_{i+1} = (a \sqcup v_{i+1}) \sqcup v_i$, so the two derivations agree at position $i + 1$ and, having the same remaining suffix $[v_{i+2}, \dots, v_n]$ to fold in from that common value, agree at every later position as well, including the final one. $\blacksquare$
+By associativity, $(a \sqcup v_i) \sqcup v_{i+1} = a \sqcup (v_i \sqcup v_{i+1})$. By commutativity, $v_i \sqcup v_{i+1} = v_{i+1} \sqcup v_i$, so $a \sqcup (v_i \sqcup v_{i+1}) = a \sqcup (v_{i+1} \sqcup v_i)$. By associativity again, $a \sqcup (v_{i+1} \sqcup v_i) = (a \sqcup v_{i+1}) \sqcup v_i$. Chaining these equalities gives $(a \sqcup v_i) \sqcup v_{i+1} = (a \sqcup v_{i+1}) \sqcup v_i$, so the two derivations agree at position $i + 1$ and, having the same remaining suffix $[v_{i+2}, \dots, v_n]$ to fold in from that common value, agree at every later position as well, including the final one. (Because $e$ is an identity, commutativity and associativity on $D$ extend to $D \cup \{e\}$, which covers the case $a = e$.)
+
+*Necessity.* Commutativity: since $e$ is an identity, $\mathrm{fold}(\sqcup, e, [x, y]) = x \sqcup y$ and $\mathrm{fold}(\sqcup, e, [y, x]) = y \sqcup x$; these lists are permutations of each other, so $x \sqcup y = y \sqcup x$. Associativity: $[x, y, z]$ and $[z, y, x]$ are permutations, so $(x \sqcup y) \sqcup z = (z \sqcup y) \sqcup x$. Applying commutativity twice to the right-hand side gives $x \sqcup (y \sqcup z)$. Note that associativity is derived *using* commutativity; the two are not independently "trivial" consequences. $\blacksquare$
 
 ### 4.3 The separate role of idempotence
 
 Theorem 1 addresses only the order in which a *fixed* multiset of contributions is incorporated. A distinct and equally realistic failure mode for independently-acting telors is that the same contribution reaches a telor more than once, through redundant paths or repeated observation, without the telor having any way to detect the repetition from local information alone. This is a distinct hazard from misordering, and is guarded against by idempotence rather than by commutativity or associativity:
 
-**Observation 1.** If $\sqcup$ is idempotent, then for any list $L$ and any element $v$ already present in $L$, $\mathrm{fold}(\sqcup, e, L)$ and $\mathrm{fold}(\sqcup, e, L \text{ with an extra copy of } v \text{ inserted anywhere})$ are equal, given commutativity and associativity to justify moving the extra copy adjacent to an existing one, where idempotence then collapses the pair: $v \sqcup v = v$.
+**Theorem 2.** Let $\sqcup$ be commutative and associative with identity $e$. Then $\mathrm{fold}(\sqcup, e, L_1) = \mathrm{fold}(\sqcup, e, L_2)$ whenever $L_1$ and $L_2$ contain the same *set* of distinct elements, **if and only if** $\sqcup$ is idempotent on $D$.
+
+*Proof.* Sufficiency: by Theorem 1, an extra copy of $v$ can be moved next to an existing one, where idempotence collapses the pair, $v \sqcup v = v$; induct on the number of extra copies. Necessity: if $x \sqcup x \neq x$ for some $x$, then $\mathrm{fold}(\sqcup, e, [x]) = x$ but $\mathrm{fold}(\sqcup, e, [x, x]) = x \sqcup x$, although both lists have the set $\{x\}$. $\blacksquare$
+
+Together, Theorems 1 and 2 say that convergence under arbitrary reordering *and* duplication holds exactly when $(D \cup \{e\}, \sqcup, e)$ is a bounded semilattice.
 
 Commutativity and associativity alone do not give this guarantee. Ordinary addition on the integers is commutative and associative but not idempotent ($1 + 1 = 2 \neq 1$), and folding a duplicated contribution through it changes the total, as Section 5.3 demonstrates directly rather than merely by this remark.
 
 ## 5. Computational Verification
 
-The formal argument of Section 4 does not depend on execution to be correct; it is a proof. What follows checks that the definitions used above correspond to a real, running rewriting system, and confirms Theorem 1 and Observation 1 against concrete instances rather than leaving them as claims about an abstraction.
+The formal argument of Section 4 does not depend on execution to be correct; it is a proof. What follows checks that the definitions used above correspond to a real, running rewriting system, and confirms Theorems 1 and 2 against concrete instances rather than leaving them as claims about an abstraction.
 
 ### 5.1 Representing finite algebras
 
@@ -175,13 +201,15 @@ The results above are established for a finite carrier set and for reordering as
 
 ## 8. Conclusion
 
-Independent local resolution of a shared overlap converges, in the specific and checkable sense of not depending on the order or multiplicity of the contributions being reconciled, exactly when the local combination rule is a semilattice: commutative, associative, and idempotent. The sufficiency of this condition is a short, direct proof, not an empirical regularity; its necessity, axiom by axiom, follows from explicit counterexamples exhibiting the corresponding disagreement. The characterization is the same one that governs coordination-free convergence in distributed systems, obtained here from first principles for the different but structurally identical problem of independently-acting local operators reconciling a shared boundary, and it distinguishes cleanly between the two distinct hazards, misordering and duplication, that independence exposes a system to, attributing each to a separate and independently necessary algebraic clause.
+Independent local resolution of a shared overlap converges, in the specific and checkable sense of not depending on the order or multiplicity of the contributions being reconciled, exactly when the local combination rule is a bounded semilattice: commutative, associative and idempotent, with the empty boundary as identity. Both directions are short, direct proofs, not empirical regularities, and each axiom's necessity is also illustrated by an executed counterexample. The characterization is the same one that governs coordination-free convergence in distributed systems, obtained here from first principles for the different but structurally identical problem of independently-acting local operators reconciling a shared boundary, and it distinguishes cleanly between the two distinct hazards, misordering and duplication, that independence exposes a system to, attributing each to a separate and independently necessary algebraic clause.
 
 ## References
 
 Christopher M. Langan, "The Cognitive-Theoretic Model of the Universe: A New Kind of Reality Theory" (2002).
 
-Christopher M. Langan, published correspondence answering a reader's question on decoherence, from the same collected-writings source as the item above but a distinct, separate piece.
+Christopher M. Langan, published correspondence answering a reader ("Mackenzie") on wholeness and the coherence of the universe's wave function, from his collected writings (*The Portable Chris Langan*), a piece distinct from the item above.
+
+`TELIC-GAMES.md` (this repository): the game-theoretic sequel, which makes the telors' contributions strategic and examines the CTMU's global stage.
 
 Marc Shapiro, Nuno Preguiça, Carlos Baquero, and Marek Zawirski, "Conflict-free Replicated Data Types," *Stabilization, Safety, and Security of Distributed Systems* (SSS 2011), Lecture Notes in Computer Science vol. 6976, Springer, 2011.
 
@@ -190,6 +218,7 @@ Marc Shapiro, Nuno Preguiça, Carlos Baquero, and Marek Zawirski, "Conflict-free
 ```sh
 cargo build --release
 ./target/release/palimpsest examples/telor-semilattice.pal
+./verify-semilattice.sh          # checks every value below against expected output
 ```
 
 reproduces every value reported in Section 5 in a single run: the four-axiom check on the semilattice table and on the deliberately broken one (Section 5.1), the three-ordering agreement and disagreement (Section 5.2), and the duplicate-delivery pair for both an idempotent and a non-idempotent operation (Section 5.3).

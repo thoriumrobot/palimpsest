@@ -1,0 +1,60 @@
+#lang palimpsest
+#mode run-only
+#fuel 5000000
+import "../lib/games.pal"
+
+// telor-games-merge.pal — when is an overlap between independent telors a
+// GAME among those telors at all? (TELIC-GAMES.md, Section 3.)
+//
+// A normal-form game needs an outcome function: given what each player
+// chose, what happens. For an overlap resolved by folding contributions in
+// through a merge operation, that function exists only if the fold does not
+// depend on anything the telors did not choose: arrival order, grouping,
+// duplicate delivery. Each semilattice axiom removes one such hidden input,
+// and each hidden input is a lever a strategic telor (or the scheduler)
+// could pull. This file exhibits the lever for every axiom that fails, and
+// its absence under max.
+strategy solve = outermost(prim + rules)
+
+// Cayley tables (same encoding as examples/telor-semilattice.pal).
+rule t-last  : (last-writer-wins)  => (rules (rule (op e p) p) (rule (op e q) q) (rule (op p p) p) (rule (op p q) q) (rule (op q p) p) (rule (op q q) q))
+rule t-first : (first-writer-wins) => (rules (rule (op e p) p) (rule (op e q) q) (rule (op p p) p) (rule (op p q) p) (rule (op q p) q) (rule (op q q) q))
+rule t-max   : (max-table) => (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c) (rule (op a a) a) (rule (op a b) b) (rule (op a c) c) (rule (op b a) b) (rule (op b b) b) (rule (op b c) c) (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+rule t-broken : (broken-table) => (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c) (rule (op a a) a) (rule (op a b) b) (rule (op a c) a) (rule (op b a) b) (rule (op b b) b) (rule (op b c) c) (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
+rule t-add : (add-table) => (rules (rule (op 0 1) 1) (rule (op 0 2) 2) (rule (op 1 1) 2) (rule (op 1 2) 3) (rule (op 2 1) 3) (rule (op 2 2) 4) (rule (op 3 1) 4) (rule (op 3 2) 5))
+
+main = (report
+
+  // 1. Commutativity. Under last-writer-wins (and first-writer-wins) the
+  // same two contributions p, q yield either value, depending only on the
+  // order the scheduler delivers them: the outcome is not a function of the
+  // telors' choices, so the scheduler is a decisive extra player.
+  (scheduler-decides-last-writer-wins  (schedule-outcomes (last-writer-wins) e (list p q)))
+  (scheduler-decides-first-writer-wins (schedule-outcomes (first-writer-wins) e (list p q)))
+  (scheduler-irrelevant-under-max      (schedule-outcomes (max-table) bottom (list a b c)))
+
+  // 2. Associativity. The broken table is commutative and idempotent, so
+  // order of two contributions never matters — yet three contributions
+  // still reach three different outcomes, and a coalition {b, c} that merges
+  // its contributions privately before submitting (b ⊔ c = c) turns the
+  // shared outcome from c into a. Grouping is a strategic lever.
+  (scheduler-decides-broken-table (schedule-outcomes (broken-table) bottom (list a b c)))
+  (coalition-premerge-broken
+    (fold-op (broken-table) bottom (list a b c))
+    (fold-op (broken-table) bottom (list a (apply-op (broken-table) b c))))
+  (coalition-premerge-max
+    (fold-op (max-table) bottom (list a b c))
+    (fold-op (max-table) bottom (list a (apply-op (max-table) b c))))
+
+  // 3. Idempotence. Addition is commutative and associative, so it IS a
+  // well-defined game over multisets — but then a telor's strategy space
+  // includes "how many copies to send", and the telor contributing 1 moves
+  // the total by re-sending it. Under max, a re-sent contribution is inert.
+  (duplicate-is-leverage-under-add
+    (fold-op (add-table) 0 (list 1 2))
+    (fold-op (add-table) 0 (list 1 2 1)))
+  (duplicate-is-inert-under-max
+    (fold-op (max-table) bottom (list a b))
+    (fold-op (max-table) bottom (list a b a a))))
+
+run solve

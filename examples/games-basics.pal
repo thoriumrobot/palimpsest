@@ -1,0 +1,46 @@
+#lang palimpsest
+#mode run-only
+#fuel 5000000
+import "../lib/games.pal"
+
+// games-basics.pal — lib/games.pal checked against three textbook games
+// whose answers are known independently, before it is pointed at telors
+// (the same discipline TELIC-CONFLUENCE.md applies to lib/ars.pal).
+//   Prisoner's Dilemma: unique pure NE (D,D), D strictly dominant, (D,D)
+//     Pareto-dominated by (C,C); an exact potential game.
+//   Matching Pennies: no pure NE; unique mixed NE (1/2, 1/2); not a
+//     potential game; better-response dynamics cycle.
+//   Battle of the Sexes: pure NE (O,O) and (F,F); mixed NE with
+//     Pr[row plays O] = 2/3, Pr[column plays O] = 1/3.
+strategy solve = outermost(prim + rules)
+
+rule pd-sets : (strategy-sets pd) => (list (list c d) (list c d))
+rule pd-cc0 : (payoff pd 0 (prof c c)) => 3
+rule pd-cd0 : (payoff pd 0 (prof c d)) => 0
+rule pd-dc0 : (payoff pd 0 (prof d c)) => 5
+rule pd-dd0 : (payoff pd 0 (prof d d)) => 1
+rule pd-1   : (payoff pd 1 (prof ?x ?y)) => (payoff pd 0 (prof ?y ?x))
+
+rule mp-sets : (strategy-sets mp) => (list (list h t) (list h t))
+rule mp-0s : (payoff mp 0 (prof ?x ?x)) => 1
+rule mp-0d : (payoff mp 0 (prof ?x ?y)) => 0
+rule mp-1  : (payoff mp 1 ?p) => (- 1 ?v) where ?v <- (payoff mp 0 ?p)
+
+rule bos-sets : (strategy-sets bos) => (list (list o f) (list o f))
+rule bos-oo : (payoff bos ?i (prof o o)) => (if (= ?i 0) 2 1)
+rule bos-ff : (payoff bos ?i (prof f f)) => (if (= ?i 0) 1 2)
+rule bos-x  : (payoff bos ?i ?p) => 0
+
+main = (report
+  (pd-nash (pure-nash pd))
+  (pd-d-dominant (weakly-dominant? pd 0 d) (weakly-dominant? pd 1 d))
+  (pd-c-dominant (weakly-dominant? pd 0 c))
+  (pd-dd-pareto-dominators (pareto-dominators pd (prof d d)))
+  (pd-potential (ms-violations pd) (terminating? pd))
+  (mp-nash (pure-nash mp))
+  (mp-mixed (mixed-2x2 mp))
+  (mp-potential (length (ms-violations mp)) (terminating? mp))
+  (bos-nash (pure-nash bos))
+  (bos-mixed (mixed-2x2 bos)))
+
+run solve

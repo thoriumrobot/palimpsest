@@ -1,0 +1,77 @@
+#lang palimpsest
+#mode run-only
+#fuel 200000000
+import "../lib/logos.pal"
+
+// logos-scspl.pal — which structural properties does autoregressive
+// language-model processing share with Langan's SCSPL? (LOGOS-SCSPL.md)
+//
+// Part 1 (Section 3): the pooling algebra of attention, against the
+// semilattice conditions of SEMILATTICE-GRAMMAR.md.
+// Part 2 (Section 4): one toy model run in two modes for 60 steps from the
+// same start and seed: FROZEN (fixed weights, as in LLM inference) and
+// TELIC (the produced tokens refine the weights through a utility).
+// Part 3 (Section 5): step-wise versus whole-path selection.
+// Takes about a minute; every number is re-derived by
+// crosscheck/logos_crosscheck.py.
+strategy solve = outermost(prim + rules)
+
+// --- the model: three tokens; the "consonant" transitions are a->b, b->c,
+// --- c->a; the model reads one token back; weights live in [0, 6].
+rule v : (vocab ?m) => (list a b c)
+rule k : (window ?m) => 1
+rule cap : (cap ?m) => 6
+rule cons-ab : (consonance ?m a b) => 1
+rule cons-bc : (consonance ?m b c) => 1
+rule cons-ca : (consonance ?m c a) => 1
+rule cons-x : (consonance ?m ?x ?y) => 0
+rule mf : (mode frozen-lm) => frozen
+rule mt : (mode telic-lm) => telic
+rule pol : (policy ?m) => sample
+
+// --- pair scores for Part 3: b is a dead end that greedy selection walks into.
+rule p-aa : (pairscore trap a a) => 0
+rule p-ab : (pairscore trap a b) => 3
+rule p-ac : (pairscore trap a c) => 1
+rule p-bx : (pairscore trap b ?y) => -4
+rule p-ca : (pairscore trap c a) => 2
+rule p-cb : (pairscore trap c b) => 0
+rule p-cc : (pairscore trap c c) => 3
+
+// summary(M) (the labels deliberately differ from the function names, which
+// would otherwise be rewritten as calls): utility of the first and second halves of the 60 transitions
+// (consonant transitions out of 30 each), number of steps that changed the
+// syntax, last such step, window repeats with different logits, whether the
+// next-token distribution is a function of the full context, number of
+// distinct transitions used, final syntax, and the last 16 tokens.
+rule summary : (summary ?m) => (sum-of (halves ?u1 ?u2) (changes ?sc) (last ?lc) (repeats ?wr) (ctx-fn ?cf) (distinct ?dt) (final-syntax ?w) (tail ?tl))
+  where ?l <- (run-log ?m (world (list) (list a) 1) 60), ?c <- (ctx-of (log-world ?l)),
+        ?u1 <- (utility ?m (take 31 ?c)), ?u2 <- (utility ?m (drop 30 ?c)),
+        ?sc <- (syntax-changes ?l), ?lc <- (last-change ?l), ?wr <- (window-repeats ?l),
+        ?cf <- (context-function? ?l), ?dt <- (distinct-transitions ?c),
+        ?w <- (syntax-of (log-world ?l)), ?tl <- (drop 45 ?c)
+
+main = (report
+  // Part 1. Attention pooling: one readout for every order (commutative and
+  // associative), but a repeated item changes it (not idempotent).
+  (attention-all-orders (pool-outcomes attn (acc 0 0) (list (item a 1 2) (item b 2 5) (item c 0 9))))
+  (attention-duplicate
+    (pool attn (acc 0 0) (list (item a 1 2) (item b 2 5)))
+    (pool attn (acc 0 0) (list (item a 1 2) (item b 2 5) (item a 1 2))))
+  // With position assigned by arrival order, every order gives a different readout.
+  (positional-attention-orders (positional-outcomes (list (item a 1 2) (item b 2 5) (item c 0 9))))
+  // Max-pooling is a semilattice: insensitive to order and to repetition.
+  (maxpool-all-orders (pool-outcomes maxpool bottom (list (item a 1 2) (item b 2 5) (item c 0 9))))
+  (maxpool-duplicate
+    (pool maxpool bottom (list (item a 1 2) (item b 2 5)))
+    (pool maxpool bottom (list (item a 1 2) (item b 2 5) (item a 1 2))))
+
+  // Part 2. Frozen versus telic.
+  (frozen (summary frozen-lm))
+  (telic (summary telic-lm))
+
+  // Part 3. Step-wise versus whole-path selection from a, three steps.
+  (greedy (greedy-path trap (list a b c) a 3) (path-score trap (greedy-path trap (list a b c) a 3)))
+  (best (best-path trap (list a b c) a 3) (path-score trap (best-path trap (list a b c) a 3))))
+
+run solve

@@ -1,0 +1,43 @@
+#lang palimpsest
+#mode run-only
+#fuel 400000000
+import "../lib/games.pal"
+
+// telor-games-chain.pal — exhaustive check of the chain theorem
+// (TELIC-GAMES.md, Theorem 5.1): independent improvement in a join game
+// ALWAYS terminates when the merge is a join over a chain (a total order),
+// and can cycle forever over any carrier containing two incomparable
+// elements.
+//
+// Sweep: two telors, each free to contribute any element of a 3-element
+// carrier, with utilities drawn from all 13 weak orders on that carrier
+// (`all-weak-orders`). The improvement relation, and hence termination,
+// depends on utilities only through comparisons, so 13 x 13 = 169 games
+// covers every pair of ordinal preferences. Count the games without the finite improvement
+// property, for the chain lo < mid < hi and for {a, b, top} with a, b
+// incomparable (the diamond minus its bottom).
+//
+// Takes ~15 s: the merges are host rules (`merge NAME x y`) rather than
+// Cayley tables, which is what makes the sweep affordable.
+strategy solve = outermost(prim + rules)
+
+rule rank-lo  : (rank lo)  => 1
+rule rank-mid : (rank mid) => 2
+rule rank-hi  : (rank hi)  => 3
+rule merge-c-bot1 : (merge chain bot ?y) => ?y
+rule merge-c-bot2 : (merge chain ?x bot) => ?x
+rule merge-chain  : (merge chain ?x ?y) => (if (>= ?rx ?ry) ?x ?y) where ?rx <- (rank ?x), ?ry <- (rank ?y)
+
+rule merge-d-bot1 : (merge diamond bot ?y) => ?y
+rule merge-d-bot2 : (merge diamond ?x bot) => ?x
+rule merge-d-same : (merge diamond ?x ?x) => ?x
+rule merge-d-else : (merge diamond ?x ?y) => top
+
+main = (report
+  (weak-orders-on-3 (length (all-weak-orders (list lo mid hi))))
+  (chain-games-without-fip
+    (count-cyclic-2 chain bot (list lo mid hi) (all-weak-orders (list lo mid hi))))
+  (diamond-games-without-fip
+    (count-cyclic-2 diamond bot (list a b top) (all-weak-orders (list a b top)))))
+
+run solve
