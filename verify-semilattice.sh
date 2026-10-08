@@ -13,7 +13,9 @@ for detail in \
   "(max-is-a-semilattice true true true true)" \
   "(broken-table-is-not-a-semilattice true true false false)" \
   "(max-order-independent c c c)" \
-  "(broken-order-dependent c a a)"
+  "(broken-order-dependent c a a)" \
+  "(max-duplicate-delivery-harmless c c)" \
+  "(addition-duplicate-delivery-corrupts 3 4)"
 do
   printf '%s' "$out" | grep -qF "$detail" || ok=0
 done

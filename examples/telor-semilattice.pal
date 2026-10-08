@@ -107,6 +107,39 @@ main = (report
              (rule (op a a) a) (rule (op a b) b) (rule (op a c) a)
              (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
              (rule (op c a) a) (rule (op c b) c) (rule (op c c) c))
-      bottom (list b c a))))
+      bottom (list b c a)))
+
+  // Idempotence specifically buys robustness to a contribution being
+  // incorporated MORE THAN ONCE, which commutativity and associativity
+  // alone do not: max{a,b,c} folded with a duplicated "a" still gives c,
+  // but plain addition (commutative and associative, NOT idempotent:
+  // 1+1 = 2 != 1) folded with a duplicated "1" gives a different total.
+  (max-duplicate-delivery-harmless
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      bottom (list a b c))
+    (fold-op
+      (rules (rule (op bottom a) a) (rule (op bottom b) b) (rule (op bottom c) c)
+             (rule (op a a) a) (rule (op a b) b) (rule (op a c) c)
+             (rule (op b a) b) (rule (op b b) b) (rule (op b c) c)
+             (rule (op c a) c) (rule (op c b) c) (rule (op c c) c))
+      bottom (list a b a c b)))
+
+  (addition-duplicate-delivery-corrupts
+    (fold-op
+      (rules (rule (op 0 1) 1) (rule (op 0 2) 2)
+             (rule (op 1 1) 2) (rule (op 1 2) 3)
+             (rule (op 2 1) 3) (rule (op 2 2) 4)
+             (rule (op 3 1) 4) (rule (op 3 2) 5))
+      0 (list 1 2))
+    (fold-op
+      (rules (rule (op 0 1) 1) (rule (op 0 2) 2)
+             (rule (op 1 1) 2) (rule (op 1 2) 3)
+             (rule (op 2 1) 3) (rule (op 2 2) 4)
+             (rule (op 3 1) 4) (rule (op 3 2) 5))
+      0 (list 1 2 1))))
 
 run solve
