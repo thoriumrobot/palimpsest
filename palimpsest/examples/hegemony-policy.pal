@@ -1,0 +1,23 @@
+#lang palimpsest
+#fuel 2000000000
+// COUNTERFACTUAL POLICY EXPERIMENTS: the whole 5-round game, replayed from the
+// 2-player setup with the starting Labor Market and Foreign Trade sections
+// changed (the other five Policies as printed). Same behavioural rules, same
+// seed; only the institutional starting point differs. Each row is one full
+// deterministic game; invariants are asserted for all nine.
+import "../lib/hegemony.pal"
+rule start-at : (start-at ?l ?tr !s) => (reprice (relabor ?l (set@ ?s pol trade ?tr)))
+rule relabor : (relabor ?l ?s) => (if (= ?l (@ ?s pol labor)) ?s (each (relevel (min-level ?l)) (co-ids ?s) (set@ ?s pol labor ?l)))
+rule exp-row : (exp-row ?l ?tr ?s0) => (cat (cells (list ?l ?tr (@ ?g wc vp) (@ ?g cc vp) (@ ?g wc prosp) (pool-size ?g) (@ ?g wc money) (@ ?g cc cap) (@ ?g st treasury) (+ (@ ?g wc loans) (+ (@ ?g cc loans) (@ ?g st writeoff))) (- 0 (@ ?g flows wage-cc cc)) (- 0 (@ ?g flows sale-cc wc)) (count-ids cc ?g)) 8) (cat "   " (str (pol-word ?g))))
+  where ?g <- (play-game (start-at ?l ?tr ?s0))
+rule experiments : (experiments !s0) => (lines (list
+  (cells (list Labor Trade WC-VP CC-VP prosp unemp WC-$ CC-cap State-$ debts CCwages WCbuys CC-cos) 8)
+  (rule-line 115)
+  (exp-row A A ?s0) (exp-row A B ?s0) (exp-row A C ?s0)
+  (exp-row B A ?s0) (exp-row B B ?s0) (exp-row B C ?s0)
+  (exp-row C A ?s0) (exp-row C B ?s0) (exp-row C C ?s0)))
+rule all-inv : (all-inv !s0) => (all-of (inv-at ?s0) (list (pair A A) (pair A B) (pair A C) (pair B A) (pair B B) (pair B C) (pair C A) (pair C B) (pair C C)))
+rule app-inv-at : (app (inv-at ?s0) (pair ?l ?tr)) => (invariants? (play-game (start-at ?l ?tr ?s0)))
+main = (h-setup)
+display (experiments main) with normalize
+assert (all-inv main) with normalize

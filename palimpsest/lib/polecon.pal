@@ -1,0 +1,291 @@
+#lang palimpsest
+// polecon.pal -- the integrated political economy: one period of an economy
+// with classes, written as an EQUATION CHAIN over a record, in three regimes:
+//
+//   cap   capitalism: a reserve army, bargaining power from the class-struggle
+//         game, accumulation out of profits with an investment strike below a
+//         minimum profit rate, mechanization (rising capital per job), an
+//         inflation target that erodes wages between pay settlements,
+//         right-wing patronage networks funded out of profits, prospect-theory
+//         voting, and a radical government that represses unions when it wins;
+//   cold  capitalism under an external rival (the Cold War of the fascism post):
+//         unemployment insurance, wages indexed to half of productivity
+//         growth with cost-of-living adjustment, funded left networks -- until
+//         period COLDEND, after which it is plain capitalism;
+//   ap    accountable planning: a job guarantee (public jobs at the voucher
+//         wage g), the plan computed from quadratic-voting final demand by the
+//         contractive iteration of value.pal, non-circulating vouchers (no
+//         inflation), a capitalist remainder that must beat g and is capped at
+//         THETA, entrenched rights (repression fails), patronage without
+//         leverage (everyone already has a job).
+//
+// Every mechanism is one equation and comes from Parts I-III:
+//   bargaining power  <- equilibrium of the class-struggle game (classgames §2)
+//   wage share        <- Nash bargaining against the reserve army / job guarantee (§1)
+//   radical vote      <- prospect theory over the strata's living standards (§6)
+//   right network     <- patronage dynamics (§7)
+//   the plan          <- QV demand and the contractive planning loop (§5, value.pal)
+//
+// THE CHAIN. (pe-chain S P H) starts from the state record S (+ its regime
+// mode), applies the equations of that mode in order, each binding one
+// variable, and returns the record of all of them. H is either `none` or
+// (hook X D BASE KEEP): after the state is loaded / after X is computed, add D
+// to X; every other variable named in the list FROZEN is reset to its value
+// in BASE right after it is computed -- so a probe measures the direct effect
+// of X on the one equation under test (a partial finite difference of the
+// rewriting system itself).
+import "classgames.pal"
+import "cld.pal"
+
+// ---------------------------------------------------------------- parameters
+rule pe-par : (pe-par) => (rec
+  (N 100) (s 2/5) (bl 1/5) (bh 1/2) (k 1/20) (rho 1/20) (rext 1/10) (g 4/5) (pen 1/10)
+  (rmin 1/25) (sc 3/5) (dep 3/100) (crash 1/10) (mu 1/100) (gam 1/40)
+  (pistar 1/50) (shock1 40) (shock2 41) (shockpi 1/10) (coldend 30) (repl 9/10)
+  (phi 1/5) (psi 1/20) (asp 1/5) (scale 20) (yp 6/5) (theta 60) (dgrow 1/50) (L0 80) (c0 4/5)
+  (prho 4) (passes 30))
+rule pe-init : (pe-init !reg) => (rec (reg ?reg) (t 0) (K ?k) (kap 3) (A 1) (ce 4/5) (sR 1/2) (gov 0) (cb 4/5) (t0 0)) where ?k <- (if (= ?reg ap) 30 270)
+// (cb, t0): under ap, the voted bundle is cb (1 + dgrow)^(t - t0) -- cb is the
+// bundle the regime started from at period t0 (4/5 at 0 for a planned economy
+// from the start; the incumbent's average living standard after a transition)
+// the planning economy (E3 of Part I) and the QV final-demand direction of Part III
+rule pe-e3 : (pe-e3) => (rec (goods (list mp nec lux)) (a (list (list 1/5 1/5 1/10) (list 1/10 1/5 0) (list 0 0 0))) (l (list 1 2 1)))
+rule pe-qv-dir : (pe-qv-dir) => (list 300 450 120)
+
+// ---------------------------------------------------------------- the chain
+rule pe-mode : (pe-mode !s !p) => (if (and (= (@ ?s reg) cold) (>= (@ ?s t) (@ ?p coldend))) cap (@ ?s reg))
+rule pe-order-cap : (pe-order cap) => (list E U B Fl Inf W Cu Ce Pi Rr Cr I K2 Asp Rad Gov2 SR2)
+rule pe-order-cold : (pe-order cold) => (list E U B Fl Inf W Cu Ce Pi Rr Cr I K2 Asp Rad Gov2 SR2)
+rule pe-order-ap : (pe-order ap) => (list E U B Fl Inf W Lreq PlanErr Ce Cu Pi Rr Cr I K2 Asp Rad Gov2 SR2)
+rule pe-chain : (pe-chain !s !p !h) => (pe-finish ?v2 ?p)
+  where ?m <- (pe-mode ?s ?p), ?v0 <- (put@ ?s mode ?m), ?v1 <- (pe-hook-state ?v0 ?h), ?v2 <- (pe-go (pe-order ?m) ?v1 ?p ?h)
+rule pe-go-0 : (pe-go (list) ?v ?p ?h) => ?v
+rule pe-go-n : (pe-go (list ?x ?xs...) ?v ?p ?h) => (pe-go (list ?xs...) ?v3 ?p ?h)
+  where ?val <- (pe-eq ?x ?v ?p), ?v2 <- (put@ ?v ?x ?val), ?v3 <- (pe-hook ?x ?v2 ?h)
+// interventions on state variables happen before the chain runs
+rule pe-hook-state-none : (pe-hook-state ?v none) => ?v
+rule pe-hook-state : (pe-hook-state ?v (hook ?x ?d ?base ?frozen)) => (if (has@ ?v ?x) (add@ ?v ?x ?d) ?v)
+rule pe-hook-none : (pe-hook ?name ?v none) => ?v
+rule pe-hook : (pe-hook ?name ?v (hook ?x ?d ?base ?frozen)) => (pe-hook2 ?name ?v ?x ?d ?base ?frozen)
+rule pe-hook2 : (pe-hook2 ?name ?v ?x ?d ?base ?frozen) => (if (= ?name ?x) (add@ ?v ?x ?d) (if (member ?name ?frozen) (set@ ?v ?name (@ ?base ?name)) ?v))
+
+// ---- the equations: (pe-eq NAME V P) -------------------------------------
+rule pe-cs : (pe-cs ?m) => (if (= ?m ap) ap cap)
+// E: private employment
+rule eq-E-ap : (pe-eq E ?v ?p) => (if (> (@ ?p yp) (@ ?p g)) (min (@ ?p N) (q/ (@ ?v K) (@ ?v kap))) 0) where (= (@ ?v mode) ap)
+rule eq-E : (pe-eq E ?v ?p) => (min (@ ?p N) (q/ (@ ?v K) (@ ?v kap))) where (<> (@ ?v mode) ap)
+// U: unemployment rate (the job guarantee makes it 0 under ap)
+rule eq-U-ap : (pe-eq U ?v ?p) => 0 where (= (@ ?v mode) ap)
+rule eq-U : (pe-eq U ?v ?p) => (- 1 (q/ (@ ?v E) (@ ?p N))) where (<> (@ ?v mode) ap)
+// B: bargaining power = the class-struggle game's equilibrium (expected value
+// under the mixed equilibrium when there is no pure one); a radical government
+// (gov = 1) halves both levels -- unless rights are entrenched (ap)
+rule pe-gpar : (pe-gpar !v !p) => (if (and (>= (@ ?v gov) 1) (<> (@ ?v mode) ap)) (set@ (set@ ?p1 bl (q/ (@ ?p bl) 2)) bh (q/ (@ ?p bh) 2)) ?p1)
+  where ?p1 <- (set@ ?p u (@ ?v U))
+rule eq-B : (pe-eq B ?v ?p) => (pe-beta (pe-cs (@ ?v mode)) ?gp) where ?gp <- (pe-gpar ?v (put@ ?p u 0))
+rule pe-beta : (pe-beta !r !gp) => (pe-beta-ne ?r ?gp ?ne) where ?ne <- (pure-nash (cs-game ?r ?gp))
+rule pe-beta-ne-mixed : (pe-beta-ne ?r ?gp (list)) => (+ (@ ?gp bl) (* (* (- 1 (mx-p ?m)) (mx-q ?m)) (- (@ ?gp bh) (@ ?gp bl))))
+  where ?m <- (mixed2 (cs-core ?gp) acc org con rep)
+rule pe-beta-ne-flt : (pe-beta-ne ?r ?gp (list (prof ?w flt) ?more...)) => (@ ?gp bl)
+rule pe-beta-ne-pure : (pe-beta-ne ?r ?gp (list (prof ?w ?c) ?more...)) => (cs-beta ?r ?gp ?w ?c) where (<> ?c flt)
+rule mx-p : (mx-p (mixed2 ?p ?q)) => ?p
+rule mx-q : (mx-q (mixed2 ?p ?q)) => ?q
+// Fl: capital flight (the first equilibrium has capital leaving)
+rule eq-Fl : (pe-eq Fl ?v ?p) => (pe-flight (pure-nash (cs-game (pe-cs (@ ?v mode)) ?gp))) where ?gp <- (pe-gpar ?v (put@ ?p u 0))
+rule pe-flight-0 : (pe-flight (list)) => 0
+rule pe-flight-n : (pe-flight (list (prof ?w ?c) ?more...)) => (if (= ?c flt) 1 0)
+// Inf: inflation -- the target, a shock window, none under vouchers
+rule eq-Inf-ap : (pe-eq Inf ?v ?p) => 0 where (= (@ ?v mode) ap)
+rule eq-Inf : (pe-eq Inf ?v ?p) => (if (and (>= (@ ?v t) (@ ?p shock1)) (<= (@ ?v t) (@ ?p shock2))) (@ ?p shockpi) (@ ?p pistar)) where (<> (@ ?v mode) ap)
+// W: wage share of an hour's value
+rule eq-W-cap : (pe-eq W ?v ?p) => (w-cap (@ ?v B) (@ ?v U) (@ ?p s)) where (= (@ ?v mode) cap)
+rule eq-W-cold : (pe-eq W ?v ?p) => (max (w-cap (@ ?v B) (@ ?v U) (@ ?p s)) (q/ (* (@ ?v ce) (+ 1 (q/ (@ ?p gam) 2))) (@ ?v A))) where (= (@ ?v mode) cold)
+rule eq-W-ap : (pe-eq W ?v ?p) => (w-ap (@ ?v B) (@ ?p g)) where (= (@ ?v mode) ap)
+// Lreq: labour the voted plan requires = lambda_t . d_t (exact), with the
+// labour coefficients of E3 divided by the productivity index A and the voted
+// final demand growing at dgrow; PlanErr: the planning loop's residual after
+// `passes` contractive passes (value.pal)
+rule pe-et : (pe-et !a) => (set@ (pe-e3) l (vscale (q/ 1 ?a) (@ (pe-e3) l)))
+rule pe-bundle : (pe-bundle !v !p) => (* (@ ?v cb) (expt (+ 1 (@ ?p dgrow)) (- (@ ?v t) (@ ?v t0))))
+// final demand: the QV direction scaled so that, at base productivity, it
+// takes (L0/c0) hours per unit of the bundle
+rule pe-dt : (pe-dt !p !b) => (vscale (q/ (* (q/ (@ ?p L0) (@ ?p c0)) ?b) (vdot (lvalues (pe-e3)) (pe-qv-dir))) (pe-qv-dir))
+rule eq-Lreq : (pe-eq Lreq ?v ?p) => (net-value (pe-et (@ ?v A)) (pe-dt ?p (pe-bundle ?v ?p)))
+rule eq-PlanErr : (pe-eq PlanErr ?v ?p) => (iter-error (pe-et (@ ?v A)) (pe-dt ?p (pe-bundle ?v ?p)) (@ ?p passes))
+// Cu / Ce: real living standard of the unemployed / employed stratum
+rule eq-Cu-cap : (pe-eq Cu ?v ?p) => (@ ?p s) where (= (@ ?v mode) cap)
+rule eq-Cu-cold : (pe-eq Cu ?v ?p) => (* (@ ?p repl) (@ ?v ce)) where (= (@ ?v mode) cold)
+rule eq-Cu-ap : (pe-eq Cu ?v ?p) => (@ ?v Ce) where (= (@ ?v mode) ap)
+rule eq-Ce-cap : (pe-eq Ce ?v ?p) => (q/ (* (@ ?v W) (@ ?v A)) (+ 1 (@ ?v Inf))) where (= (@ ?v mode) cap)
+rule eq-Ce-cold : (pe-eq Ce ?v ?p) => (* (@ ?v W) (@ ?v A)) where (= (@ ?v mode) cold)
+// ap: everyone receives the voted bundle, c0 (1+dgrow)^t, rationed by
+// public labour available / labour required if the plan is infeasible
+rule eq-Ce-ap : (pe-eq Ce ?v ?p) => (* (pe-bundle ?v ?p) (min 1 (q/ (- (@ ?p N) (@ ?v E)) (@ ?v Lreq)))) where (= (@ ?v mode) ap)
+// Pi: profits (value-hours); Rr: profit rate; Cr: crisis flag; I: investment
+rule eq-Pi-ap : (pe-eq Pi ?v ?p) => (* (* (- 1 (@ ?v B)) (- (@ ?p yp) (@ ?p g))) (@ ?v E)) where (= (@ ?v mode) ap)
+rule eq-Pi : (pe-eq Pi ?v ?p) => (* (- 1 (@ ?v W)) (@ ?v E)) where (<> (@ ?v mode) ap)
+rule eq-Rr : (pe-eq Rr ?v ?p) => (if (> (@ ?v K) 0) (q/ (@ ?v Pi) (@ ?v K)) 0)
+rule eq-Cr-ap : (pe-eq Cr ?v ?p) => 0 where (= (@ ?v mode) ap)
+rule eq-Cr : (pe-eq Cr ?v ?p) => (if (or (< (@ ?v Rr) (@ ?p rmin)) (= (@ ?v Fl) 1)) 1 0) where (<> (@ ?v mode) ap)
+rule eq-I : (pe-eq I ?v ?p) => (if (= (@ ?v Cr) 1) 0 (* (@ ?p sc) (@ ?v Pi)))
+// K2: next period's private capital (crisis destroys CRASH of it; the asset
+// cap THETA binds the capitalist remainder under ap)
+rule eq-K2-ap : (pe-eq K2 ?v ?p) => (min (@ ?p theta) (+ (* (@ ?v K) (- 1 (@ ?p dep))) (@ ?v I))) where (= (@ ?v mode) ap)
+rule eq-K2 : (pe-eq K2 ?v ?p) => (- (+ (* (@ ?v K) (- 1 (@ ?p dep))) (@ ?v I)) (* (@ ?v Cr) (* (@ ?p crash) (@ ?v K)))) where (<> (@ ?v mode) ap)
+// Asp: the reference point -- last period's standard, raised by the right
+// network's "promised land" messaging in proportion to its share
+rule eq-Asp : (pe-eq Asp ?v ?p) => (* (@ ?v ce) (+ 1 (* (@ ?p asp) (@ ?v sR))))
+// Rad: the radical vote (prospect theory, Part III §6) over the strata
+rule pe-pos : (pe-pos !c !ref !p) => (max -8 (min 8 (q/ (* (@ ?p scale) (- ?c ?ref)) ?ref)))
+rule pe-rad? : (pe-rad? !d) => (if (= (pt-choice (lot (o 1 1)) (lot (o 1/4 6) (o 3/4 -2)) ?d 10 9/4) radical) 1 0)
+rule eq-Rad-ap : (pe-eq Rad ?v ?p) => (pe-rad? (pe-pos (@ ?v Ce) (@ ?v Asp) ?p)) where (= (@ ?v mode) ap)
+rule eq-Rad : (pe-eq Rad ?v ?p) => (+ (* (- 1 (@ ?v U)) (pe-rad? (pe-pos (@ ?v Ce) (@ ?v Asp) ?p))) (* (@ ?v U) (pe-rad? (pe-pos (@ ?v Cu) (@ ?v Asp) ?p)))) where (<> (@ ?v mode) ap)
+rule eq-Gov2 : (pe-eq Gov2 ?v ?p) => (if (> (@ ?v Rad) 1/2) 1 0)
+// SR2: next period's right-network share (patronage, Part III §7): R funded
+// out of profits (phi Pi) and creating jobs; L funded by union dues (psi W E)
+// and creating jobs only under cold / ap; jobs bind 3(1+U) times more than
+// messages under capitalism (insecurity raises the pull of institutions), and
+// no more than messages under the job guarantee
+rule eq-SR2 : (pe-eq SR2 ?v ?p) => (pat-step 1 ?thl (rec (br ?br) (bl ?blf) (rho (@ ?p prho)) (a ?a) (m 1) (t 1)) (@ ?v sR))
+  where ?m <- (@ ?v mode), ?thl <- (if (= ?m cap) 0 1), ?br <- (* (@ ?p phi) (@ ?v Pi)),
+        ?blf <- (* (@ ?p psi) (* (@ ?v W) (if (= ?m ap) (@ ?p N) (@ ?v E)))), ?a <- (if (= ?m ap) 1 (* 3 (+ 1 (@ ?v U))))
+// ---- the period's verdicts: viability (Part V) ----
+// economic margin: profitability for capitalism (M-C-M' must close), plan
+// feasibility (slack of public labour over the plan's requirement) for ap;
+// political margin: distance of the radical vote from a majority.
+rule pe-finish : (pe-finish !v !p) => (put@ (put@ (put@ ?v econ ?ec) pol ?po) Phi (min ?ec ?po))
+  where ?ec <- (pe-econ ?v ?p), ?po <- (* 2 (- 1/2 (@ ?v Rad)))
+rule pe-clamp : (pe-clamp !x) => (max -1 (min 1 ?x))
+rule pe-econ : (pe-econ !v !p) => (if (= (@ ?v mode) ap) (pe-clamp (q/ (- (- (@ ?p N) (@ ?v E)) (@ ?v Lreq)) (@ ?v Lreq))) (pe-clamp (q/ (- (@ ?v Rr) (@ ?p rmin)) (@ ?p rmin))))
+
+// ---------------------------------------------------------------- the period
+rule pe-r6 : (pe-r6 !x) => (round-to ?x 1000000)
+rule pe-step : (pe-step !s !p) => (pe-next ?s ?v ?p) where ?v <- (pe-chain ?s ?p none)
+rule pe-next : (pe-next ?s ?v ?p) => (set@ (set@ (set@ (set@ (set@ (set@ (set@ ?s t ?t1) K (pe-r6 (@ ?v K2))) kap (pe-r6 (* (@ ?s kap) (+ 1 (@ ?p mu)))))
+    A (pe-r6 (* (@ ?s A) (+ 1 (@ ?p gam))))) ce (pe-r6 (@ ?v Ce))) sR (@ ?v SR2)) gov (@ ?v Gov2))
+  where ?t1 <- (+ (@ ?s t) 1)
+// one history row per period: (row t mode u beta w r crisis ce rad sR gov Phi econ pol)
+rule pe-row : (pe-row !v) => (row (@ ?v t) (@ ?v mode) (@ ?v U) (@ ?v B) (@ ?v W) (@ ?v Rr) (@ ?v Cr) (@ ?v Ce) (@ ?v Rad) (@ ?v sR) (@ ?v gov) (@ ?v Phi) (@ ?v econ) (@ ?v pol))
+// run T periods: (traj FINAL-STATE ROWS)
+rule pe-run : (pe-run !s !p !n) => (pr-go ?s ?p ?n (list))
+rule pr-done : (pr-go !s !p !n !rows) => (traj ?s ?rows) where (<= ?n 0)
+rule pr-go : (pr-go !s !p !n !rows) => (pr-go ?s2 ?p ?n1 ?rows2)
+  where (> ?n 0), ?v <- (pe-chain ?s ?p none), ?s2 <- (pe-next ?s ?v ?p), ?rows2 <- (snoc ?rows (pe-row ?v)), ?n1 <- (- ?n 1)
+// the list of states S_0 .. S_{n-1}
+rule pe-states : (pe-states !s !p !n) => (ps-go ?s ?p ?n (list))
+rule ps-done : (ps-go !s !p !n !acc) => ?acc where (<= ?n 0)
+rule ps-go : (ps-go !s !p !n !acc) => (ps-go ?s2 ?p ?n1 ?acc2) where (> ?n 0), ?acc2 <- (snoc ?acc ?s), ?s2 <- (pe-step ?s ?p), ?n1 <- (- ?n 1)
+rule traj-rows : (traj-rows (traj ?s ?rows)) => ?rows
+rule traj-final : (traj-final (traj ?s ?rows)) => ?s
+// row accessors
+rule row-t : (row-t (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?t
+rule row-u : (row-u (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?u
+rule row-w : (row-w (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?w
+rule row-r : (row-r (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?r
+rule row-cr : (row-cr (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?cr
+rule row-ce : (row-ce (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?ce
+rule row-rad : (row-rad (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?rad
+rule row-gov : (row-gov (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?gov
+rule row-phi : (row-phi (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?phi
+rule row-econ : (row-econ (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?ec
+rule row-pol : (row-pol (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?po
+rule row-sr : (row-sr (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?sr
+rule row-beta : (row-beta (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => ?b
+rule app-row-u : (app row-u ?r) => (row-u ?r)
+rule app-row-w : (app row-w ?r) => (row-w ?r)
+rule app-row-ce : (app row-ce ?r) => (row-ce ?r)
+rule app-row-rad : (app row-rad ?r) => (row-rad ?r)
+rule app-row-phi : (app row-phi ?r) => (row-phi ?r)
+rule app-row-cr : (app row-cr ?r) => (row-cr ?r)
+rule app-row-r : (app row-r ?r) => (row-r ?r)
+rule app-row-gov : (app row-gov ?r) => (row-gov ?r)
+rule app-row-sr : (app row-sr ?r) => (row-sr ?r)
+
+// ---------------------------------------------------------------- the CLD
+// Capitalism's causal-loop diagram. Nodes map to chain variables; an edge into
+// a STATE variable (K, Gov, SR) is measured on that variable's next value
+// (K2, Gov2, SR2): the loop closes through the state, one period later.
+rule pe-cld : (pe-cld) => (cld (list K Kap E U B W Inf Ce Pi Rr I Asp Rad Gov SR) (list
+  (edge K E pos "jobs = capital / capital per job")
+  (edge Kap E neg "mechanization: more capital per job")
+  (edge E U neg "unemployment = 1 - employment / workforce")
+  (edge U B neg "the class-struggle game: unemployment weakens labour's equilibrium bargaining power")
+  (edge U W neg "the reserve army: the outside option falls with unemployment")
+  (edge B W pos "Nash bargaining: bargaining power raises the wage share")
+  (edge W Ce pos "the wage share buys the employed stratum's standard")
+  (edge Inf Ce neg "inflation erodes wages between settlements")
+  (edge W Pi neg "wages are capital's cost")
+  (edge E Pi pos "profits = (1 - w) x hours employed")
+  (edge Pi Rr pos "profit rate = profits / capital")
+  (edge K Rr neg "... over a larger capital")
+  (edge Rr I pos "below the minimum profit rate capital goes on strike")
+  (edge Pi I pos "investment out of profits")
+  (edge I K pos "accumulation (next period)")
+  (edge SR Asp pos "the right network sells the promised land")
+  (edge Ce Rad neg "a higher standard keeps the employed out of the loss domain")
+  (edge U Rad pos "the unemployed are deep in the loss domain")
+  (edge Asp Rad pos "a raised reference point puts more people in the loss domain")
+  (edge Rad Gov pos "a radical majority takes power (next period)")
+  (edge Gov B neg "a radical government represses unions")
+  (edge Pi SR pos "capital funds right-wing patronage (next period)")
+  (edge U SR pos "insecurity raises the pull of institutions (terror management)")
+  (edge W SR neg "union dues fund the left network")))
+// node -> (intervention variable, measured variable, delta)
+rule pe-iv-K : (pe-iv K) => (iv K K2 10)
+rule pe-iv-Kap : (pe-iv Kap) => (iv kap kap 1/10)
+rule pe-iv-E : (pe-iv E) => (iv E E 5)
+rule pe-iv-U : (pe-iv U) => (iv U U 1/20)
+rule pe-iv-B : (pe-iv B) => (iv B B 1/20)
+rule pe-iv-W : (pe-iv W) => (iv W W 1/20)
+rule pe-iv-Inf : (pe-iv Inf) => (iv Inf Inf 1/20)
+rule pe-iv-Ce : (pe-iv Ce) => (iv Ce Ce 1/5)
+rule pe-iv-Pi : (pe-iv Pi) => (iv Pi Pi 5)
+rule pe-iv-Rr : (pe-iv Rr) => (iv Rr Rr 1/50)
+rule pe-iv-I : (pe-iv I) => (iv I I 5)
+rule pe-iv-Asp : (pe-iv Asp) => (iv Asp Asp 1/5)
+rule pe-iv-Rad : (pe-iv Rad) => (iv Rad Rad 3/5)
+rule pe-iv-Gov : (pe-iv Gov) => (iv gov Gov2 1)
+rule pe-iv-SR : (pe-iv SR) => (iv sR SR2 1/5)
+rule iv-var : (iv-var (iv ?x ?y ?d)) => ?x
+rule iv-meas : (iv-meas (iv ?x ?y ?d)) => ?y
+rule iv-d : (iv-d (iv ?x ?y ?d)) => ?d
+// the chain variables that stand for CLD nodes (frozen during a probe)
+rule pe-node-vars : (pe-node-vars) => (list E U B W Inf Ce Pi Rr I K2 Asp Rad Gov2 SR2)
+// direct effect of FROM on TO at base state S:  Y(hooked) - Y(base)
+rule pe-probe : (pe-probe !from !to !s !p) => (- (@ ?vh ?y) (@ ?vb ?y))
+  where ?ivf <- (pe-iv ?from), ?ivt <- (pe-iv ?to), ?x <- (iv-var ?ivf), ?d <- (iv-d ?ivf), ?y <- (iv-meas ?ivt),
+        ?vb <- (pe-chain ?s ?p none), ?frozen <- (filter (not-in2 ?x ?y) (pe-node-vars)),
+        ?vh <- (pe-chain ?s ?p (hook ?x ?d ?vb ?frozen))
+rule app-not-in2 : (app (not-in2 ?x ?y) ?z) => (and (<> ?z ?x) (<> ?z ?y))
+// verdict over a list of base states: strict (always the right sign), weak
+// (never the wrong sign, nonzero somewhere), absent (zero everywhere), FAIL
+// BASES is a list of (base NAME STATE PARAMETERS)
+rule pe-verify-edge : (pe-verify-edge (edge ?a ?b ?sg ?why) !bases) => (everdict ?a ?b ?sg ?ds (edge-verdict ?sg ?ds))
+  where ?ds <- (smap (probe-at ?a ?b) ?bases)
+rule app-probe-at : (app (probe-at ?a ?b) (base ?n ?s ?p)) => (pe-probe ?a ?b ?s ?p)
+rule edge-verdict : (edge-verdict !sg !ds) => (if (sall (right-sign ?sg) ?ds) strict (if (sall zero-d ?ds) absent (if (sall (not-wrong ?sg) ?ds) weak FAIL)))
+// presence of an edge (nonzero somewhere) regardless of sign, for regime comparison
+rule pe-edge-present? : (pe-edge-present? (edge ?a ?b ?sg ?why) !bases) => (not (sall zero-d (smap (probe-at ?a ?b) ?bases)))
+rule app-right-sign : (app (right-sign ?sg) ?d) => (if (= ?sg pos) (> ?d 0) (< ?d 0))
+rule app-not-wrong : (app (not-wrong ?sg) ?d) => (if (= ?sg pos) (>= ?d 0) (<= ?d 0))
+rule app-zero-d : (app zero-d ?d) => (= ?d 0)
+rule ev-verdict : (ev-verdict (everdict ?a ?b ?sg ?ds ?v)) => ?v
+rule ev-edge : (ev-edge (everdict ?a ?b ?sg ?ds ?v) ?why) => (edge ?a ?b ?sg ?why)
+
+// ---------------------------------------------------------------- transition
+// Converting an incumbent state into accountable planning at its period t:
+// private capital above THETA is expropriated, everyone moves onto the job
+// guarantee, the voted bundle starts from the incumbent's average living
+// standard (1-u) Ce + u Cu in that period, and that average becomes the
+// reference point; technology, the right network's share and the period carry over.
+rule pe-convert : (pe-convert !s !p) => (rec (reg ap) (t (@ ?s t)) (K (min (@ ?s K) (@ ?p theta))) (kap (@ ?s kap)) (A (@ ?s A))
+    (ce ?avg) (sR (@ ?s sR)) (gov 0) (cb ?avg) (t0 (@ ?s t)))
+  where ?v <- (pe-chain ?s ?p none), ?avg <- (pe-r6 (+ (* (- 1 (@ ?v U)) (@ ?v Ce)) (* (@ ?v U) (@ ?v Cu))))
+
+// ---------------------------------------------------------------- reporting
+rule pe-hist-view : (pe-hist-view !rows !every) => (lines (prepend
+  "     t mode      u   beta      w      r cr     ce    rad     sR gov    Phi"
+  (smap row-line (sfilter (every-k ?every) ?rows))))
+rule app-every-k : (app (every-k ?k) ?r) => (= (mod (row-t ?r) ?k) 0)
+rule app-row-line : (app row-line (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => (cats (list
+  (padl (str ?t) 6) (padl (str ?m) 5) (dpad ?u 3 7) (dpad ?b 3 7) (dpad ?w 3 7) (dpad ?r 3 7) (padl (str ?cr) 3) (dpad ?ce 3 7) (dpad ?rad 3 7) (dpad ?sr 3 7) (padl (str ?gov) 4) (dpad ?phi 3 7)))

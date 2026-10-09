@@ -1,0 +1,47 @@
+#lang palimpsest
+#fuel 2000000000
+// FEEDBACK LOOPS OF THE HEGEMONY ECONOMY.
+// (1) enumerate every elementary cycle of the causal-loop diagram and classify
+//     it as reinforcing (R) or balancing (B);
+// (2) verify every edge sign of the diagram on the rewriting model itself, by
+//     finite differences at six base states: the 2-player setup, the state at
+//     the start of rounds 2-5 of the baseline game, and a STRESSED state (the
+//     round-3 state with an empty WC purse and a State already in debt under
+//     Fiscal Policy B) where the debt and IMF channels are live, plus two
+//     EXCITATION states built so that the conditional channels (forced
+//     borrowing, Demonstration-driven building, cash-constrained building)
+//     can fire. An edge whose deltas are all zero is reported FAIL: it would be
+//     unverified, not confirmed.
+import "../lib/hegemony-loops.pal"
+rule bases : (bases !s0) => (list ?s0 ?s1 ?s2 ?s3 ?s4 ?st ?x1 ?x2)
+  where ?s1 <- (play-round ?s0), ?s2 <- (play-round ?s1), ?s3 <- (play-round ?s2), ?s4 <- (play-round ?s3),
+        ?st <- (stress ?s2), ?x1 <- (excite1 ?s0), ?x2 <- (excite2 ?s0)
+// STRESS: the round-3 state with an empty WC purse, skilled Workers on hand to
+// open the second Public row, and a State that is broke and already in debt.
+rule stress : (stress ?s) => (add@ (set@ ?s3 st treasury 0) world ?t)
+  where ?s1 <- (pay wc world (@ ?s wc money) shock (hire-pool ?s)),
+        ?s2 <- (set-policy fiscal B ?s1), ?t <- (@ ?s2 st treasury),
+        ?s3 <- (add@ (add@ (add@ ?s2 flows shock st (- 0 ?t)) flows shock world ?t) st loans 1)
+rule hire-pool : (hire-pool ?s) => (add@ (add@ (add@ (add@ (add@ ?s wc pool health 1) wc pool edu 1) wc pool media 1) wc pool u 3) wc workers 6)
+// EXCITE-1: setup with Labor Market at A (all Wages L3), 12 extra unemployed
+// (Population 7), an empty WC purse, and only a Radio Station (margin 0 at L3)
+// in the market: the Food bill exceeds Wages, and building is unprofitable.
+rule excite1 : (excite1 ?s) => (set@ ?s3 cc market (list radio))
+  where ?s1 <- (set-policy labor A ?s), ?s2 <- (add@ (add@ ?s1 wc pool u 12) wc workers 12),
+        ?s3 <- (pay wc world (@ ?s2 wc money) shock ?s2)
+// EXCITE-2: a cash-poor Capitalist facing a profitable, staffable Supermarket.
+rule excite2 : (excite2 ?s) => (set@ (add@ (add@ ?s2 wc pool agri 1) wc workers 1) cc market (list supermarket))
+  where ?s2 <- (pay cc world 110 shock ?s)
+rule verify-all : (verify-all ?bs) => (map (verify-at ?bs) (cld-edges))
+rule app-verify-at : (app (verify-at ?bs) ?e) => (verify-edge ?e ?bs)
+rule loops-report : (loops-report !ls) => (lines (list
+  (cat "elementary cycles: " (cat (str (length ?ls)) (cat "   reinforcing " (cat (str (count-kind R ?ls)) (cat "   balancing " (str (count-kind B ?ls)))))))
+  (loops-view ?ls)))
+rule edges-report : (edges-report !vs) => (lines (list
+  "edge       sgn verdict  deltas at: setup    r2     r3     r4     r5 stress   ex1    ex2"
+  (verdicts-view ?vs)
+  (cat "all edge signs confirmed by the model: " (str (all-confirmed? ?vs)))))
+main = (h-setup)
+display (loops-report (classify-loops)) with normalize
+display (edges-report (verify-all (bases main))) with normalize
+assert (= (count-kind R (classify-loops)) 8) with normalize

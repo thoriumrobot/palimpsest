@@ -1,0 +1,91 @@
+#lang palimpsest
+#fuel 1000000000
+// DEBT IN THE HEGEMONY ECONOMY: three exact results about forced borrowing,
+// each checked against the model's own ledger rules (pay, borrow, prep-phase).
+//
+// T5 (borrowing is path-independent without inflows). Starting from money m,
+//    paying mandatory amounts a1..an one after another forces exactly
+//    ceil(max(0, a1+...+an - m) / 50) Loans -- the same as one combined payment,
+//    whatever the order and however the total is split. Checked for every m in
+//    0..95 (step 5) and every ordered pair and triple of amounts from
+//    {5, 15, 30, 45, 60, 85}: 20 x (36 + 216) = 5040 cases.
+// T6 (but phase order is load-bearing). With an inflow in between, order
+//    matters: from an empty purse, "receive a 40 Wage, then pay 30 for Food"
+//    forces no Loan, while "pay 30, then receive 40" forces one. The two
+//    rewrite sequences end in different normal forms -- a non-joinable
+//    critical pair -- so the rulebook's fixed order (Produce Goods & Services
+//    before Cover Needs) is part of the economics, not a presentational choice.
+// T7 (the debt-spiral threshold). Let s be the Working Class's per-round surplus
+//    before interest, L its Loans, and let it repay one Loan per round whenever
+//    it holds 50. Then, from any purse m < 50:
+//        s >  5L  -> debt is repaid to 0 (the debt loop is dominated)
+//        s =  5L  -> L is a fixed point (money constant)
+//        s <  5L  -> L grows without bound (the reinforcing loop M -> D -> M)
+//    Checked by running the ledger for 30 rounds over s in -20..60 (step 5),
+//    L0 in 0..6 and m in {0, 25, 45}: 17 x 7 x 3 = 357 orbits.
+import "../lib/hegemony.pal"
+
+// ---- T5 --------------------------------------------------------------------
+rule with-money : (with-money ?m ?s) => (set@ (add@ ?s world ?d) wc money ?m) where ?d <- (- (@ ?s wc money) ?m)
+rule pay-seq-0 : (pay-seq (list) ?s) => ?s
+rule pay-seq-n : (pay-seq (list ?a ?as...) ?s) => (pay-seq (list ?as...) ?s2) where ?s2 <- (pay wc world ?a tax-wc ?s)
+rule t5-case : (t5-case ?m ?as ?s0) => (= (@ ?s1 wc loans) (ceil-div (pos (- (sum ?as) ?m)) 50))
+  where ?s1 <- (pay-seq ?as (with-money ?m ?s0))
+rule amounts : (amounts) => (list 5 15 30 45 60 85)
+rule pairs : (pairs) => (concat (map pairs-a (amounts)))
+rule app-pairs-a : (app pairs-a ?a) => (map (pair-with ?a) (amounts))
+rule app-pair-with : (app (pair-with ?a) ?b) => (list ?a ?b)
+rule triples : (triples) => (concat (map triples-a (pairs)))
+rule app-triples-a : (app triples-a (list ?a ?b)) => (map (triple-with ?a ?b) (amounts))
+rule app-triple-with : (app (triple-with ?a ?b) ?c) => (list ?a ?b ?c)
+rule moneys : (moneys) => (map times5 (range 0 19))
+rule app-times5 : (app times5 ?k) => (* 5 ?k)
+rule t5-all : (t5-all !s0) => (list (count-if (t5-ok ?s0 ?seqs) (moneys)) (length (moneys)) (length ?seqs))
+  where ?seqs <- (append (pairs) (triples))
+rule app-t5-ok : (app (t5-ok ?s0 ?seqs) ?m) => (all-of (t5-seq ?s0 ?m) ?seqs)
+rule app-t5-seq : (app (t5-seq ?s0 ?m) ?as) => (t5-case ?m ?as ?s0)
+
+// ---- T6 --------------------------------------------------------------------
+rule t6 : (t6 !s0) => (list (@ ?ab wc money) (@ ?ab wc loans) (@ ?ba wc money) (@ ?ba wc loans))
+  where ?e <- (with-money 0 ?s0),
+        ?ab <- (pay wc world 30 sale-cc (pay cc wc 40 wage-cc ?e)),
+        ?ba <- (pay cc wc 40 wage-cc (pay wc world 30 sale-cc ?e))
+
+// ---- T7 --------------------------------------------------------------------
+// one round of the Working Class's purse: interest (prep-phase's rule), the
+// surplus s (a shortfall forces Loans via cover-or-borrow), then at most one
+// repayment (wc-post-repay's rule) when the purse holds 50.
+rule purse-round : (purse-round ?sv ?s) => (repay-one ?s2)
+  where ?s1 <- (pay wc world (* 5 (@ ?s wc loans)) interest ?s),
+        ?s2 <- (if (>= ?sv 0) (pay world wc ?sv shock ?s1) (pay wc world (- 0 ?sv) shock ?s1))
+rule repay-one : (repay-one ?s) => (if (and (> (@ ?s wc loans) 0) (>= (@ ?s wc money) 50)) (add@ (pay wc world 50 repay ?s) wc loans -1) ?s)
+rule orbit : (orbit 0 ?sv ?s ?acc) => ?acc
+rule orbit-n : (orbit ?n ?sv ?s ?acc) => (orbit ?n1 ?sv ?s2 ?acc2)
+  where (> ?n 0), ?n1 <- (- ?n 1), ?s2 <- (purse-round ?sv ?s), ?acc2 <- (snoc ?acc (@ ?s2 wc loans))
+rule start : (start ?m ?l ?s0) => (set@ (add@ (add@ ?s1 world (* -50 ?l)) flows loan wc (* 50 ?l)) wc loans ?l)
+  where ?s1 <- (add@ (add@ (with-money ?m ?s0) flows loan world (* -50 ?l)) wc money 0)
+// classify an orbit of Loan counts
+rule kind : (kind ?l0 ?ls) => (if (= (last ?ls) 0) repaid (if (and (= (last ?ls) ?l0) (all-of (eq-to ?l0) ?ls)) fixed (if (> (last ?ls) (+ ?l0 3)) runaway other)))
+rule app-eq-to : (app (eq-to ?a) ?b) => (= ?a ?b)
+rule predicted : (predicted ?sv ?l0) => (if (> ?sv (* 5 ?l0)) repaid (if (= ?sv (* 5 ?l0)) (if (= ?l0 0) repaid fixed) runaway))
+rule t7-case : (t7-case ?sv ?l0 ?m ?s0) => (eq? (kind ?l0 ?ls) (predicted ?sv ?l0))
+  where ?ls <- (orbit 30 ?sv (start ?m ?l0 ?s0) (list ?l0))
+rule t7-all : (t7-all !s0) => (count-if (t7-grid ?s0) (svals))
+rule svals : (svals) => (map t7s (range -4 12))
+rule app-t7s : (app t7s ?k) => (* 5 ?k)
+rule app-t7-grid : (app (t7-grid ?s0) ?sv) => (all-of (t7-l ?s0 ?sv) (range 0 6))
+rule app-t7-l : (app (t7-l ?s0 ?sv) ?l0) => (and (t7-case ?sv ?l0 0 ?s0) (and (t7-case ?sv ?l0 25 ?s0) (t7-case ?sv ?l0 45 ?s0)))
+rule t7-sample : (t7-sample !s0) => (lines (list
+  "Loans after each of the first 12 rounds, starting with 2 Loans and an empty purse:"
+  (cat "  s = -10 : " (shw-v (orbit 12 -10 (start 0 2 ?s0) (list 2))))
+  (cat "  s =   5 : " (shw-v (orbit 12 5 (start 0 2 ?s0) (list 2))))
+  (cat "  s =  10 : " (shw-v (orbit 12 10 (start 0 2 ?s0) (list 2))))
+  (cat "  s =  15 : " (shw-v (orbit 12 15 (start 0 2 ?s0) (list 2))))
+  (cat "  s =  30 : " (shw-v (orbit 12 30 (start 0 2 ?s0) (list 2))))))
+main = (h-setup)
+display (t5-all main) with normalize
+display (t6 main) with normalize
+display (t7-sample main) with normalize
+assert (eq? (t5-all main) (list 20 20 252)) with normalize
+assert (eq? (t6 main) (list 10 0 60 1)) with normalize
+assert (= (t7-all main) 17) with normalize

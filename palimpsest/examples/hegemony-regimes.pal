@@ -1,0 +1,90 @@
+#lang palimpsest
+#fuel 500000000
+// THE REPRODUCTION MAP OF THE HEGEMONY ECONOMY: a static, exact analysis of one
+// round's accounts as a function of the policy profile and of Population.
+//
+// Reference board: the 2-player setup's four staffed Companies (Supermarket and
+// Shopping Mall of the Capitalist, Public Hospital and Public University of the
+// State), every Company at the minimum Wage the Labor Market allows, the
+// Capitalist pricing at its best response, its Supermarket supplying 4 Food a
+// round and the rest imported. All quantities below are computed with the very
+// functions the game model uses (income-rate, tariff, best-price, tax-mult,
+// corp-tax, wage-at, min-level), so the atlas is the model, not a paraphrase.
+//
+//   W(L)       = wages received by the Working Class per round
+//   food(p,Tr) = min(p,4) x CC price + max(0,p-4) x import price (incl. tariff)
+//   tax(p,L,T) = p x income-rate(L,T)
+//   S_wc(p)    = W - food - tax                      (WC surplus per round)
+//   p*         = the largest Population with S_wc >= 0 (the "Malthusian bound")
+//   S_cc       = food sales + the Mall's 6 Luxury at the CC price - CC wages
+//                - Employment Tax - Corporate Tax
+//   S_st       = all taxes + tariffs - public wages
+import "../lib/hegemony.pal"
+rule wbill-cc : (wbill-cc ?l) => (* 2 (wage-at (wages 25 20 15) (min-level ?l)))
+rule wbill-pub : (wbill-pub ?l) => (* 2 (wage-at (wages 30 20 10) (min-level ?l)))
+rule wbill : (wbill ?l) => (+ (wbill-cc ?l) (wbill-pub ?l))
+rule pf : (pf ?tr) => (best-price (+ 10 (tariff food ?tr)) (price-opts food))
+rule pimp : (pimp ?tr) => (+ 10 (tariff food ?tr))
+rule cc-food-sales : (cc-food-sales ?p ?tr) => (* (min ?p 4) (pf ?tr))
+// the Shopping Mall's 6 Luxury, valued at the Capitalist's best-response price
+rule cc-lux-value : (cc-lux-value ?tr) => (* 6 (best-price (+ 6 (tariff lux ?tr)) (price-opts lux)))
+rule food : (food ?p ?tr) => (+ (cc-food-sales ?p ?tr) (* (pos (- ?p 4)) (pimp ?tr)))
+rule s-wc : (s-wc ?p ?l ?t ?tr) => (- (- (wbill ?l) (food ?p ?tr)) (* ?p (income-rate ?l ?t)))
+rule p-star : (p-star ?l ?t ?tr) => (ps-go 10 ?l ?t ?tr)
+rule ps-go : (ps-go ?p ?l ?t ?tr) => (if (< ?p 3) 2 (if (>= (s-wc ?p ?l ?t ?tr) 0) ?p (ps-go (- ?p 1) ?l ?t ?tr)))
+rule emp-tax : (emp-tax ?t ?h ?e) => (* 2 (tax-mult ?t ?h ?e))
+rule s-cc : (s-cc ?p ?l ?t ?h ?e ?tr) => (- ?pre (corp-tax ?t (pos ?pre)))
+  where ?pre <- (- (- (+ (cc-food-sales ?p ?tr) (cc-lux-value ?tr)) (wbill-cc ?l)) (emp-tax ?t ?h ?e))
+rule s-st : (s-st ?p ?l ?t ?h ?e ?tr) => (- (+ (+ (* ?p (income-rate ?l ?t)) (* (pos (- ?p 4)) (tariff food ?tr))) (+ (emp-tax ?t ?h ?e) (corp-tax ?t (pos ?pre)))) (wbill-pub ?l))
+  where ?pre <- (- (- (+ (cc-food-sales ?p ?tr) (cc-lux-value ?tr)) (wbill-cc ?l)) (emp-tax ?t ?h ?e))
+// one Prosperity step via Health costs p x the public price
+rule s-wc-prosper : (s-wc-prosper ?p ?l ?t ?h ?tr) => (- (s-wc ?p ?l ?t ?tr) (* ?p (state-price ?h)))
+
+// --- the 9 x 3 core table: Labor Market x Taxation x Foreign Trade ----------
+rule secs : (secs) => (list A B C)
+rule core-rows : (core-rows) => (concat (map core-l (secs)))
+rule app-core-l : (app core-l ?l) => (concat (map (core-t ?l) (secs)))
+rule app-core-t : (app (core-t ?l) ?t) => (map (core-row ?l ?t) (secs))
+rule app-core-row : (app (core-row ?l ?t) ?tr) => (cat (cells (list ?l ?t ?tr (wbill ?l) (pf ?tr) (pimp ?tr) (income-rate ?l ?t) (s-wc 3 ?l ?t ?tr) (s-wc 5 ?l ?t ?tr) (s-wc 7 ?l ?t ?tr) (p-star ?l ?t ?tr)) 6) "")
+rule core-view : (core-view) => (lines (prepend (cells (list Labor Tax Trade W CCf imp rate S3 S5 S7 p*) 6) (prepend (rule-line 66) (core-rows))))
+
+// --- the full atlas over all 243 profiles (Labor, Tax, Health, Edu, Trade) --
+rule profiles5 : (profiles5) => (concat (map pr-l (secs)))
+rule app-pr-l : (app pr-l ?l) => (concat (map (pr-t ?l) (secs)))
+rule app-pr-t : (app (pr-t ?l) ?t) => (concat (map (pr-h ?l ?t) (secs)))
+rule app-pr-h : (app (pr-h ?l ?t) ?h) => (concat (map (pr-e ?l ?t ?h) (secs)))
+rule app-pr-e : (app (pr-e ?l ?t ?h) ?e) => (map (pr-x ?l ?t ?h ?e) (secs))
+rule app-pr-x : (app (pr-x ?l ?t ?h ?e) ?tr) => (prof ?l ?t ?h ?e ?tr)
+rule app-wc-def : (app (wc-deficit ?p) (prof ?l ?t ?h ?e ?tr)) => (< (s-wc ?p ?l ?t ?tr) 0)
+rule app-cc-def : (app (cc-deficit ?p) (prof ?l ?t ?h ?e ?tr)) => (< (s-cc ?p ?l ?t ?h ?e ?tr) 0)
+rule app-st-def : (app (st-deficit ?p) (prof ?l ?t ?h ?e ?tr)) => (< (s-st ?p ?l ?t ?h ?e ?tr) 0)
+rule app-all-ok : (app (all-ok ?p) (prof ?l ?t ?h ?e ?tr)) => (and (>= (s-wc ?p ?l ?t ?tr) 0) (and (>= (s-cc ?p ?l ?t ?h ?e ?tr) 0) (>= (s-st ?p ?l ?t ?h ?e ?tr) 0)))
+rule app-prosper-ok : (app (prosper-ok ?p) (prof ?l ?t ?h ?e ?tr)) => (>= (s-wc-prosper ?p ?l ?t ?h ?tr) 0)
+rule atlas-line : (atlas-line ?p) => (cat (cells (list ?p (count-if (wc-deficit ?p) ?ps) (count-if (prosper-ok ?p) ?ps) (count-if (cc-deficit ?p) ?ps) (count-if (st-deficit ?p) ?ps) (count-if (all-ok ?p) ?ps)) 11) "")
+  where ?ps <- (profiles5)
+rule atlas-view : (atlas-view) => (lines (list
+  (cells (list Pop WC-deficit WC+Health CC-deficit St-deficit all>=0) 11)
+  (rule-line 66)
+  (atlas-line 3) (atlas-line 4) (atlas-line 5) (atlas-line 6) (atlas-line 7) (atlas-line 8)))
+// Theorem checks (asserted below):
+// T1  S_wc is strictly decreasing in Population for every profile (each extra
+//     Population costs Food >= 9 plus a tax >= 1): the Malthusian loop is a
+//     balancing loop at every policy, with a finite bound p*.
+rule app-decr : (app decreasing (prof ?l ?t ?h ?e ?tr)) => (all-of (decr-at ?l ?t ?tr) (range 3 9))
+rule app-decr-at : (app (decr-at ?l ?t ?tr) ?p) => (< (s-wc (+ ?p 1) ?l ?t ?tr) (s-wc ?p ?l ?t ?tr))
+// T2  Labor Market dominates below the population ceiling: moving Labor one
+//     step toward A raises S_wc at every Population 3..9 and every Taxation
+//     and Trade setting. The wage gain is 30 a round (two 15-wide wage steps
+//     per pair of Companies) while the tax-rate gain is 3/2/1 per Population
+//     (B->A under Taxation A/B/C), so at Population 10 under Taxation A the
+//     two cancel EXACTLY: the income-tax table claws back the whole raise (T3).
+rule app-labor-dom : (app labor-dom (prof ?l ?t ?h ?e ?tr)) => (if (= ?l A) true (all-of (ldom-at ?l ?t ?tr) (range 3 9)))
+rule app-ldom-at : (app (ldom-at ?l ?t ?tr) ?p) => (> (s-wc ?p (toward-a ?l) ?t ?tr) (s-wc ?p ?l ?t ?tr))
+main = (profiles5)
+display (core-view) with normalize
+display (atlas-view) with normalize
+assert (= (length (profiles5)) 243) with normalize
+assert (all-of decreasing (profiles5)) with normalize
+assert (all-of labor-dom (profiles5)) with normalize
+assert (= (s-wc 10 A A B) (s-wc 10 B A B)) with normalize
+assert (> (s-wc 10 A C B) (s-wc 10 B C B)) with normalize

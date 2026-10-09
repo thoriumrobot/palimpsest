@@ -1,0 +1,31 @@
+#lang palimpsest
+// report.pal -- small text-report helpers shared by the materialist-economy
+// study. Every helper that accepts "any term" FORCES its argument (`!x`):
+// `shw` alone matches an unevaluated call on sight and would print the call,
+// not its value (the lesson recorded in HEGEMONY-ECONOMY.md §2).
+import "prelude.pal"
+import "render.pal"
+import "linalg.pal"
+
+rule lines-0 : (lines (list)) => ""
+rule lines-1 : (lines (list ?x)) => ?x
+rule lines-n : (lines (list ?x ?y ?ys...)) => (cat ?x (cat "\n" (lines (list ?y ?ys...))))
+// strict generic printer
+rule sh : (sh !x) => (shw ?x)
+// cat of a list of strings
+rule cats-0 : (cats (list)) => ""
+rule cats-n : (cats (list ?x ?xs...)) => (cat ?x (cats (list ?xs...)))
+// fixed-point decimal of a number, right-aligned in width W
+rule dpad : (dpad !x !d !w) => (padl (decimal ?x ?d) ?w)
+rule spad : (spad !x !w) => (padl (sh ?x) ?w)
+// a row of numbers, D decimals, width W each
+rule drow : (drow ?xs !d !w) => (cats (map (dcell ?d ?w) ?xs))
+rule app-dcell : (app (dcell ?d ?w) ?x) => (dpad ?x ?d ?w)
+rule srow : (srow ?xs !w) => (cats (map (scell ?w) ?xs))
+rule app-scell : (app (scell ?w) ?x) => (spad ?x ?w)
+rule tf : (tf !b) => (str ?b)
+// one-line ASCII sparkline of numbers on the fixed scale [LO, HI]:
+// eight levels " .:-=+*#" (values outside the scale clip)
+rule spark8 : (spark8 !xs !lo !hi) => (cats (smap (spark-ch ?lo ?hi) ?xs))
+rule app-spark-ch : (app (spark-ch ?lo ?hi) ?x) => (nth ?k (list " " "." ":" "-" "=" "+" "*" "#"))
+  where ?k <- (max 0 (min 7 (floor (q/ (* 8 (- ?x ?lo)) (- ?hi ?lo)))))

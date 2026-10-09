@@ -1,0 +1,146 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART V -- STRUCTURAL DIALECTICS: THE POST'S EXAMPLES, AND THE MODEL (MATERIALIST-ECONOMY.md §8)
+import "../lib/dialectics.pal"
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+// ---- §8.1 the three worked examples of the post ----
+// Values stated in the post are used verbatim. NOT stated, and chosen here
+// (flagged): d_t = 0 before a candidate is admissible; Phi at P0-P2 of
+// example 2 and P0-P4 of example 3 (omitted: those periods are not used);
+// the prior/likelihood pairs behind the posteriors 0.607 and 0.827, chosen to
+// reproduce them to three decimals: (1/2, 71/100, 46/100) and (1/2, 81/100, 17/100).
+rule ex1 : (ex1) => (list
+  (per 0 17/20 false 0 none 0 0 11/20) (per 1 3/4 false 0 none 0 0 11/20) (per 2 11/20 false 0 none 0 0 11/20)
+  (per 3 7/20 true 0 none 0 0 11/20) (per 4 3/20 true 1/4 none 0 0 11/20) (per 5 -1/20 true 2/5 2/5 3/4 9/50 11/20))
+rule ex1-succ : (ex1-succ) => (list 1/5 9/50 4/25)
+rule ex2 : (ex2) => (list (per 3 1/10 false 0 none 0 0 3/5) (per 4 -1/20 true 1/10 none 0 0 3/5) (per 5 -3/20 true 1/5 1/2 71/100 46/100 3/5))
+rule ex2-succ : (ex2-succ) => (list 3/20 13/100 3/25)
+rule ex3 : (ex3) => (list (per 5 1/20 true 1/5 none 0 0 3/5) (per 6 -3/20 true 7/20 1/2 81/100 17/100 3/5))
+rule ex3-succ : (ex3-succ) => (list 1/4 23/100)
+rule app-dg-line : (app dg-line (dg ?t ?phi ?cf ?diag ?post ?w ?syn)) => (cats (list "  P" (padr (str ?t) 3) (dpad ?phi 3 8) (dpad ?cf 3 8) (padl (str ?diag) 21) (padl (if (number? ?post) (decimal ?post 3) "-") 8) (padl (str ?w) 7) (padl (str ?syn) 7)))
+rule app-dg-line-s : (app dg-line (succ ?t ?phi)) => (cats (list "  P" (padr (str ?t) 3) (dpad ?phi 3 8) "      successor (current state)"))
+rule ex-view : (ex-view !name !rows) => (lines (list (cat "  " ?name) "  P     Phi     cf=Phi-d        diagnosis   post.  warr.   syn." (lines (smap dg-line ?rows))))
+rule run1 : (run1) => (run-example (ex1) 5 (ex1-succ))
+rule run2 : (run2) => (run-example (ex2) 5 (ex2-succ))
+rule run3 : (run3) => (run-example (ex3) 6 (ex3-succ))
+rule diag-at : (diag-at !rows !t) => (da-go ?rows ?t)
+rule da-go : (da-go (list ?r ?rs...) ?t) => (if (= (dg-t ?r) ?t) (dg-diag ?r) (da-go (list ?rs...) ?t))
+rule dg-t-1 : (dg-t (dg ?t ?phi ?cf ?diag ?post ?w ?syn)) => ?t
+rule dg-t-2 : (dg-t (succ ?t ?x)) => ?t
+rule dg-diag : (dg-diag (dg ?t ?phi ?cf ?diag ?post ?w ?syn)) => ?diag
+rule syn-at : (syn-at !rows !t) => (sa-go ?rows ?t)
+rule sa-go : (sa-go (list ?r ?rs...) ?t) => (if (= (dg-t ?r) ?t) (dg-syn ?r) (sa-go (list ?rs...) ?t))
+rule dg-syn : (dg-syn (dg ?t ?phi ?cf ?diag ?post ?w ?syn)) => ?syn
+rule s1 : (s1) => (lines (list
+  "§8.1 THE POST'S THREE EXAMPLES, RECOMPUTED"
+  (ex-view "hunting-and-gathering -> cultivation" (run1))
+  (ex-view "captive-supply-dependent coercion -> alternative labour institution" (run2))
+  (ex-view "serfdom (Domar constraint) -> capitalist tenancy" (run3))
+  (cat "  the post's verification list holds on all three runs: " (tf (and (verify-run (ex1) (run1)) (and (verify-run (ex2) (run2)) (verify-run (ex3) (run3))))))))
+
+// ---- §8.2 capitalism and demography (the post's section 7) ----
+// Phi = 0.5 n + g - 0.010 - dKL + 0.15. The post gives n from 0.030 (P0) to 0
+// (P6-P8) "steadily" and dKL from 0.020 (P0) to 0.310 (P8), and the values
+// Phi(P8) = 0.030 (g = 0.20), Phi(P5) = -0.048 and Phi(P8) = -0.170 (g = 0),
+// with the first non-viable period P5 at g = 0. Intermediate dKL values are
+// OUR choice, made so that all stated values hold.
+rule ns : (ns) => (list 3/100 1/40 1/50 3/200 1/100 1/200 0 0 0)
+rule dkl : (dkl) => (list 1/50 1/25 13/200 19/200 13/100 381/2000 47/200 11/40 31/100)
+rule phi-dem : (phi-dem !g) => (smap (pd-at ?g) (srange 0 8))
+rule app-pd-at : (app (pd-at ?g) ?t) => (+ (- (- (+ (* 1/2 (nth ?t (ns))) ?g) 1/100) (nth ?t (dkl))) 3/20)
+rule first-nonviable : (first-nonviable !xs) => (fn-go ?xs 0)
+rule fn-go : (fn-go (list ?x ?xs...) ?i) => (if (<= ?x 0) ?i (fn-go (list ?xs...) (+ ?i 1)))
+rule fn-go-0 : (fn-go (list) ?i) => none
+rule app-pos : (app pos ?x) => (> ?x 0)
+rule s2 : (s2) => (lines (list
+  "§8.2 CAPITALISM AND DEMOGRAPHY (incumbent viability only; no candidate)"
+  (cat "  P          : " (drow (srange 0 8) 0 7))
+  (cat "  Phi, g=0.20: " (drow (phi-dem 1/5) 3 7))
+  (cat "  Phi, g=0   : " (drow (phi-dem 0) 3 7))
+  (cat "  g = 0.20 viable through P8: " (cat (tf (sall pos (phi-dem 1/5))) (cat ";  g = 0 first non-viable at P" (sh (first-nonviable (phi-dem 0))))))))
+
+// ---- §8.3 the predicates applied to the integrated economy ----
+// For an incumbent state S_t of lib/polecon.pal:
+//   Phi_t   the model's viability (min of the economic and political margins)
+//   Poss_t  accountable planning is admissible iff no radical government holds
+//           power (a repressive government excludes the democratic candidate)
+//   d_t     Phi(S_t) - Phi(S_t | not x): under the Cold War, "not x" removes the
+//           candidate-associated mechanisms (insurance, indexation, funded left
+//           jobs) by evaluating the same state as plain capitalism; otherwise 0.
+//           The post assumes d >= 0; here its sign is computed, not assumed.
+//   Bayes   NOT derived from the model: a stated prior 2/5 and likelihoods
+//           3/4, 9/50 (the post's own cultivation numbers), threshold 11/20.
+// The successor of a transition on t -> t+1 is the incumbent's state at t+1
+// converted by pe-convert; its viability path is the planning chain from there.
+rule stress : (stress) => (set@ (set@ (pe-par) scale 30) asp 2/5)
+rule mshock : (mshock) => (set@ (set@ (set@ (pe-par) scale 30) shockpi 1/10) asp 1/5)
+rule capmode : (capmode !s) => (set@ ?s reg cap)
+rule model-per : (model-per !s !p) => (per (@ ?s t) ?phi (= (@ ?s gov) 0) ?d 2/5 3/4 9/50 11/20)
+  where ?phi <- (@ (pe-chain ?s ?p none) Phi),
+        ?d <- (if (= (pe-mode ?s ?p) cold) (- ?phi (@ (pe-chain (capmode ?s) ?p none) Phi)) 0)
+rule app-mper : (app (mper ?p) ?s) => (model-per ?s ?p)
+rule scenario : (scenario !reg !p) => (smap (mper ?p) (pe-states (pe-init ?reg) ?p 60))
+rule app-dletter : (app dletter ?per) => (dl (diagnosis ?per))
+rule dl-s : (dl stasis) => "s"
+rule dl-i : (dl instability) => "I"
+rule dl-p : (dl phase-inversion) => "P"
+rule dl-n : (dl nonviable-incumbent) => "n"
+rule dseq : (dseq !pers) => (cats (smap dletter ?pers))
+rule first-pi : (first-pi !pers) => (fp-go ?pers)
+rule fp-go-0 : (fp-go (list)) => none
+rule fp-go-n : (fp-go (list ?p ?ps...)) => (if (phase-inversion? ?p) (per-t ?p) (fp-go (list ?ps...)))
+rule successor-phis : (successor-phis !reg !p !t !k) => (sp-go (pe-convert (pe-step (nth ?t (pe-states (pe-init ?reg) ?p (+ ?t 1))) ?p) ?p) ?p ?k (list))
+rule sp-go : (sp-go !a !p !k !acc) => (if (<= ?k 0) ?acc (sp-go (pe-step ?a ?p) ?p (- ?k 1) (snoc ?acc (@ (pe-chain ?a ?p none) Phi))))
+rule min-d : (min-d !pers) => (lmin (smap per-d-of ?pers))
+rule app-per-d-of : (app per-d-of ?p) => (per-d ?p)
+rule app-is-diag : (app (is-diag ?d) ?p) => (= (diagnosis ?p) ?d)
+rule window : (window !pers) => (scount (is-diag phase-inversion) ?pers)
+rule syn-model : (syn-model !pers !reg !p) => (sm-go ?pers ?reg ?p (first-pi ?pers))
+rule sm-go-none : (sm-go ?pers ?reg ?p none) => (synth none none false)
+rule sm-go : (sm-go ?pers ?reg ?p ?t) => (synth ?t ?succ (syn? (nth ?t ?pers) true (nth 0 ?succ))) where (number? ?t), ?succ <- (successor-phis ?reg ?p ?t 5)
+rule synth-view-none : (synth-view (synth none ?succ ?ok)) => "no phase inversion: no transition is warranted"
+rule synth-view : (synth-view (synth ?t ?succ ?ok)) => (cat "phase inversion at t=" (cat (str ?t) (cat "; successor Phi from t+1: " (cat (drow ?succ 3 7) (cat "   synthesis: " (str ?ok)))))) where (number? ?t)
+rule synth-ok : (synth-ok (synth ?t ?succ ?ok)) => ?ok
+rule synth-t : (synth-t (synth ?t ?succ ?ok)) => ?t
+rule scen-view : (scen-view !name !pers !syn) => (lines (list
+  (cat "  " (cat (padr ?name 26) (dseq ?pers)))
+  (cat "      min d = " (cat (decimal (min-d ?pers) 4) (cat "   " (synth-view ?syn))))))
+rule s3 : (s3 !bc !bw !sw !sc !ms !syw !syc !sym) => (lines (list
+  "§8.3 THE PREDICATES ON THE INTEGRATED ECONOMY (one letter per period 0-59: s stasis, I instability, P phase inversion, n non-viable, candidate excluded)"
+  (scen-view "baseline capitalism" ?bc (synth none none false))
+  (scen-view "baseline Cold War" ?bw (synth none none false))
+  (scen-view "stress Cold War" ?sw ?syw)
+  (scen-view "stress capitalism" ?sc ?syc)
+  (scen-view "moderate inflation crisis" ?ms ?sym)
+  (cat "  prior needed for warrant (likelihoods 3/4, 9/50; threshold 11/20): " (cat (sh (prior-threshold 3/4 9/50 11/20)) (cat " = " (decimal (prior-threshold 3/4 9/50 11/20) 4))))))
+
+main = 0
+let $bc = (scenario cap (pe-par)) with eval
+let $bw = (scenario cold (pe-par)) with eval
+let $sw = (scenario cold (stress)) with eval
+let $sc = (scenario cap (stress)) with eval
+let $ms = (scenario cap (mshock)) with eval
+let $syw = (syn-model $sw cold (stress)) with eval
+let $syc = (syn-model $sc cap (stress)) with eval
+let $sym = (syn-model $ms cap (mshock)) with eval
+display (s1) with eval
+display (s2) with eval
+display (s3 $bc $bw $sw $sc $ms $syw $syc $sym) with eval
+// ---- the post's examples ----
+assert (and (= (diag-at (run1) 4) instability) (and (= (diag-at (run1) 5) phase-inversion) (syn-at (run1) 5))) with eval
+assert (= (decimal (posterior (nth 5 (ex1))) 3) "0.735") with eval
+assert (and (= (diag-at (run2) 4) phase-inversion) (and (= (decimal (posterior (nth 2 (ex2))) 3) "0.607") (syn-at (run2) 5))) with eval
+assert (and (= (diag-at (run3) 5) instability) (and (= (decimal (posterior (nth 1 (ex3))) 3) "0.827") (syn-at (run3) 6))) with eval
+assert (and (verify-run (ex1) (run1)) (and (verify-run (ex2) (run2)) (verify-run (ex3) (run3)))) with eval
+assert (and (= (nth 8 (phi-dem 1/5)) 3/100) (sall pos (phi-dem 1/5))) with eval
+assert (and (= (first-nonviable (phi-dem 0)) 5) (and (= (nth 5 (phi-dem 0)) -6/125) (= (nth 8 (phi-dem 0)) -17/100))) with eval
+// ---- the model ----
+assert (= (scount (is-diag stasis) $bc) 60) with eval
+assert (< (min-d $bw) 0) with eval
+assert (and (= (window $sc) 1) (= (first-pi $sc) 1)) with eval
+assert (and (= (synth-t $syc) 1) (not (synth-ok $syc))) with eval
+assert (and (= (synth-t $syw) 30) (not (synth-ok $syw))) with eval
+assert (and (= (synth-t $sym) 40) (synth-ok $sym)) with eval

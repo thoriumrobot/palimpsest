@@ -1,0 +1,76 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VII(b) -- THE MODEL AGAINST EMPIRICAL DATA (MATERIALIST-ECONOMY.md §11; MATERIALIST-ECONOMY-PAPER.md §9.2)
+// Each empirical figure is a constant tagged with its source; each model figure
+// is computed here from the libraries. (The paper discusses the comparisons;
+// this program makes every number in the comparison table reproducible.)
+//   wage curve      Blanchflower & Oswald (2005): elasticity of pay w.r.t.
+//                   local unemployment about -0.1 (US, long run)
+//   labour share    BLS (2026): nonfarm business labour share 66.2% in Q4 1960,
+//                   52.8% in Q2 2026
+//   price-value     Shaikh (1998): mean absolute weighted deviation 9.2% (US)
+//   job guarantee   Imbert & Papp (2015): India's NREGA raised rural wages ~5%
+//   distribution    Ludwig & Yakovenko (2022): Gini of the exponential lower
+//                   class 1/2; upper class ~4% of tax units, 34% of income (2018)
+//   loss aversion   Tversky & Kahneman (1992): lambda = 2.25
+import "../lib/value.pal"
+import "../lib/classgames.pal"
+import "../lib/polecon.pal"
+import "../lib/econophysics.pal"
+import "../lib/selectorate.pal"
+import "../lib/report.pal"
+
+rule data-elast : (data-elast) => -1/10
+rule data-ls : (data-ls) => (list 331/500 66/125)
+rule data-mawd : (data-mawd) => 23/250
+rule data-jg : (data-jg) => 1/20
+rule data-gini-lower : (data-gini-lower) => 1/2
+rule data-lambda : (data-lambda) => 9/4
+
+// ---- the model's counterparts -----------------------------------------------
+rule elast : (elast !b !s !u) => (q/ (* ?u (* (* (- 1 ?b) ?b) (- ?s 1))) (* (+ ?b (* ?u (- 1 ?b))) (+ ?b (* (* (- 1 ?b) ?u) ?s))))
+rule e3 : (e3) => (rec (goods (list mp nec lux)) (a (list (list 1/5 1/5 1/10) (list 1/10 1/5 0) (list 0 0 0))) (l (list 1 2 1)))
+rule rstar-lo : (rstar-lo) => (b-lo (profit-rate (e3) (list 0 1/4 0) 30))
+rule cap-rows : (cap-rows) => (traj-rows (pe-run (pe-init cap) (pe-par) 60))
+rule rel : (rel !a !b) => (q/ (- ?b ?a) ?a)
+// job guarantee: private wage under the guarantee relative to the reserve-army
+// wage, beta = 1/5, s = 2/5, g = 4/5
+rule jg-gain : (jg-gain !u) => (- (q/ (w-ap 1/5 4/5) (w-cap 1/5 ?u 2/5)) 1)
+// the unemployment rate at which the guarantee changes nothing: w_cap = w_ap
+//   (b + (1-b) u s)/(b + u(1-b)) = g + b(1-g)
+//   => u_c = b (1 - w_ap) / ((1-b)(w_ap - s))
+rule u-cross : (u-cross !b !s !g) => (q/ (* ?b (- 1 ?wa)) (* (- 1 ?b) (- ?wa ?s))) where ?wa <- (w-ap ?b ?g)
+// the unemployment rate at which the guarantee raises the private wage by x
+rule u-gain : (u-gain !x !lo !hi !k) => (round-to (q/ (+ ?lo ?hi) 2) 100000) where (<= ?k 0)
+rule u-gain-go : (u-gain !x !lo !hi !k) => (if (< (jg-gain ?m) ?x) (u-gain ?x ?m ?hi ?k1) (u-gain ?x ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+rule u-el : (u-el !lo !hi !k) => (round-to (q/ (+ ?lo ?hi) 2) 100000) where (<= ?k 0)
+rule u-el-go : (u-el !lo !hi !k) => (if (> (elast 1/5 2/5 ?m) -1/10) (u-el ?m ?hi ?k1) (u-el ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+
+rule pct : (pct !x) => (cat (decimal (* 100 ?x) 1) "%")
+rule s1 : (s1 !rows) => (lines (list
+  "§EV THE MODEL AGAINST EMPIRICAL DATA"
+  "  quantity                                   data        model"
+  (cat "  wage-curve elasticity at u = 5% / 10%      " (cat (decimal (data-elast) 2) (cat "        " (cat (decimal (elast 1/5 2/5 1/20) 3) (cat " / " (decimal (elast 1/5 2/5 1/10) 3))))))
+  (cat "    ... unemployment at which the model gives -0.10: " (decimal (u-el 0 2/5 40) 4))
+  (cat "  labour share, relative change              " (cat (pct (rel (nth 0 (data-ls)) (nth 1 (data-ls)))) (cat "      " (cat (pct (rel (row-w (nth 0 ?rows)) (row-w (nth 59 ?rows)))) "  (60 periods)"))))
+  (cat "    ... levels: data " (cat (pct (nth 0 (data-ls))) (cat " -> " (cat (pct (nth 1 (data-ls))) (cat ";  model " (cat (decimal (row-w (nth 0 ?rows)) 3) (cat " -> " (decimal (row-w (nth 59 ?rows)) 3))))))))
+  (cat "  price-value MAWD                           " (cat (pct (data-mawd)) (cat "        E3 at r*: " (cat (pct (mawd (e3) (list 0 10 2) (rstar-lo))) (cat ";  CE Table 10.1: " (pct (ce-mawd2)))))))
+  (cat "  job-guarantee wage effect                  +" (cat (pct (data-jg)) (cat "       +" (cat (pct (jg-gain 1/10)) (cat " / +" (cat (pct (jg-gain 3/20)) (cat " / +" (cat (pct (jg-gain 1/5)) "  at u = 10/15/20%"))))))))
+  (cat "    ... no effect below u_c = " (cat (sh (u-cross 1/5 2/5 4/5)) (cat ";  +5% at u = " (decimal (u-gain 1/20 (u-cross 1/5 2/5 4/5) 1 40) 4))))
+  (cat "  Gini of the exponential (lower) class      " (cat (decimal (data-gini-lower) 3) (cat "       " (cat (decimal (geo-gini 10) 3) "  (geometric law, T = 10)"))))
+  (cat "  loss aversion lambda                       " (cat (decimal (data-lambda) 2) "        2.25  (input; the threshold moves by 0.18 from lambda = 2 to 10, me-extremes §X4)"))))
+// CE Table 10.1 deviation (as in me-extremes.pal)
+rule ce-mawd2 : (ce-mawd2) => (q/ (vsum (smap (absdev ?m) (zip ?lam (ce-sales)))) (vsum (ce-sales)))
+  where ?lam <- (lvalues (ce-table)), ?m <- (q/ (vsum (ce-sales)) (vdot ?lam (ce-sales)))
+rule app-absdev : (app (absdev ?m) (pair ?l ?x)) => (abs (- ?x (* ?m (* ?l ?x))))
+import "../lib/longrun.pal"
+
+main = 0
+let $rows = (cap-rows) with eval
+display (s1 $rows) with eval
+assert (= (u-cross 1/5 2/5 4/5) 1/11) with eval
+assert (< (abs (- (jg-gain (u-cross 1/5 2/5 4/5)) 0)) 1/1000000000) with eval
+assert (< (mawd (e3) (list 0 10 2) (rstar-lo)) (data-mawd)) with eval

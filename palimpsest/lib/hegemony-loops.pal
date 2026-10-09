@@ -1,0 +1,262 @@
+#lang palimpsest
+// hegemony-loops.pal -- the feedback-loop structure of the Hegemony economy,
+// stated as data and CHECKED against the rewriting model in hegemony.pal.
+//
+//   1. A causal-loop diagram (CLD): a signed digraph over 18 economic
+//      variables. Every edge names the rule(s) of hegemony.pal that create it.
+//   2. Loop enumeration: all elementary cycles of the digraph (each found once,
+//      from its least node), with polarity = product of edge signs:
+//      + = reinforcing (R), - = balancing (B).
+//   3. Edge verification: each edge carries a PROBE -- an intervention that
+//      raises X, a phase of the game to run, and a measurement of Y. The edge
+//      sign is confirmed iff  sign(Y(T(I(S))) - Y(T(S)))  agrees with it at
+//      every base state S tested (strict), or agrees where nonzero and is
+//      nonzero somewhere (weak: a monotone but saturating dependency).
+//   4. Exact election probabilities (hypergeometric, exact rationals) for the
+//      political edges, where the outcome of a vote is random.
+//
+// A loop's polarity is a theorem about the signed graph; the probes are what
+// connect the graph to the actual rules -- they are finite-difference
+// derivatives of the rewriting system, so a wrong edge sign is caught.
+import "hegemony.pal"
+
+// ---------------------------------------------------------------------------
+// 1. The causal-loop diagram
+// ---------------------------------------------------------------------------
+// Nodes (in this order; cycles are reported from their least node):
+//   E    staffed Companies (employment)        W    Wages received by the WC
+//   M    Working Class money                   R    Capitalist cash (rev+cap)
+//   N    Capitalist Companies                  H    Health used (Prosperity)
+//   P    Workers (Population)                  F    Food bill
+//   T    Income Tax paid                       G    State Treasury
+//   U    unemployed Workers                    Dm   Demonstration on board
+//   Vw   WC cubes in the bag                   Vc   CC cubes in the bag
+//   L    Labor Market leftness (wage floor)    D    Working Class Loans
+//   K    Capitalist taxes                      Pub  operating Public Companies
+rule cld-nodes : (cld-nodes) => (list E W M R N H P F T G U Dm Vw Vc L D K Pub)
+// (edge FROM TO SIGN "mechanism (rules)"), SIGN = pos | neg
+rule cld-edges : (cld-edges) => (list
+  (edge E W pos "operational Companies pay their Wage to the WC (produce)")
+  (edge W M pos "Wages are WC income (pay ... wage-cc / wage-pub)")
+  (edge M R pos "WC buys goods and Food from the Capitalist (buy-line, eat)")
+  (edge R N pos "cash above the reserve lets the Capitalist build (build-choice)")
+  (edge N E pos "a Company is built only when it can be staffed at once (build, staff)")
+  (edge W R neg "Wages are the Capitalist's cost (produce)")
+  (edge M H pos "money buys Health for Prosperity (buy-choice, use)")
+  (edge H P pos "Use Healthcare adds a Worker (use-bonus health)")
+  (edge P F pos "Food needs = Population (cover-needs)")
+  (edge F M neg "the Food bill is paid from WC money (eat)")
+  (edge P T pos "Income Tax = rate x Population (taxes)")
+  (edge T M neg "Income Tax is paid from WC money (taxes)")
+  (edge T G pos "taxes go to the State Treasury (taxes)")
+  (edge P U pos "new Workers start unemployed (new-workers, use-bonus)")
+  (edge E U neg "staffing a Company empties the pool (staff)")
+  (edge U Dm pos "enough unemployed allows a Demonstration (demo-ok?)")
+  (edge Dm N pos "a Demonstration makes the Capitalist build at any margin (card-ok?)")
+  (edge P Vw pos "the WC adds ceil(Pop/2) cubes (refill-bag)")
+  (edge N Vc pos "the CC adds ceil(operational/2) cubes (refill-bag)")
+  (edge Vw L pos "WC cubes raise the chance a Labor Market bill toward A passes (vote)")
+  (edge Vc L neg "CC cubes lower that chance (vote)")
+  (edge L W pos "the wage floor rises with Labor Market (pe-labor, relevel)")
+  (edge D M neg "each Loan costs 5 interest per round (prep-phase)")
+  (edge M D neg "a shortfall on a mandatory payment forces Loans (cover-or-borrow)")
+  (edge N K pos "Employment Tax = operational Companies x Tax Multiplier (taxes)")
+  (edge K R neg "Capitalist taxes are paid from its cash (taxes)")
+  (edge K G pos "Capitalist taxes go to the Treasury (taxes)")
+  (edge Pub W pos "Public Companies pay Wages from the Treasury (produce)")
+  (edge Pub G neg "Public Wages and new rows are paid by the Treasury (produce, fiscal-move)")
+  (edge G Pub pos "a Treasury short of Loans triggers the IMF, which shrinks the Public Sector (imf)"))
+
+// ---------------------------------------------------------------------------
+// 2. Elementary cycles and their polarity
+// ---------------------------------------------------------------------------
+rule node-index : (node-index ?n) => (with-default (index-of ?n (cld-nodes)) -1)
+rule succs : (succs ?x (list)) => (list)
+rule succs-n : (succs ?x (list (edge ?a ?b ?sg ?why) ?es...)) => (if (= ?a ?x) (prepend ?b (succs ?x (list ?es...))) (succs ?x (list ?es...)))
+// all elementary cycles whose least node (by index) is ?s
+rule cycles-from : (cycles-from ?s ?es) => (dfs ?s ?s (list ?s) (succs ?s ?es) ?es)
+rule dfs-0 : (dfs ?s ?cur ?path (list) ?es) => (list)
+rule dfs-n : (dfs ?s ?cur ?path (list ?y ?ys...) ?es) => (append ?here (dfs ?s ?cur ?path (list ?ys...) ?es))
+  where ?here <- (dfs-step ?s ?y ?path ?es)
+rule dfs-close : (dfs-step ?s ?y ?path ?es) => (list (cyc ?path)) where (= ?y ?s)
+rule dfs-deeper : (dfs-step ?s ?y ?path ?es) => (dfs ?s ?y ?p2 (succs ?y ?es) ?es)
+  where (<> ?y ?s), (> (node-index ?y) (node-index ?s)), (not (member ?y ?path)), ?p2 <- (snoc ?path ?y)
+rule dfs-skip : (dfs-step ?s ?y ?path ?es) => (list)
+rule all-cycles : (all-cycles) => (concat (map (cycles-of ?es) (cld-nodes))) where ?es <- (cld-edges)
+rule app-cycles-of : (app (cycles-of ?es) ?s) => (cycles-from ?s ?es)
+// sign of an edge, and of a cycle (product around it)
+rule esign : (esign ?a ?b (list (edge ?a ?b ?sg ?why) ?es...)) => ?sg
+rule esign-n : (esign ?a ?b (list (edge ?x ?y ?sg ?why) ?es...)) => (esign ?a ?b (list ?es...)) where (or (<> ?a ?x) (<> ?b ?y))
+// signs are the symbols pos / neg
+rule smul-pp : (smul pos pos) => pos
+rule smul-pm : (smul pos neg) => neg
+rule smul-mp : (smul neg pos) => neg
+rule smul-mm : (smul neg neg) => pos
+rule polarity : (polarity (cyc (list ?x ?xs...)) ?es) => (pol-go ?x (list ?x ?xs... ?x) pos ?es)
+rule pol-go-1 : (pol-go ?f (list ?a) ?acc ?es) => ?acc
+rule pol-go-n : (pol-go ?f (list ?a ?b ?rest...) ?acc ?es) => (pol-go ?f (list ?b ?rest...) ?acc2 ?es) where ?acc2 <- (smul ?acc (esign ?a ?b ?es))
+rule loop-kind : (loop-kind pos) => R
+rule loop-kind-b : (loop-kind neg) => B
+rule classify-loops : (classify-loops) => (map (classify ?es) (all-cycles)) where ?es <- (cld-edges)
+rule app-classify : (app (classify ?es) (cyc ?p)) => (loop (loop-kind (polarity (cyc ?p) ?es)) (length ?p) ?p)
+rule count-kind : (count-kind ?k ?ls) => (count-if (is-kind ?k) ?ls)
+rule app-is-kind : (app (is-kind ?k) (loop ?k2 ?n ?p)) => (= ?k ?k2)
+rule loops-view : (loops-view ?ls) => (lines (map loop-line ?ls))
+rule app-loop-line : (app loop-line (loop ?k ?n (list ?p...))) => (cat (str ?k) (cat (padl (str ?n) 3) (cat "  " (join-arrow (list ?p... (first-of (list ?p...)))))))
+rule first-of : (first-of (list ?x ?xs...)) => ?x
+rule join-arrow-1 : (join-arrow (list ?x)) => (str ?x)
+rule join-arrow-n : (join-arrow (list ?x ?y ?ys...)) => (cat (str ?x) (cat " -> " (join-arrow (list ?y ?ys...))))
+
+// ---------------------------------------------------------------------------
+// 3. Probes: finite differences of the rewriting system
+// ---------------------------------------------------------------------------
+// (probe-of X Y) => (pr INTERVENTION TRANSITION MEASURE)
+rule probe-E-W : (probe-of E W) => (pr (job) (cc-produce) wages-in)
+rule probe-W-M : (probe-of W M) => (pr (wage-up) (production) wc-money-net)
+rule probe-M-R : (probe-of M R) => (pr (wc-cash 60) (action) cc-sales)
+rule probe-R-N : (probe-of R N) => (pr (cc-cash 100) (action) cc-cos)
+rule probe-N-E : (probe-of N E) => (pr (build-one) (none) staffed)
+rule probe-W-R : (probe-of W R) => (pr (wage-up) (cc-produce) cc-cash-net)
+rule probe-M-H : (probe-of M H) => (pr (wc-cash 60) (action) health-used)
+rule probe-H-P : (probe-of H P) => (pr (health-stock) (wc-pre) workers)
+rule probe-P-F : (probe-of P F) => (pr (workers 3) (cover) food-bill)
+rule probe-F-M : (probe-of F M) => (pr (food-price) (cover) wc-money-net)
+rule probe-P-T : (probe-of P T) => (pr (workers 3) (taxes) wc-tax)
+rule probe-T-M : (probe-of T M) => (pr (tax-rate) (taxes) wc-money-net)
+rule probe-T-G : (probe-of T G) => (pr (tax-rate) (taxes) treasury-net)
+rule probe-P-U : (probe-of P U) => (pr (workers 3) (none) unemployed)
+rule probe-E-U : (probe-of E U) => (pr (staff-new) (none) unemployed)
+rule probe-U-Dm : (probe-of U Dm) => (pr (workers 6) (wc-turn) demo)
+rule probe-Dm-N : (probe-of Dm N) => (pr (demo-on) (cc-turn) cc-cos)
+rule probe-P-Vw : (probe-of P Vw) => (pr (workers 3) (refill) bag-wc)
+rule probe-N-Vc : (probe-of N Vc) => (pr (job) (refill) bag-cc)
+rule probe-Vw-L : (probe-of Vw L) => (pr (bag wc 3) (none) p-left)
+rule probe-Vc-L : (probe-of Vc L) => (pr (bag cc 3) (none) p-left)
+rule probe-L-W : (probe-of L W) => (pr (labor-left) (cc-produce) wages-in)
+rule probe-D-M : (probe-of D M) => (pr (loan) (prep) wc-money-net)
+rule probe-M-D : (probe-of M D) => (pr (wc-cash 50) (production) wc-loans)
+rule probe-N-K : (probe-of N K) => (pr (job) (taxes) cc-tax)
+rule probe-K-R : (probe-of K R) => (pr (tax-mult) (taxes) cc-cash-net)
+rule probe-K-G : (probe-of K G) => (pr (tax-mult) (taxes) treasury-net)
+rule probe-Pub-W : (probe-of Pub W) => (pr (fiscal-open) (production) wages-in)
+rule probe-Pub-G : (probe-of Pub G) => (pr (fiscal-open) (production) public-outlay)
+rule probe-G-Pub : (probe-of G Pub) => (pr (st-cash 120) (production) pub-op)
+
+// Interventions. Exogenous money enters through the ledger (category `shock`),
+// exogenous Workers through the pool, so every probed state still satisfies
+// all four conservation laws.
+rule iv-job : (intervene (job) ?s) => (set@ (add@ ?s wc workers 2) cos (put@ (@ ?s cos) x1 (mk-co (card-of college) cc 0 (min-level (@ ?s pol labor)) (list edu u))))
+rule iv-wage-up : (intervene (wage-up) ?s) => (each wage-up-one (ids cc ?s) ?s)
+rule do-wage-up : (do wage-up-one ?id ?s) => (set@ ?s cos ?id lvl (min 3 (+ 1 (co ?id lvl ?s))))
+rule iv-wc-cash : (intervene (wc-cash ?d) ?s) => (pay world wc ?d shock ?s)
+rule iv-cc-cash : (intervene (cc-cash ?d) ?s) => (pay world cc ?d shock ?s)
+rule iv-st-cash : (intervene (st-cash ?d) ?s) => (pay world st ?d shock ?s)
+rule iv-build-one : (intervene (build-one) ?s) => (if (eq? ?n none) ?s (build ?n ?s)) where ?n <- (build-choice (pay world cc 500 shock (set@ ?s wc demo true)))
+rule iv-health-stock : (intervene (health-stock) ?s) => (gimp health wc (pop ?s) ?s)
+rule iv-workers : (intervene (workers ?k) ?s) => (add@ (add@ ?s wc pool u ?k) wc workers ?k)
+rule iv-food-price : (intervene (food-price) ?s) => (add@ ?s cc price food 3)
+// raise the Income Tax rate: Labor Market one step toward A, or Taxation if Labor is already at A
+rule iv-tax-rate : (intervene (tax-rate) ?s) => (if (<> ?l A) (set@ ?s pol labor (toward-a ?l)) (if (<> ?t A) (set@ ?s pol tax (toward-a ?t)) ?s))
+  where ?l <- (@ ?s pol labor), ?t <- (@ ?s pol tax)
+// a new unskilled-only Company (a Radio Station), staffed from the pool if possible
+rule iv-staff-new : (intervene (staff-new) ?s) => (if (can-staff? x2 ?s1) (staff x2 ?s1) ?s1)
+  where ?s1 <- (set@ ?s cos (put@ (@ ?s cos) x2 (mk-co (card-of radio) cc 0 (min-level (@ ?s pol labor)) (list))))
+rule iv-demo-on : (intervene (demo-on) ?s) => (set@ ?s wc demo true)
+rule iv-bag : (intervene (bag ?who ?k) ?s) => (add@ ?s bag ?who ?k)
+rule iv-labor-left : (intervene (labor-left) ?s) => (if (= ?l A) ?s (set-policy labor (toward-a ?l) ?s)) where ?l <- (@ ?s pol labor)
+rule iv-loan : (intervene (loan) ?s) => (borrow wc 1 other ?s)
+rule iv-tax-mult : (intervene (tax-mult) ?s) => (set@ ?s pol health A)
+rule iv-fiscal-open : (intervene (fiscal-open) ?s) => (if (= ?f A) ?s (set-policy fiscal (toward-a ?f) (add@ (add@ (add@ (add@ ?s wc pool health 3) wc pool edu 3) wc pool media 3) wc workers 9)))
+  where ?f <- (@ ?s pol fiscal)
+
+// Transitions (pieces of a round).
+rule tr-none : (transit (none) ?s) => ?s
+rule tr-cc-produce : (transit (cc-produce) ?s) => (each produce (ids cc-op ?s) ?s)
+rule tr-production : (transit (production) ?s) => (production-phase ?s)
+rule tr-action : (transit (action) ?s) => (action-phase 1 ?s)
+rule tr-wc-pre : (transit (wc-pre) ?s) => (sf-state (wc-pre ?s))
+rule sf-state : (sf-state (sf ?f ?s)) => ?s
+rule tr-cover : (transit (cover) ?s) => (cover-needs ?s)
+rule tr-taxes : (transit (taxes) ?s) => (taxes (set@ ?s tax-labor (@ ?s pol labor)))
+rule tr-wc-turn : (transit (wc-turn) ?s) => (wc-turn 1 ?s)
+rule tr-cc-turn : (transit (cc-turn) ?s) => (cc-turn 1 ?s)
+rule tr-refill : (transit (refill) ?s) => (refill-bag ?s)
+rule tr-prep : (transit (prep) ?s) => (prep-phase ?s)
+
+// Measurements.
+rule ms-wages-in : (measure wages-in ?s) => (+ (@ ?s flows wage-cc wc) (@ ?s flows wage-pub wc))
+rule ms-wc-money : (measure wc-money ?s) => (@ ?s wc money)
+// money net of the Loans' principal: interest is the only effect left
+rule ms-wc-money-net : (measure wc-money-net ?s) => (- (@ ?s wc money) (* 50 (@ ?s wc loans)))
+rule ms-cc-sales : (measure cc-sales ?s) => (@ ?s flows sale-cc cc)
+rule ms-cc-cos : (measure cc-cos ?s) => (count-ids cc ?s)
+rule ms-staffed : (measure staffed ?s) => (count-ids staffed ?s)
+rule ms-cc-cash : (measure cc-cash ?s) => (+ (@ ?s cc rev) (@ ?s cc cap))
+rule ms-cc-cash-net : (measure cc-cash-net ?s) => (- (+ (@ ?s cc rev) (@ ?s cc cap)) (* 50 (@ ?s cc loans)))
+// the Treasury's cumulative spending on Public Wages and new rows (<= 0)
+rule ms-public-outlay : (measure public-outlay ?s) => (+ (@ ?s flows wage-pub st) (@ ?s flows capex st))
+rule ms-health-used : (measure health-used ?s) => (@ ?s gstat health use)
+rule ms-workers : (measure workers ?s) => (@ ?s wc workers)
+rule ms-food-bill : (measure food-bill ?s) => (- 0 (+ (@ ?s flows sale-cc wc) (+ (@ ?s flows import wc) (@ ?s flows tariff wc))))
+rule ms-wc-tax : (measure wc-tax ?s) => (- 0 (@ ?s flows tax-wc wc))
+rule ms-treasury : (measure treasury ?s) => (@ ?s st treasury)
+// Treasury net of outstanding Loans' principal
+rule ms-treasury-net : (measure treasury-net ?s) => (- (@ ?s st treasury) (* 50 (@ ?s st loans)))
+rule ms-unemployed : (measure unemployed ?s) => (pool-size ?s)
+rule ms-demo : (measure demo ?s) => (if (@ ?s wc demo) 1 0)
+rule ms-bag-wc : (measure bag-wc ?s) => (@ ?s bag wc)
+rule ms-bag-cc : (measure bag-cc ?s) => (@ ?s bag cc)
+// P(a Working Class Labor Market bill toward A passes), in parts per 10000
+rule ms-p-left : (measure p-left ?s) => (/ (* 10000 (pnum ?q)) (pden ?q)) where ?q <- (p-pass (@ ?s bag wc) (@ ?s bag cc) (@ ?s bag mc) (@ ?s wc infl) (@ ?s cc infl))
+rule ms-wc-loans : (measure wc-loans ?s) => (@ ?s wc loans)
+rule ms-cc-tax : (measure cc-tax ?s) => (- 0 (+ (@ ?s flows tax-emp cc) (@ ?s flows tax-corp cc)))
+rule ms-pub-op : (measure pub-op ?s) => (count-ids pub-op ?s)
+
+// One probe at one base state: the finite difference of Y.
+rule delta : (delta ?x ?y !s) => (- (measure ?m ?b1) (measure ?m ?b0))
+  where ?pr <- (probe-of ?x ?y), ?m <- (pr-m ?pr),
+        ?b0 <- (transit (pr-t ?pr) ?s), ?b1 <- (transit (pr-t ?pr) (intervene (pr-i ?pr) ?s))
+rule pr-i : (pr-i (pr ?i ?t ?m)) => ?i
+rule pr-t : (pr-t (pr ?i ?t ?m)) => ?t
+rule pr-m : (pr-m (pr ?i ?t ?m)) => ?m
+// verdict over a list of base states
+rule verify-edge : (verify-edge (edge ?x ?y ?sg ?why) ?bases) => (edge-verdict ?x ?y ?sg ?ds)
+  where ?ds <- (map (delta-at ?x ?y) ?bases)
+rule app-delta-at : (app (delta-at ?x ?y) ?s) => (delta ?x ?y ?s)
+rule sgn-ok : (sgn-ok? pos ?d) => (>= ?d 0)
+rule sgn-ok-m : (sgn-ok? neg ?d) => (<= ?d 0)
+rule sgn-strict : (sgn-strict? pos ?d) => (> ?d 0)
+rule sgn-strict-m : (sgn-strict? neg ?d) => (< ?d 0)
+rule app-sgn-ok : (app (ok-for ?sg) ?d) => (sgn-ok? ?sg ?d)
+rule app-sgn-strict : (app (strict-for ?sg) ?d) => (sgn-strict? ?sg ?d)
+rule edge-verdict : (edge-verdict ?x ?y ?sg ?ds) => (ev2 ?x ?y ?sg ?ds
+     (if (all-of (strict-for ?sg) ?ds) strict (if (and (all-of (ok-for ?sg) ?ds) (any-of (strict-for ?sg) ?ds)) weak FAIL)))
+rule ev2 : (ev2 ?x ?y ?sg ?ds ?v) => (verdict ?x ?y ?sg ?v ?ds)
+rule verdicts-view : (verdicts-view ?vs) => (lines (map verdict-line ?vs))
+rule app-verdict-line : (app verdict-line (verdict ?x ?y ?sg ?v (list ?ds...))) =>
+  (cat (padr (cat (str ?x) (cat " -> " (str ?y))) 11) (cat (padr (str ?sg) 3) (cat (padr (str ?v) 8) (cells (list ?ds...) 7))))
+rule all-confirmed? : (all-confirmed? (list)) => true
+rule all-confirmed?-n : (all-confirmed? (list (verdict ?x ?y ?sg ?v ?ds) ?vs...)) => (and (<> ?v FAIL) (all-confirmed? (list ?vs...)))
+
+// ---------------------------------------------------------------------------
+// 4. Exact election odds
+// ---------------------------------------------------------------------------
+// Draw d = min(5, n) cubes without replacement from a bag of w WC, c CC and m
+// Middle Class (neutral) cubes; then both sides commit Influence by the rule in
+// `tally-contest`. (p-pass ...) = exact P(a WC bill opposed by the CC passes),
+// as (q NUM DEN), DEN = C(n, d).
+rule choose : (choose ?n ?k) => (ch-go ?n ?k 0 1)
+rule ch-go : (ch-go ?n ?k ?i ?acc) => (if (>= ?i ?k) ?acc (ch-go ?n ?k ?i1 ?acc2))
+  where ?i1 <- (+ ?i 1), ?acc2 <- (if (>= ?i ?k) ?acc (/ (* ?acc (- ?n ?i)) (+ ?i 1)))
+rule choose-guard : (choose-safe ?n ?k) => (if (or (< ?k 0) (> ?k ?n)) 0 (choose ?n ?k))
+rule p-pass : (p-pass ?w ?c ?m ?iw ?ic) => (q ?num (choose ?n ?d))
+  where ?n <- (+ ?w (+ ?c ?m)), ?d <- (min 5 ?n), ?num <- (pp-sum ?w ?c ?m ?iw ?ic ?d 0 0)
+// sum over i (WC cubes) and j (CC cubes), k = d - i - j neutral
+rule pp-sum : (pp-sum ?w ?c ?m ?iw ?ic ?d ?i ?acc) => (if (> ?i ?d) ?acc (pp-sum ?w ?c ?m ?iw ?ic ?d ?i1 ?acc2))
+  where ?i1 <- (+ ?i 1), ?acc2 <- (if (> ?i ?d) ?acc (+ ?acc (pp-j ?w ?c ?m ?iw ?ic ?d ?i 0 0)))
+rule pp-j : (pp-j ?w ?c ?m ?iw ?ic ?d ?i ?j ?acc) => (if (> (+ ?i ?j) ?d) ?acc (pp-j ?w ?c ?m ?iw ?ic ?d ?i ?j1 ?acc2))
+  where ?j1 <- (+ ?j 1), ?acc2 <- (if (> (+ ?i ?j) ?d) ?acc (+ ?acc (pp-term ?w ?c ?m ?iw ?ic ?d ?i ?j)))
+rule pp-term : (pp-term ?w ?c ?m ?iw ?ic ?d ?i ?j) => (if (wins? ?i ?j ?iw ?ic) (* (choose-safe ?w ?i) (* (choose-safe ?c ?j) (choose-safe ?m (- ?d (+ ?i ?j))))) 0)
+rule wins? : (wins? ?i ?j ?iw ?ic) => (>= (+ ?i (commit (- (+ ?j ?ic) ?i) ?iw)) (+ ?j (commit (- (+ (+ ?i ?iw) 1) ?j) ?ic)))
+rule pnum : (pnum (q ?a ?b)) => ?a
+rule pden : (pden (q ?a ?b)) => ?b

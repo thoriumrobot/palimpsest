@@ -1,6 +1,8 @@
 //! The program loader. A `.pal` file is a sequence of line-oriented items:
 //!   #lang / #mode / #fuel / #caps   — directives
-//!   rule NAME : LHS => RHS          — a rewrite rule
+//!   rule NAME : LHS => RHS          — a rewrite rule (an equation: used by `rules`)
+//!   transition NAME : LHS => RHS    — same syntax, but reachable only by name
+//!                                     from a strategy (never via `rules`)
 //!   strategy NAME = STRATEGY        — a named strategy
 //!   main = TERM                     — the subject term to rewrite
 //!   run STRATEGY                    — normalize `main`, print it
@@ -8,6 +10,10 @@
 //!   display TERM with STRATEGY      — normalize, then print for a human (a
 //!                                     string result is shown verbatim; `main`
 //!                                     in TERM resolves to the subject term)
+//!   assert TERM with STRATEGY       — normalize; PASS iff the result is `true`
+//!   let $NAME = TERM with STRATEGY  — normalize once; later commands see $NAME
+//!                                     (`main` in TERM resolves to the subject;
+//!                                     any FAIL makes the run exit non-zero)
 //!   rewrite TARGET with STRATEGY    — transform a file (self or another)
 //! Lines beginning with `//` are comments.
 
@@ -27,11 +33,20 @@ pub enum Command {
     Run(Strat),
     Show(Term, Strat),
     Display(Term, Strat),
+    /// `assert TERM with STRATEGY` — normalize; PASS iff the result is `true`.
+    Assert(Term, Strat),
+    /// `let $NAME = TERM with STRATEGY` — normalize TERM once; every LATER
+    /// command sees the symbol `$NAME` replaced by that normal form. Names
+    /// must start with `$`, so a binding can never capture a rule head.
+    Let(String, Term, Strat),
     Rewrite { target: Target, strat: Strat, strat_src: String },
 }
 
 pub struct Program {
     pub mode: String,
+    /// `#rebind main`: after a successful `rewrite self`, later commands see the
+    /// REWRITTEN subject as `main` (default: the subject as loaded).
+    pub rebind_main: bool,
     pub fuel: u64,
     pub caps: Caps,
     pub engine: Engine,
@@ -48,6 +63,7 @@ pub fn load_program(path: &Path) -> Result<Program, String> {
         .map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
     let mut prog = Program {
         mode: "rewriting-as-running".into(),
+        rebind_main: false,
         fuel: 100_000,
         caps: Caps::default(),
         engine: Engine::new(),
@@ -100,6 +116,8 @@ fn load_file(
         }
         if let Some(rest) = line.strip_prefix("rule ") {
             prog.engine.add_rule(parse_rule(rest)?);
+        } else if let Some(rest) = line.strip_prefix("transition ") {
+            prog.engine.add_transition(parse_rule(rest)?);
         } else if let Some(rest) = line.strip_prefix("strategy ") {
             let (header, body) = split_top_level(rest, '=')
                 .ok_or_else(|| format!("malformed strategy (no '='): {}", line))?;
@@ -138,6 +156,32 @@ fn load_file(
                 let (term_src, strat_src) = split_top_level_str(rest, " with ")
                     .ok_or_else(|| format!("malformed display (no 'with'): {}", line))?;
                 prog.commands.push(Command::Display(
+                    read_term(term_src.trim())?,
+                    parse_strategy(strat_src.trim())?,
+                ));
+            }
+        } else if let Some(rest) = line.strip_prefix("assert ") {
+            if is_root {
+                let (term_src, strat_src) = split_top_level_str(rest, " with ")
+                    .ok_or_else(|| format!("malformed assert (no 'with'): {}", line))?;
+                prog.commands.push(Command::Assert(
+                    read_term(term_src.trim())?,
+                    parse_strategy(strat_src.trim())?,
+                ));
+            }
+        } else if let Some(rest) = line.strip_prefix("let ") {
+            if is_root {
+                let (lhs, rhs) = rest
+                    .split_once('=')
+                    .ok_or_else(|| format!("malformed let (no '='): {}", line))?;
+                let name = lhs.trim();
+                if !name.starts_with('$') || name.len() < 2 || name.contains(|c: char| c.is_whitespace() || c == '(' || c == ')') {
+                    return Err(format!("let: the name must be a symbol starting with '$': {}", line));
+                }
+                let (term_src, strat_src) = split_top_level_str(rhs, " with ")
+                    .ok_or_else(|| format!("malformed let (no 'with'): {}", line))?;
+                prog.commands.push(Command::Let(
+                    name.to_string(),
                     read_term(term_src.trim())?,
                     parse_strategy(strat_src.trim())?,
                 ));
@@ -291,6 +335,11 @@ fn parse_directive(rest: &str, prog: &mut Program) -> Result<(), String> {
             .map_err(|_| format!("bad fuel value: {}", f))?;
     } else if let Some(c) = rest.strip_prefix("caps ") {
         prog.caps = parse_caps(c.trim())?;
+    } else if rest == "rebind main" {
+        prog.rebind_main = true;
+    } else if rest == "memo" {
+        // normal-form memo: same normal forms, less work (see Engine::memo)
+        prog.engine.enable_memo();
     } else if rest.starts_with("lang") {
         // #lang palimpsest — acknowledged, no effect in this prototype.
     } else {
@@ -513,6 +562,20 @@ pub fn splice_main(text: &str, start_idx: usize, end_idx: usize, new_term: &Term
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn let_command_parses_and_rejects_bad_names() {
+        let dir = std::env::temp_dir().join(format!("pal-let-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ok = dir.join("ok.pal");
+        std::fs::write(&ok, "#lang palimpsest\nlet $x = (+ 1 2) with outermost(prim)\nshow $x with id\n").unwrap();
+        let prog = load_program(&ok).unwrap();
+        assert!(matches!(&prog.commands[0], Command::Let(n, _, _) if n == "$x"));
+        let bad = dir.join("bad.pal");
+        std::fs::write(&bad, "#lang palimpsest\nlet x = (+ 1 2) with outermost(prim)\n").unwrap();
+        assert!(load_program(&bad).is_err(), "a let name without '$' must be rejected");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn find_main_single_line() {

@@ -121,15 +121,22 @@ of those two rules, reduce fully, innermost-first."
 
 ## 6. Numbers, and why evaluation order matters
 
-Palimpsest has built-in **primitives** on real integers, evaluated by the `prim`
-strategy when the operands are literal values:
+Palimpsest has built-in **primitives** on exact numbers, evaluated by the
+`prim` strategy when the operands are literal values. Numbers are integers of
+any size and exact rationals written `n/d`; a rational whose value is an integer
+*is* that integer (`6/3` reads as `2`), so equality is structural:
 
 ```
-+  -  *  /  mod          (int, int) -> int
-<  <=  >  >=             (int, int) -> bool   (the symbols true / false)
-=  <>                    equality on ints, strings, or symbols -> bool
++  -  *                  exact on any numbers: (+ 1/3 1/6) -> 1/2
+/  mod                   integer division and remainder
+q/                       exact division: (q/ 2 3) -> 2/3
+<  <=  >  >=             any numbers -> bool   (the symbols true / false)
+=  <>                    equality on numbers, strings, or symbols -> bool
 cat                      (string, string) -> string
 ```
+
+Section 16 covers the remaining numeric primitives (`round-to`, `decimal`,
+`isqrt`, ...).
 
 So `(+ (* 2 3) 4)` reduces to `10` under any strategy that includes `prim`:
 
@@ -376,7 +383,7 @@ From here the idea scales up: a program can rewrite its own source into the
 *solution* of a problem and only then become a quine. `SELF-REWRITING.md` is a
 dedicated tutorial that builds from these basics through Towers of Hanoi, an
 N-Queens solver that prints a chess board, a compiler, and a data-driven Turing
-machine — each of which renders its answer with the `display` command (see §16) and
+machine — each of which renders its answer with the `display` command (see §17) and
 the renderers in `lib/render.pal`. `SELF-REFERENCE.md` goes deeper on the theory
 (fixed points, attractors, cycles, autograms, fixpoint combinators), and
 `puzzles/PUZZLES.md` turns both into graded exercises.
@@ -557,10 +564,56 @@ That relation is an ordinary rule set, so the confluence checker applies to it d
 
 Two habits from §7 and §14 matter here. Force a value with `where ?v <- EXPR` before a rule dispatches on its shape. And remember that one deterministic run returns one answer even when the rules allow several. To see the alternatives, ask for all of them: `reachable-nash` lists every equilibrium reachable under any order of moves, and `unjoinable-pairs` lists the conflicting critical pairs. `TELIC-GAMES.md` §9 documents the library function by function, with a traced execution.
 
-## 16. Quick reference
+## 16. Exact numbers, named results, and watching a run
+
+**Exact numbers.** Because every number is exact, a computation that would be
+approximate in floating point is a theorem here: `(= (+ 1/10 2/10) 3/10)` is
+`true`. The numeric primitives are `+ - * q/` (exact), `/ mod` (integer),
+`num den floor ceil expt isqrt number? abs min max`, and two for controlling
+size and presentation:
+
+- `(round-to X K)` rounds X to the nearest multiple of 1/K (half up). Long
+  simulations use it once per step to keep denominators bounded; rounding
+  happens only where you write it.
+- `(decimal X D)` is a display string with D decimal places:
+  `(decimal 2/3 4)` is `"0.6667"`.
+
+**Naming a result.** `let $NAME = TERM with S` normalizes a term once and
+substitutes the result for `$NAME` in every later `show`, `display` and
+`assert`, so an expensive computation used by several commands runs once:
+
+```
+let $rows = (simulate 60) with eval
+display (table $rows) with eval
+assert (all-positive? $rows) with eval
+```
+
+**Watching a run.** `--trace N` prints the first N rewrite steps as
+`rule: redex => contractum`; steps taken inside a guard, a `where` binding or a
+strict argument are indented. `examples/me-tour.pal` is a single economic
+feedback loop small enough to read this way:
+
+```
+./target/release/palimpsest examples/me-tour.pal --trace 22
+```
+
+The trace shows exact arithmetic (a wage share of `29/35`), the loop closing
+through the state (profit in one period becomes capital in the next), and the
+duplication hazard of normal order: `(min 100 (q/ 270 3))` rewrites to an `if`
+that mentions `(q/ 270 3)` twice, and the trace shows it computed twice. That
+is why the libraries' entry points use strict `!x` variables (see the strictness
+tip in §7).
+
+**Making long runs faster.** `#memo` (or `--memo`) remembers subterms already
+proven normal, so the outermost redex search skips them, and remembers the
+normal form of every argument forced at a strict position. Results and the
+order of reduction are unchanged; only the fuel count drops, which is why it is
+opt-in. `--stats` reports how often the memo was used.
+
+## 17. Quick reference
 
 Directives: `#lang`, `#mode {rewriting-as-running | rewrite-then-run}`, `#fuel N`,
-`#caps { rewrite: [self, file "p"] }`.
+`#caps { rewrite: [self, file "p"] }`, `#rebind main`, `#memo`.
 
 Items (may span multiple lines): `import "p"`,
 `rule N : L => R [where G, ?v <- E, ...]`, `strategy N = S`,
@@ -568,14 +621,18 @@ Items (may span multiple lines): `import "p"`,
 
 Commands: `run S`, `show T with S`, `display T with S` (prints for a human — a
 string result is shown verbatim, and `main` in `T` is the subject term),
-`rewrite {self | file "p"} with S`; CLI `undo` subcommand and `--dry-run` /
-`--fuel N` flags.
+`rewrite {self | file "p"} with S`, `assert T with S` (PASS iff `true`; a FAIL
+exits non-zero), `let $NAME = T with S`; `transition N : L => R` (a rule usable
+only by name from a strategy). CLI: `undo` subcommand; flags `--dry-run`,
+`--fuel N`, `--stats`, `--memo`, `--trace N`.
 
 Strategies: `id fail prim rules NAME NAME(args...)  s;s  s+s  try repeat topdown
 bottomup oncetd oncebu innermost outermost fixpoint all`.
 
-Primitives: `+ - * / mod  abs  min  max  < <= > >=  = <>  cat  str<  str  sym
-explode  implode  rng  padl  padr  matches?  match-witness`. (`sym` is the
+Primitives: `+ - * / mod  q/  num  den  floor  ceil  round-to  expt  isqrt
+number?  decimal  abs  min  max  < <= > >=  = <>  cat  str<  str  sym
+explode  implode  rng  padl  padr  matches?  match-witness`, and the record
+operations `@ set@ put@ add@ has@ del@ keys@ sum@`. (`sym` is the
 inverse of `str`; `explode`/`implode` convert between a string and a list of
 one-character strings; `str<` compares strings lexicographically; `rng` is a
 deterministic splitmix64 hash of a seed, for reproducible pseudo-randomness;
@@ -616,6 +673,8 @@ self-rewriting dynamical-systems simulations that graph their own trajectories �
 see `MIND-BODY.md` and the step-by-step `MINDBODY-TUTORIAL.md`. Graded exercises
 live in `puzzles/PUZZLES.md`. For rule systems and games as objects of study,
 see §15, and for the CTMU studies built on them, the "CTMU studies" section of
-`README.md`.
+`README.md`. For a large application of exact numbers, games and verified
+feedback loops, see `MATERIALIST-ECONOMY.md` and its paper
+`MATERIALIST-ECONOMY-PAPER.md`.
 
 Happy rewriting.

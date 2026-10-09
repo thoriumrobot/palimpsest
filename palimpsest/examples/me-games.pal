@@ -1,0 +1,187 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART III -- GAMES WITH CLASS ANALYSIS AS INPUT (MATERIALIST-ECONOMY.md §5)
+import "../lib/classgames.pal"
+import "../lib/report.pal"
+
+// ---- shared parameters ----
+// capitalism: subsistence 2/5 of an hour's value, 20% unemployment, weak/strong
+// bargaining power 1/5 and 1/2, organizing cost 1/20, repression cost 1/20,
+// capital's return abroad 1/10; accountable planning: public job 4/5 (the
+// hour's value net of the social fund for investment and public services),
+// legal penalty for repression 1/10.
+rule par : (par) => (rec (s 2/5) (u 1/5) (bl 1/5) (bh 1/2) (k 1/20) (rho 1/20) (rext 1/10) (g 4/5) (pen 1/10))
+rule e3 : (e3) => (rec (goods (list mp nec lux))
+  (a (list (list 1/5 1/5 1/10) (list 1/10 1/5 0) (list 0 0 0))) (l (list 1 2 1)))
+
+// ---- §5.1 bargaining ----
+rule us : (us) => (list 0 1/10 1/5 2/5 3/5 4/5 1)
+rule app-wcap-u : (app (wcap-u ?b) ?u) => (w-cap ?b ?u 2/5)
+rule s1 : (s1) => (lines (list
+  "§5.1 WAGE BARGAINING WITH OUTSIDE OPTIONS (share of an hour's value going to the worker)"
+  (cat "  unemployment u               : " (drow (us) 2 8))
+  (cat "  w_cap, beta = 1/5 (reserve army): " (drow (smap (wcap-u 1/5) (us)) 4 8))
+  (cat "  w_cap, beta = 1/2              : " (drow (smap (wcap-u 1/2) (us)) 4 8))
+  (cat "  strictly decreasing in u (both rows): " (tf (and (strictly-decreasing? (smap (wcap-u 1/5) (us))) (strictly-decreasing? (smap (wcap-u 1/2) (us))))))
+  (cat "  w_ap = g + beta(1 - g), g = 4/5, beta = 1/5 / 1/2 : " (cat (sh (w-ap 1/5 4/5)) (cat " / " (sh (w-ap 1/2 4/5)))))
+  (cat "  private firms viable at productivity 7/10 / 9/10 / 6/5 (g = 4/5): " (cat (tf (private-viable? 7/10 4/5)) (cat " " (cat (tf (private-viable? 9/10 4/5)) (cat " " (tf (private-viable? 6/5 4/5)))))))
+  (cat "  their profit per hour (beta = 1/2): " (cat (sh (private-profit 1/2 7/10 4/5)) (cat " " (cat (sh (private-profit 1/2 9/10 4/5)) (cat " " (sh (private-profit 1/2 6/5 4/5)))))))))
+rule strictly-decreasing?-0 : (strictly-decreasing? (list ?x)) => true
+rule strictly-decreasing?-n : (strictly-decreasing? (list ?x ?y ?zs...)) => (if (< ?y ?x) (strictly-decreasing? (list ?y ?zs...)) false)
+rule strictly-increasing?-0 : (strictly-increasing? (list ?x)) => true
+rule strictly-increasing?-n : (strictly-increasing? (list ?x ?y ?zs...)) => (if (> ?y ?x) (strictly-increasing? (list ?y ?zs...)) false)
+
+// ---- §5.2 the class-struggle game ----
+rule gcap : (gcap) => (cs-game cap (par))
+rule gap : (gap) => (cs-game ap (par))
+rule app-cell : (app (cell ?g) (prof ?w ?c)) => (cats (list "  " (padr (cat (str ?w) (cat "/" (str ?c))) 9) (dpad (payoff ?g 0 (prof ?w ?c)) 4 9) (dpad (payoff ?g 1 (prof ?w ?c)) 4 9)))
+rule table : (table !g) => (lines (smap (cell ?g) (profiles ?g)))
+rule core-mixed : (core-mixed) => (mixed2 (cs-core (par)) acc org con rep)
+rule mx-p : (mx-p (mixed2 ?p ?q)) => ?p
+rule mx-q : (mx-q (mixed2 ?p ?q)) => ?q
+rule s2 : (s2) => (lines (list
+  "§5.2 THE CLASS-STRUGGLE GAME (payoffs: worker wage net of organizing cost; capital's share net of costs)"
+  "  CAPITALISM          W        C"
+  (table (gcap))
+  (cat "  pure Nash equilibria: " (cat (sh (pure-nash (gcap))) (cat "    better-response dynamics terminate: " (tf (terminating? (gcap))))))
+  (cat "  best-response cycle from (acc,con), schedule W C W C: " (sh (run-schedule (gcap) (prof acc con) (list 0 1 0 1))))
+  (cat "  mixed equilibrium of the {acc,org}x{con,rep} core: Pr[acc] = " (cat (sh (mx-p (core-mixed))) (cat ", Pr[con] = " (sh (mx-q (core-mixed))))))
+  "  ACCOUNTABLE PLANNING W        C"
+  (table (gap))
+  (cat "  pure Nash equilibria: " (cat (sh (pure-nash (gap))) (cat "    better-response dynamics terminate: " (tf (terminating? (gap))))))))
+// robustness: 243 parameter settings
+rule grid : (grid) => (sconcat (smap g-bl (list 1/10 1/5 3/10)))
+rule app-g-bl : (app g-bl ?bl) => (sconcat (smap (g-bh ?bl) (list 2/5 1/2 3/5)))
+rule app-g-bh : (app (g-bh ?bl) ?bh) => (sconcat (smap (g-k ?bl ?bh) (list 1/40 1/20 1/10)))
+rule app-g-k : (app (g-k ?bl ?bh) ?k) => (sconcat (smap (g-rho ?bl ?bh ?k) (list 1/40 1/20 1/10)))
+rule app-g-rho : (app (g-rho ?bl ?bh ?k) ?rho) => (smap (g-u ?bl ?bh ?k ?rho) (list 1/10 1/5 2/5))
+rule app-g-u : (app (g-u ?bl ?bh ?k ?rho) ?u) => (set@ (set@ (set@ (set@ (set@ (par) bl ?bl) bh ?bh) k ?k) rho ?rho) u ?u)
+rule app-ap-unique : (app ap-unique ?p) => (ap-unique? ?p)
+rule ap-unique? : (ap-unique? !p) => (and (not (empty? ?ne)) (and (all-of c-concedes ?ne) (terminating? (cs-game ap ?p)))) where ?ne <- (pure-nash (cs-game ap ?p))
+rule app-c-concedes : (app c-concedes ?pr) => (= (prof-c ?pr) con)
+rule app-ap-two : (app ap-two ?p) => (= (length (pure-nash (cs-game ap ?p))) 2)
+rule prof-c : (prof-c (prof ?w ?c)) => ?c
+rule app-cap-char : (app cap-char ?p) => (cap-char? ?p)
+rule cap-char? : (cap-char? !p) => (equal? ?none ?pred) where ?none <- (empty? (pure-nash (cs-game cap ?p))), ?pred <- (cap-cycle-predicted? ?p)
+rule app-cap-cyclic : (app cap-cyclic ?p) => (empty? (pure-nash (cs-game cap ?p)))
+rule s2r : (s2r !gr) => (lines (list
+  "  robustness over 243 settings (bl, bh, k, rho, u):"
+  (cat "    accountable planning: a pure equilibrium exists, capital concedes in every one, dynamics terminate: " (cat (sh (scount ap-unique ?gr)) " of 243"))
+  (cat "      (two equilibria, (acc,con) and (org,con), where organizing is worth exactly its cost: " (cat (sh (scount ap-two ?gr)) " settings)"))
+  (cat "    capitalism: 'no pure equilibrium' agrees with the hand-derived condition: " (cat (sh (scount cap-char ?gr)) " of 243"))
+  (cat "    capitalism: settings with no pure equilibrium (perpetual struggle): " (sh (scount cap-cyclic ?gr)))))
+
+// ---- §5.3 Roemer ----
+rule ks1 : (ks1) => (list 0 0 0 1 2 9)
+rule ks2 : (ks2) => (list 0 1 1 2 3 5)
+rule s3 : (s3) => (lines (list
+  "§5.3 ROEMER: EXPLOITATION AS A PROPERTY RELATION (6 agents, job needs 4 units of capital, Y = 1, S = 2/5)"
+  (cat "  endowments " (cat (sh (ks1)) (cat ": exploited/exploiter/neutral coalitions = " (cat (sh (roemer-count (ks1) 1 2/5 4 exploited)) (cat "/" (cat (sh (roemer-count (ks1) 1 2/5 4 exploiter)) (cat "/" (sh (roemer-count (ks1) 1 2/5 4 neutral)))))))))
+  (cat "    withdrawal test = mean capital below/above the social mean, all 63 coalitions: " (tf (roemer-theorem? (ks1) 1 2/5 4)))
+  (cat "  endowments " (cat (sh (ks2)) (cat ": exploited/exploiter/neutral coalitions = " (cat (sh (roemer-count (ks2) 1 2/5 4 exploited)) (cat "/" (cat (sh (roemer-count (ks2) 1 2/5 4 exploiter)) (cat "/" (sh (roemer-count (ks2) 1 2/5 4 neutral)))))))))
+  (cat "    withdrawal test = mean capital below/above the social mean, all 63 coalitions: " (tf (roemer-theorem? (ks2) 1 2/5 4)))
+  (cat "  incomes " (cat (sh (smap (inc6 (ks1)) (srange 0 5))) (cat "  vs access to social means for all: " (sh (ap-income (ks1) 1 2/5 4)))))
+  (cat "  exploited coalitions when every worker has that access: " (sh (ap-exploited-count (ks1) 1 2/5 4)))))
+rule app-inc6 : (app (inc6 ?ks) ?i) => (roemer-income ?ks ?i 1 2/5 4)
+
+// ---- §5.4 collusion ----
+rule ks9 : (ks9) => (srange 1 9)
+rule app-ds : (app (ds ?p) ?k) => (delta-star ?k 1 1 ?p)
+rule s4 : (s4) => (lines (list
+  "§5.4 COLLUSION IN A DIVIDED GOVERNMENT (rent R = 1 shared by K secretaries; whistleblower bounty B = 1)"
+  (cat "  K                    : " (drow (ks9) 0 7))
+  (cat "  delta*(K), no audits : " (drow (smap (ds 0) (ks9)) 3 7))
+  (cat "  delta*(K), audit 1/10: " (drow (smap (ds 1/10) (ks9)) 3 7))
+  (cat "  delta*(K), audit 1/5 : " (drow (smap (ds 1/5) (ks9)) 3 7))
+  (cat "  smallest K with no sustainable collusion: audit 1/10 -> " (cat (sh (k-bar 1 1 1/10)) (cat ", audit 1/5 -> " (sh (k-bar 1 1 1/5)))))
+  "  a single ruling party (no bounty any member can claim): collusion sustainable at every delta"))
+
+// ---- §5.5 quadratic voting ----
+rule pop : (pop) => (list (voters 90 (list 2 6 1)) (voters 5 (list 1 1 8)) (voters 5 (list 9 1 1)))
+rule tally : (tally) => (qv-tally (pop) 36)
+// incomes per head from the two-class runs of Part II (M = 975): uncapped
+// (owners hold 97.3% after 20,000 events) and capped at 60 (owners 24.2%)
+rule earners-of : (earners-of ?os) => (list (earners 90 ?w (list 2 6 1)) (earners 5 ?o (list 1 1 8)) (earners 5 ?w (list 9 1 1)))
+  where ?w <- (q/ (* (- 1 ?os) 975) 95), ?o <- (q/ (* ?os 975) 5)
+rule mk-uncapped : (mk-uncapped) => (market-tally (earners-of 973/1000))
+rule mk-capped : (mk-capped) => (market-tally (earners-of 242/1000))
+rule plan-of : (plan-of !dir) => (jobs-by-sector (e3) (demand-for-hours (e3) ?dir 1000))
+rule s5 : (s5) => (lines (list
+  "§5.5 QUADRATIC VOTING AND DEMOCRATIC FINAL DEMAND (categories: investment, necessities, luxuries; B = 36 credits)"
+  (cat "  ballots: workers (2,6,1) -> " (cat (sh (qv-ballot (list 2 6 1) 36)) (cat "   owners (1,1,8) -> " (cat (sh (qv-ballot (list 1 1 8) 36)) (cat "   green minority (9,1,1) -> " (sh (qv-ballot (list 9 1 1) 36)))))))
+  (cat "  QV tally (90/5/5 voters): " (cat (sh (tally)) (cat "   shares " (drow (shares (tally)) 3 7))))
+  (cat "  one person one vote (plurality per voter): " (sh (plurality-tally (pop))))
+  (cat "  market demand shares, uncapped capitalism: " (drow (shares (mk-uncapped)) 3 7))
+  (cat "  market demand shares, asset cap 60       : " (drow (shares (mk-capped)) 3 7))
+  (cat "  jobs by sector for 1000 hours, QV demand        : " (drow (plan-of (tally)) 1 8))
+  (cat "  jobs by sector for 1000 hours, uncapped market  : " (drow (plan-of (mk-uncapped)) 1 8))
+  (cat "  the green minority (5% of voters) gets a share of the votes: " (decimal (q/ 30 (vsum (tally))) 3))))
+
+// ---- §5.6 prospect theory ----
+rule mod : (mod) => (lot (o 1 1))
+rule rad : (rad) => (lot (o 1/4 6) (o 3/4 -2))
+rule ds : (ds) => (smap quarter (srange -32 12))
+rule app-quarter : (app quarter ?k) => (q/ ?k 4)
+rule app-choice-at : (app choice-at ?d) => (pt-choice (mod) (rad) ?d 10 9/4)
+rule first-moderate : (first-moderate !ds) => (fm-go ?ds)
+rule fm-go : (fm-go (list ?d ?ds...)) => (if (= (pt-choice (mod) (rad) ?d 10 9/4) moderate) ?d (fm-go (list ?ds...)))
+// strata from the fascism post: poorest rising (+1), lower-middle falling
+// hard (-6), middle falling (-3), upper-middle stable (0), top rising (+2);
+// weights 20/30/25/20/5. Variant: everyone measured against an aspiration 3
+// units above the current standard ("the promised land over the horizon").
+rule strata : (strata ?shift) => (list (stratum 20 (+ 1 ?shift)) (stratum 30 (+ -6 ?shift)) (stratum 25 (+ -3 ?shift)) (stratum 20 (+ 0 ?shift)) (stratum 5 (+ 2 ?shift)))
+rule cold-war : (cold-war) => (list (stratum 20 2) (stratum 30 1) (stratum 25 1) (stratum 20 1) (stratum 5 2))
+rule s6 : (s6) => (lines (list
+  "§5.6 PROSPECT THEORY AND THE RADICAL COALITION (K = 10, loss aversion 9/4)"
+  (cat "  moderate: sure +1;  radical: +6 w.p. 1/4, -2 w.p. 3/4  (expected values " (cat (sh (pt-ev (mod))) (cat " and " (cat (sh (pt-ev (rad))) ")"))))
+  (cat "  choices from D = -8 to +3 in steps of 1/4 are single-crossing: " (tf (single-crossing? (smap choice-at (ds)))))
+  (cat "  on the quarter-unit grid the radical gamble is chosen exactly when D <= " (cat (sh (- (first-moderate (ds)) 1/4)) (cat "  (first moderate at D = " (cat (sh (first-moderate (ds))) "); exact threshold -5.3994, me-extremes X4"))))
+  (cat "  radical share, strata of the post (falling -6/-3, rising +1/+2):  " (decimal (radical-share (mod) (rad) (strata 0) 10 9/4) 3))
+  (cat "  ... same strata measured against an aspiration 3 above:          " (decimal (radical-share (mod) (rad) (strata -3) 10 9/4) 3))
+  (cat "  ... Cold-War pattern (every stratum rising):                     " (decimal (radical-share (mod) (rad) (cold-war) 10 9/4) 3))))
+
+// ---- §5.7 patronage ----
+rule pp1 : (pp1) => (rec (br 2) (bl 2) (rho 4) (a 3) (m 1) (t 12))
+rule pp2 : (pp2) => (rec (br 3) (bl 1) (rho 4) (a 3) (m 1) (t 12))
+rule app-pat-row : (app (pat-row ?p) ?x) => (drow (smap (pat-col ?p ?x) (list 0 1/4 1/2 3/4 1)) 3 7)
+rule app-pat-col : (app (pat-col ?p ?x) ?y) => (pat-run ?x ?y ?p)
+rule s7 : (s7) => (lines (list
+  "§5.7 PATRONAGE COMPETITION (R's membership share after 12 periods; rows R's job share, columns L's)"
+  "  equal base funding 2:2                   capital-funded R, 3:1"
+  (lines (smap (pat-pair) (list 0 1/4 1/2 3/4 1)))
+  (cat "  pure Nash equilibria (3:1): " (cat (sh (pure-nash (pat-game (pp2)))) (cat "   'all jobs' weakly dominant for R / L: " (cat (tf (weakly-dominant? (pat-game (pp2)) 0 1)) (cat " / " (tf (weakly-dominant? (pat-game (pp2)) 1 1)))))))
+  (cat "  R's share if L creates no jobs while R does (3:1): " (cat (decimal (pat-run 1 0 (pp2)) 3) (cat "   if both do: " (decimal (pat-run 1 1 (pp2)) 3))))))
+rule app-pat-pair : (app (pat-pair) ?x) => (cat (app (pat-row (pp1)) ?x) (cat "   " (app (pat-row (pp2)) ?x)))
+
+main = 0
+let $grid = (grid) with eval
+display (s1) with eval
+display (s2) with eval
+display (s2r $grid) with eval
+display (s3) with eval
+display (s4) with eval
+display (s5) with eval
+display (s6) with eval
+display (s7) with eval
+// ---- theorems ----
+assert (strictly-decreasing? (smap (wcap-u 1/5) (us))) with eval
+assert (and (= (w-cap 1/5 0 2/5) 1) (= (w-cap 1/5 1 2/5) 13/25)) with eval
+assert (and (>= (w-ap 1/5 4/5) 4/5) (not (private-viable? 7/10 4/5))) with eval
+assert (empty? (pure-nash (gcap))) with eval
+assert (not (terminating? (gcap))) with eval
+assert (same? (pure-nash (gap)) (list (prof org con))) with eval
+assert (terminating? (gap)) with eval
+assert (= (scount ap-unique $grid) 243) with eval
+assert (= (scount cap-char $grid) 243) with eval
+assert (= (scount cap-cyclic $grid) 187) with eval
+assert (and (roemer-theorem? (ks1) 1 2/5 4) (roemer-theorem? (ks2) 1 2/5 4)) with eval
+assert (= (ap-exploited-count (ks1) 1 2/5 4) 0) with eval
+assert (strictly-increasing? (smap (ds 0) (ks9))) with eval
+assert (and (= (k-bar 1 1 1/10) 10) (= (k-bar 1 1 1/5) 5)) with eval
+assert (same? (tally) (list 300 450 120)) with eval
+assert (> (nth 2 (shares (mk-uncapped))) 3/4) with eval
+assert (single-crossing? (smap choice-at (ds))) with eval
+assert (= (radical-share (mod) (rad) (cold-war) 10 9/4) 0) with eval
+assert (same? (pure-nash (pat-game (pp2))) (list (prof 1 1))) with eval
+assert (> (pat-run 1 0 (pp2)) (pat-run 1 1 (pp2))) with eval

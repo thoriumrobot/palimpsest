@@ -1,0 +1,35 @@
+#lang palimpsest
+#fuel 10000000
+// A FEEDBACK LOOP AS A REWRITE RULE (MATERIALIST-ECONOMY.md §2; the walkthrough of MATERIALIST-ECONOMY-PAPER.md §3.3)
+// Capital K employs E = K/3 of N = 100 workers; unemployment u = 1 - E/N;
+// the wage share is the Nash-bargaining fixed point against the reserve army,
+// w = (b + (1-b) u s)/(b + u(1-b)) with b = 1/5, s = 2/5; profit (1-w)E is
+// saved at 3/5 and capital depreciates by 3% a period:
+//   K -> E -> u -> w -> profit -> K        (the profit-squeeze loop, sign -)
+// Run with --trace 30 to watch one period reduce.
+import "../lib/prelude.pal"
+
+rule wage : (wage !u) => (q/ (+ 1/5 (* 4/5 (* ?u 2/5))) (+ 1/5 (* ?u 4/5)))
+rule step : (step (st ?t ?k)) => (st ?t1 (round-to ?k2 1000))
+  where ?t1 <- (+ ?t 1), ?e <- (min 100 (q/ ?k 3)), ?u <- (- 1 (q/ ?e 100)), ?w <- (wage ?u),
+        ?k2 <- (+ (* 97/100 ?k) (* 3/5 (* (- 1 ?w) ?e)))
+// strict: the state and the counter are reduced before the rule matches
+rule run-0 : (run !s !n) => ?s where (<= ?n 0)
+rule run-n : (run !s !n) => (run (step ?s) (- ?n 1)) where (> ?n 0)
+// lazy (?): normal order postpones the arguments, so the state grows into
+// (step (step ... )) and the counter into (- (- ... 1) 1), re-evaluated by
+// every guard -- quadratic work for a linear loop
+rule lazy-0 : (run-lazy ?s 0) => ?s
+rule lazy-n : (run-lazy ?s ?n) => (run-lazy (step ?s) (- ?n 1)) where (> ?n 0)
+// the loop's rest point: saving out of profit replaces depreciation exactly,
+// (3/5)(1-w)(K/3) = (3/100) K  <=>  1 - w = 3/20  <=>  w = 17/20  <=>  u = 1/12,
+// so K* = 3 N (1 - u) = 275
+rule rest-u : (rest-u) => 1/12
+
+main = (st 0 270)
+show (step (st 0 270)) with eval
+show (run (st 0 270) 200) with eval
+show (run-lazy (st 0 270) 3) with eval
+assert (= (wage (rest-u)) 17/20) with eval
+assert (< (abs (- (wage (- 1 (q/ (q/ (st-k (run (st 0 270) 200)) 3) 100))) 17/20)) 1/1000) with eval
+rule st-k : (st-k (st ?t ?k)) => ?k

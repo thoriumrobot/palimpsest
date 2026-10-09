@@ -1,0 +1,117 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART IV(b) -- THE THREE REGIMES: TRAJECTORIES AND SENSITIVITY (MATERIALIST-ECONOMY.md §6)
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+rule rows-of : (rows-of !reg !p) => (traj-rows (pe-run (pe-init ?reg) ?p 60))
+rule stress : (stress) => (set@ (set@ (pe-par) scale 30) asp 2/5)
+// ---- predicates over a list of rows ----
+rule incr-0 : (incr? (list ?x)) => true
+rule incr-n : (incr? (list ?x ?y ?zs...)) => (if (> ?y ?x) (incr? (list ?y ?zs...)) false)
+rule decr-0 : (decr? (list ?x)) => true
+rule decr-n : (decr? (list ?x ?y ?zs...)) => (if (< ?y ?x) (decr? (list ?y ?zs...)) false)
+rule app-t-lt : (app (t-lt ?k) ?r) => (< (row-t ?r) ?k)
+rule app-t-ge : (app (t-ge ?k) ?r) => (>= (row-t ?r) ?k)
+rule app-rad-zero : (app rad-zero ?r) => (= (row-rad ?r) 0)
+rule app-u-zero : (app u-zero ?r) => (= (row-u ?r) 0)
+rule app-rad-is-u : (app rad-is-u ?r) => (= (row-rad ?r) (row-u ?r))
+rule app-phi-pos : (app phi-pos ?r) => (> (row-phi ?r) 0)
+rule app-no-crisis : (app no-crisis ?r) => (= (row-cr ?r) 0)
+rule app-is-radgov : (app is-radgov ?r) => (= (row-gov ?r) 1)
+rule app-r-above-min : (app r-above-min ?r) => (>= (row-r ?r) 1/25)
+rule at-t : (at-t !rows !k) => (nth ?k ?rows)
+rule radgov-periods : (radgov-periods !rows) => (scount is-radgov ?rows)
+rule first-radgov : (first-radgov !rows) => (fr-go ?rows)
+rule fr-go-0 : (fr-go (list)) => none
+rule fr-go-n : (fr-go (list ?r ?rs...)) => (if (= (row-gov ?r) 1) (row-t ?r) (fr-go (list ?rs...)))
+rule min-phi : (min-phi !rows) => (lmin (smap row-phi ?rows))
+// ---- the planning loop inside the AP period: conservation and convergence ----
+// at period t: labour required lambda_t . d_t equals living labour l_t . x_t of
+// the exact plan, and the planner's 30 contractive passes leave a residual
+rule plan-check : (plan-check !t) => (pc (= (net-value ?e ?d) (living-labour ?e ?d)) (iter-error ?e ?d 30))
+  where ?a <- (expt (+ 1 (@ (pe-par) gam)) ?t), ?e <- (pe-et ?a), ?d <- (pe-dt (pe-par) (* 4/5 (expt 51/50 ?t)))
+rule app-pc-ok : (app pc-ok ?t) => (pc-good (plan-check ?t))
+rule pc-good : (pc-good (pc ?cons ?err)) => (and ?cons (< ?err 1/1000))
+rule app-pc-err : (app pc-err ?t) => (pc-e (plan-check ?t))
+rule pc-e : (pc-e (pc ?cons ?err)) => ?err
+
+// ---- the sensitivity grid: loss sensitivity x inflation shock x aspiration ----
+rule grid : (grid) => (sconcat (smap gsc (list 20 30 40)))
+rule app-gsc : (app gsc ?sc) => (sconcat (smap (gsh ?sc) (list 1/20 1/10 1/5)))
+rule app-gsh : (app (gsh ?sc) ?sh) => (smap (gasp ?sc ?sh) (list 1/10 1/5 2/5))
+rule app-gasp : (app (gasp ?sc ?sh) ?asp) => (gp ?sc ?sh ?asp)
+rule gp-par : (gp-par (gp ?sc ?sh ?asp)) => (set@ (set@ (set@ (pe-par) scale ?sc) shockpi ?sh) asp ?asp)
+// per setting and regime: (res RADGOV-PERIODS FIRST MIN-PHI MIN-PHI-FROM-1 MAX-RAD-FROM-1 MAX-U)
+rule app-grid-row : (app grid-row ?g) => (grow ?g (reg-res cap ?p) (reg-res cold ?p) (reg-res ap ?p)) where ?p <- (gp-par ?g)
+rule reg-res : (reg-res !reg !p) => (res (radgov-periods ?rows) (first-radgov ?rows) (min-phi ?rows) (min-phi (drop 1 ?rows)) (lmax (smap row-rad (drop 1 ?rows))) (lmax (smap row-u ?rows)))
+  where ?rows <- (rows-of ?reg ?p)
+rule res-radp : (res-radp (res ?a ?b ?c ?d ?e ?f)) => ?a
+rule res-first : (res-first (res ?a ?b ?c ?d ?e ?f)) => ?b
+rule res-minphi : (res-minphi (res ?a ?b ?c ?d ?e ?f)) => ?c
+rule res-minphi1 : (res-minphi1 (res ?a ?b ?c ?d ?e ?f)) => ?d
+rule res-rad1 : (res-rad1 (res ?a ?b ?c ?d ?e ?f)) => ?e
+rule res-u : (res-u (res ?a ?b ?c ?d ?e ?f)) => ?f
+rule app-grow-line : (app grow-line (grow (gp ?sc ?sh ?asp) ?c ?w ?a)) => (cats (list (padl (str ?sc) 5) (padl (str ?sh) 6) (padl (str ?asp) 6) "   " (res-cell ?c) (res-cell ?w) (res-cell ?a)))
+rule res-cell : (res-cell (res ?a ?b ?c ?d ?e ?f)) => (cats (list (padl (str ?a) 4) (padl (str ?b) 6) (dpad ?c 3 8) "  "))
+rule app-ap-robust : (app ap-robust (grow ?g ?c ?w ?a)) => (and (= (res-u ?a) 0) (and (= (res-rad1 ?a) 0) (> (res-minphi1 ?a) 0)))
+rule app-cold-not-worse : (app cold-not-worse (grow ?g ?c ?w ?a)) => (<= (res-radp ?w) (res-radp ?c))
+rule app-cap-radical : (app cap-radical (grow ?g ?c ?w ?a)) => (> (res-radp ?c) 0)
+rule app-cold-radical-early : (app cold-radical-early (grow ?g ?c ?w ?a)) => (cre (res-first ?w))
+rule cre-none : (cre none) => false
+rule cre : (cre ?t) => (< ?t 30) where (number? ?t)
+rule app-cap-inversion : (app cap-inversion (grow ?g ?c ?w ?a)) => (<= (res-minphi ?c) 0)
+
+// ---- report ----
+rule s1 : (s1 !c !w !a) => (lines (list
+  "§6.1 BASELINE (60 periods; every 5th shown)"
+  "CAPITALISM" (pe-hist-view ?c 5)
+  "CAPITALISM UNDER THE COLD WAR (ends at period 30)" (pe-hist-view ?w 5)
+  "ACCOUNTABLE PLANNING" (pe-hist-view ?a 5)
+  (cat "  capitalism: unemployment rises every period, " (cat (dpad (row-u (at-t ?c 0)) 3 5) (cat " -> " (cat (dpad (row-u (at-t ?c 59)) 3 5) (cat "; wage share falls every period: " (tf (and (incr? (smap row-u ?c)) (decr? (smap row-w ?c)))))))))
+  (cat "  capitalism: profit rate >= r_min (no crisis) in every period: " (tf (sall r-above-min ?c)))
+  (cat "  capitalism: the inflation shock cuts the living standard (t=40 < t=39): " (tf (< (row-ce (at-t ?c 40)) (row-ce (at-t ?c 39)))))
+  (cat "  Cold War: radical vote 0 while it lasts; equal to unemployment after: " (cat (tf (sall rad-zero (sfilter (t-lt 30) ?w))) (cat " " (tf (sall rad-is-u (sfilter (t-ge 31) ?w))))))
+  (cat "  planning: u = 0, radical vote 0, living standard rising every period: " (tf (and (sall u-zero ?a) (and (sall rad-zero ?a) (incr? (smap row-ce ?a))))))
+  (cat "  planning: lambda.d = l.x exactly and residual < 1/1000 after 30 passes, every period: " (tf (sall pc-ok (srange 0 59))))
+  (cat "  ... largest residual: " (decimal (lmax (smap pc-err (srange 0 59))) 8))))
+rule s2 : (s2 !c !w !a) => (lines (list
+  "§6.2 STRESS SCENARIO: loss sensitivity 30, aspiration messaging 2/5 (every 3rd period to 45)"
+  "CAPITALISM" (pe-hist-view (take 46 ?c) 3)
+  "COLD WAR, ENDS AT 30" (pe-hist-view (take 46 ?w) 3)
+  "ACCOUNTABLE PLANNING" (pe-hist-view (take 46 ?a) 3)
+  (cat "  radical government in power (periods of 60): capitalism " (cat (sh (radgov-periods ?c)) (cat " from t=" (cat (sh (first-radgov ?c)) (cat ";  Cold War " (cat (sh (radgov-periods ?w)) (cat " from t=" (cat (sh (first-radgov ?w)) (cat ";  planning " (sh (radgov-periods ?a)))))))))))))
+rule s3 : (s3 !gr) => (lines (list
+  "§6.3 SENSITIVITY: 27 settings (loss scale x inflation shock x aspiration); per regime: radical-gov periods, first, min Phi"
+  "  scale  shock   asp     cap: n  first   minPhi    cold: n first   minPhi      ap: n first   minPhi"
+  (lines (smap grow-line ?gr))
+  (cat "  planning in all 27: u = 0, radical vote 0 from period 1, Phi > 0 from period 1: " (tf (sall ap-robust ?gr)))
+  (cat "  Cold War never has more radical-government periods than capitalism: " (tf (sall cold-not-worse ?gr)))
+  (cat "  settings with a radical government: capitalism " (cat (sh (scount cap-radical ?gr)) (cat " of 27;  Cold War before its end: " (sh (scount cold-radical-early ?gr)))))
+  (cat "  settings in which capitalism reaches Phi <= 0 (phase inversion): " (sh (scount cap-inversion ?gr)))))
+
+main = 0
+let $c = (rows-of cap (pe-par)) with eval
+let $w = (rows-of cold (pe-par)) with eval
+let $a = (rows-of ap (pe-par)) with eval
+let $sc = (rows-of cap (stress)) with eval
+let $sw = (rows-of cold (stress)) with eval
+let $sa = (rows-of ap (stress)) with eval
+let $gr = (smap grid-row (grid)) with eval
+display (s1 $c $w $a) with eval
+display (s2 $sc $sw $sa) with eval
+display (s3 $gr) with eval
+assert (and (incr? (smap row-u $c)) (> (row-u (at-t $c 59)) 1/4)) with eval
+assert (decr? (smap row-w $c)) with eval
+assert (sall r-above-min $c) with eval
+assert (< (row-ce (at-t $c 40)) (row-ce (at-t $c 39))) with eval
+assert (and (sall rad-zero (sfilter (t-lt 30) $w)) (sall rad-is-u (sfilter (t-ge 31) $w))) with eval
+assert (and (sall u-zero $a) (and (sall rad-zero $a) (incr? (smap row-ce $a)))) with eval
+assert (sall phi-pos $a) with eval
+assert (sall pc-ok (srange 0 59)) with eval
+assert (and (= (first-radgov $sc) 2) (= (first-radgov $sw) 31)) with eval
+assert (= (radgov-periods $sa) 0) with eval
+assert (sall ap-robust $gr) with eval
+assert (sall cold-not-worse $gr) with eval
+assert (and (= (scount cap-radical $gr) 15) (= (scount cold-radical-early $gr) 3)) with eval

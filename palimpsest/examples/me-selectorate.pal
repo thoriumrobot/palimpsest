@@ -1,0 +1,92 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VI(b) -- POLITICAL SURVIVAL: THE SELECTORATE MODEL (MATERIALIST-ECONOMY.md §9)
+// (Bueno de Mesquita, Smith, Siverson and Morrow, The Logic of Political
+// Survival, 2003, ch. 3). (1) the book's two limiting cases reproduced;
+// (2) the Markov-perfect equilibrium across coalition sizes W for a universal
+// selectorate (S = N) and a narrow one (S = 2000); (3) the book's comparative
+// statics checked on the computed equilibria; (4) the documents' polities as
+// points (W, S) -- the private-goods share is the share of the budget spent
+// on patronage.
+import "../lib/selectorate.pal"
+import "../lib/report.pal"
+
+rule nn : (nn) => 100000
+rule pp : (pp) => 10000
+rule dd : (dd) => 9/10
+rule ws : (ws) => (list 1 10 100 500 1000 5000 10000 50000)
+rule app-eq-at : (app (eq-at ?s) ?w) => (sel-eq (nn) ?s ?w (pp) (dd))
+rule grid-s : (grid-s !s) => (smap (eq-at ?s) (sfilter (w-ok ?s) (ws)))
+rule app-w-ok : (app (w-ok ?s) ?w) => (<= ?w (q/ (+ ?s 1) 2))
+
+// ---- comparative statics over a list of equilibria ordered by W ------------
+rule decr-by : (decr-by ?f (list ?x)) => true
+rule decr-by-n : (decr-by ?f (list ?x ?y ?zs...)) => (if (> (app ?f ?x) (app ?f ?y)) (decr-by ?f (list ?y ?zs...)) false)
+rule incr-by : (incr-by ?f (list ?x)) => true
+rule incr-by-n : (incr-by ?f (list ?x ?y ?zs...)) => (if (< (app ?f ?x) (app ?f ?y)) (incr-by ?f (list ?y ?zs...)) false)
+rule app-f-rc : (app f-rc ?e) => (seq-rc ?e)
+rule app-f-rl : (app f-rl ?e) => (seq-rl ?e)
+rule app-f-g : (app f-g ?e) => (seq-g ?e)
+rule app-f-x : (app f-x ?e) => (seq-x ?e)
+rule app-f-priv : (app f-priv ?e) => (seq-priv ?e)
+rule app-f-sur : (app f-sur ?e) => (seq-sur ?e)
+rule app-f-wout : (app f-wout ?e) => (seq-wout ?e)
+rule app-f-resid : (app f-resid ?e) => (abs (seq-resid ?e))
+rule statics : (statics !es) => (st (decr-by f-rc ?es) (decr-by f-rl ?es) (decr-by f-g ?es) (incr-by f-x ?es) (decr-by f-priv ?es) (decr-by f-sur ?es) (incr-by f-wout ?es))
+rule st-all-but-g : (st-all-but-g (st ?a ?b ?c ?d ?e ?f ?g)) => (and ?a (and ?b (and ?d (and ?e (and ?f ?g)))))
+rule st-all : (st-all (st ?a ?b ?c ?d ?e ?f ?g)) => (and ?a (and ?b (and ?c (and ?d (and ?e (and ?f ?g))))))
+// the loyalty norm: same W, smaller W/S (larger S) => more for the leader, less spent
+rule app-loyalty : (app (loyalty ?big ?small) ?w) => (and (> (seq-sur (sel-eq (nn) ?big ?w (pp) (dd))) (seq-sur (sel-eq (nn) ?small ?w (pp) (dd)))) (< (seq-m (sel-eq (nn) ?big ?w (pp) (dd))) (seq-m (sel-eq (nn) ?small ?w (pp) (dd)))))
+
+// ---- report -------------------------------------------------------------------
+rule app-eq-line : (app eq-line ?e) => (cats (list (padl (sh (seq-w ?e)) 7) (dpad (q/ (seq-w ?e) (seq-s ?e)) 4 8) (dpad (seq-rc ?e) 4 7) (dpad (seq-rl ?e) 4 7) (dpad (seq-m ?e) 1 10) (dpad (seq-g ?e) 4 10) (dpad (seq-x ?e) 4 8) (dpad (seq-priv ?e) 3 7) (dpad (seq-sur ?e) 1 10) (dpad (seq-win ?e) 3 7) (dpad (seq-wout ?e) 3 7)))
+rule head : (head) => "      W     W/S     rC     rL         M         g       x   priv   surplus    Vin   Vout"
+rule s1 : (s1) => (lines (list
+  "§S1 THE BOOK'S LIMITING CASES (N = 100,000, p = 10,000; appendix to ch. 3)"
+  (cat "  revenue-maximizing tax 2 - sqrt 2 = 0.58579 (book):   " (decimal (sel-revmax) 5))
+  (cat "  utilitarian (W = N): tax, x, g, welfare =   " (util-line (sel-utilitarian (nn) (pp))))
+  "  book:                                      0.508412   1.52327   0.01523   2.57893"))
+rule util-line : (util-line (util ?r ?x ?g ?v)) => (cats (list (decimal ?r 6) "   " (decimal ?x 5) "   " (decimal ?g 5) "   " (decimal ?v 5)))
+rule s2 : (s2 !ea !eb) => (lines (list
+  "§S2 THE MARKOV-PERFECT EQUILIBRIUM (N = 100,000, p = 10,000, discount 9/10)"
+  "  universal selectorate S = N" (head) (lines (smap eq-line ?ea))
+  "  narrow selectorate S = 2000" (head) (lines (smap eq-line ?eb))
+  (cat "  largest residual of the steady-state condition: " (decimal (lmax (smap f-resid (append ?ea ?eb))) 9))))
+rule s3 : (s3 !ea !eb) => (lines (list
+  "§S3 COMPARATIVE STATICS (book, ch. 3) ON THE COMPUTED EQUILIBRIA, as W rises:"
+  (cat "  S = N:    " (st-line (statics ?ea)))
+  (cat "  S = 2000: " (st-line (statics ?eb)))
+  (cat "  loyalty norm, W in {10, 100, 1000}: S = N gives the leader more and spends less than S = 2000: " (tf (sall (loyalty (nn) 2000) (list 10 100 1000))))
+  (cat "  S = 2000: private goods per member RISE from W = 500 to W = 1000 (W/S -> 1/2 weakens loyalty): " (tf (> (seq-g (nth 4 ?eb)) (seq-g (nth 3 ?eb)))))
+  "  private share of the budget = p/(p+W) exactly (closed form, see the library header)"))
+rule st-line : (st-line (st ?a ?b ?c ?d ?e ?f ?g)) => (cats (list "challenger tax falls " (tf ?a) "; incumbent tax falls " (tf ?b) "; g falls " (tf ?c) "; x rises " (tf ?d) "; private share falls " (tf ?e) "; leader's surplus falls " (tf ?f) "; outsider welfare rises " (tf ?g)))
+// the documents' polities, as points (W, S): an interpretation, not a measurement
+rule polities : (polities) => (list
+  (pty "party-state, rigged elections (Djilas's new class)" 100000 100)
+  (pty "junta or court" 2000 100)
+  (pty "patronage capitalism: policy bought by a donor coalition" 100000 1000)
+  (pty "majoritarian democracy / accountable planning" 100000 50000))
+rule app-pty-line : (app pty-line (pty ?nm ?s ?w)) => (cats (list "  " (padr ?nm 58) (dpad (seq-priv ?e) 3 7) (dpad (q/ (seq-sur ?e) (sel-rev (nn) (seq-rl ?e))) 3 7) (dpad (seq-rl ?e) 3 7) (dpad (seq-wout ?e) 3 7)))
+  where ?e <- (sel-eq (nn) ?s ?w (pp) (dd))
+rule s4 : (s4) => (lines (list
+  "§S4 THE DOCUMENTS' POLITIES AS POINTS (W, S)"
+  "  polity                                                     priv  kept    tax  Vout"
+  (lines (smap pty-line (polities)))
+  "  priv = patronage share of spending; kept = leader's surplus / revenue; Vout = an outsider's utility"))
+
+main = 0
+let $ea = (grid-s 100000) with eval
+let $eb = (grid-s 2000) with eval
+display (s1) with eval
+display (s2 $ea $eb) with eval
+display (s3 $ea $eb) with eval
+display (s4) with eval
+assert (< (abs (- (sel-revmax) 1757359313/3000000000)) 1/100000000) with eval
+assert (< (abs (- (util-v (sel-utilitarian (nn) (pp))) 257893/100000)) 1/100000) with eval
+assert (st-all (statics $ea)) with eval
+assert (st-all-but-g (statics $eb)) with eval
+assert (> (seq-g (nth 4 $eb)) (seq-g (nth 3 $eb))) with eval
+assert (sall (loyalty (nn) 2000) (list 10 100 1000)) with eval
+assert (< (lmax (smap f-resid (append $ea $eb))) 1/1000000) with eval
+rule util-v : (util-v (util ?r ?x ?g ?v)) => ?v

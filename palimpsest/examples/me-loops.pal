@@ -1,0 +1,72 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART IV(c) -- THE FEEDBACK LOOPS OF THE INTEGRATED ECONOMY (MATERIALIST-ECONOMY.md §7)
+// (1) every elementary cycle of capitalism's causal-loop diagram, with its
+//     polarity; (2) every edge sign checked on the equation chain itself, by
+//     partial finite differences at ten base states; (3) the same probes at
+//     five accountable-planning states: which edges -- hence which loops --
+//     the regime removes.
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+rule at : (at !reg !p !t) => (traj-final (pe-run (pe-init ?reg) ?p ?t))
+rule stress : (stress) => (set@ (set@ (pe-par) scale 30) asp 2/5)
+// capitalism-mode bases: the baseline at periods 0/15/30/45, the Cold War at
+// 10, the stress scenario at 0/1/10 (a radical government holds power at 10),
+// a profit SQUEEZE (capital-intensive, r below r_min, no flight) and
+// near-FULL employment (u = 5%, where the class game's equilibrium is flight)
+rule cap-bases : (cap-bases) => (list
+  (base cap0 (at cap (pe-par) 0) (pe-par)) (base cap15 (at cap (pe-par) 15) (pe-par))
+  (base cap30 (at cap (pe-par) 30) (pe-par)) (base cap45 (at cap (pe-par) 45) (pe-par))
+  (base cold10 (at cold (pe-par) 10) (pe-par))
+  (base st0 (at cap (stress) 0) (stress)) (base st1 (at cap (stress) 1) (stress)) (base st10 (at cap (stress) 10) (stress))
+  (base squeeze (set@ (set@ (pe-init cap) kap 9/2) K 396) (pe-par))
+  (base full (set@ (pe-init cap) K 285) (pe-par)))
+rule ap-bases : (ap-bases) => (list
+  (base ap0 (at ap (pe-par) 0) (pe-par)) (base ap15 (at ap (pe-par) 15) (pe-par))
+  (base ap30 (at ap (pe-par) 30) (pe-par)) (base ap45 (at ap (pe-par) 45) (pe-par))
+  (base apcap (set@ (at ap (pe-par) 15) K 60) (pe-par)))
+rule app-verify-cap : (app (verify-on ?bs) ?e) => (pe-verify-edge ?e ?bs)
+rule app-ev-line : (app ev-line (everdict ?a ?b ?sg ?ds ?v)) => (cats (list (padl (str ?a) 4) " -> " (padr (str ?b) 4) (padl (str ?sg) 4) (padl (str ?v) 7) (drow ?ds 3 8)))
+rule app-ev-ok : (app ev-ok ?ev) => (or (= (ev-verdict ?ev) strict) (= (ev-verdict ?ev) weak))
+rule app-ev-fail : (app ev-fail ?ev) => (= (ev-verdict ?ev) FAIL)
+rule app-ev-name : (app ev-name (everdict ?a ?b ?sg ?ds ?v)) => (cat (str ?a) (cat "->" (str ?b)))
+rule app-present-ap : (app (present-on ?bs) ?e) => (pe-edge-present? ?e ?bs)
+rule app-edge-name : (app edge-name (edge ?a ?b ?sg ?why)) => (cat (str ?a) (cat "->" (str ?b)))
+rule ap-diagram : (ap-diagram !alive) => (cld-restrict (pe-cld) ?alive)
+
+rule s1 : (s1 !ls) => (lines (list
+  "§7.1 CAPITALISM'S CAUSAL-LOOP DIAGRAM: 15 variables, 24 signed edges (lib/polecon.pal)"
+  (cat "  elementary cycles: " (cat (sh (length ?ls)) (cat "   reinforcing " (cat (sh (cld-count R ?ls)) (cat "   balancing " (sh (cld-count B ?ls)))))))
+  (cld-loops-view ?ls)))
+rule s2 : (s2 !evs) => (lines (list
+  "§7.2 EVERY EDGE CHECKED ON THE EQUATION CHAIN (partial finite differences)"
+  "                       deltas at: cap0   cap15   cap30   cap45  cold10     st0     st1    st10 squeeze    full"
+  (lines (smap ev-line ?evs))
+  (cat "  confirmed (strict or weak): " (cat (sh (scount ev-ok ?evs)) (cat " of " (cat (sh (length ?evs)) (cat ";  failing: " (sh (smap ev-name (sfilter ev-fail ?evs))))))))))
+rule s3 : (s3 !alive !als) => (lines (list
+  "§7.3 THE SAME PROBES AT FIVE ACCOUNTABLE-PLANNING STATES"
+  (cat "  edges still present: " (sh (smap edge-name ?alive)))
+  (cat "  edges removed by the regime: " (sh (smap edge-name (sfilter (absent-in ?alive) (cld-edges (pe-cld))))))
+  (cat "  elementary cycles left: " (cat (sh (length ?als)) (cat "   reinforcing " (cat (sh (cld-count R ?als)) (cat "   balancing " (sh (cld-count B ?als)))))))
+  (cld-loops-view ?als)))
+rule app-absent-in : (app (absent-in ?alive) ?e) => (not (member-edge ?e ?alive))
+rule member-edge-0 : (member-edge ?e (list)) => false
+rule member-edge-n : (member-edge (edge ?a ?b ?s ?w) (list (edge ?c ?d ?s2 ?w2) ?es...)) => (if (and (= ?a ?c) (= ?b ?d)) true (member-edge (edge ?a ?b ?s ?w) (list ?es...)))
+
+main = 0
+let $ls = (cld-classify (pe-cld)) with eval
+let $cb = (cap-bases) with eval
+let $ab = (ap-bases) with eval
+let $evs = (smap (verify-on $cb) (cld-edges (pe-cld))) with eval
+let $alive = (sfilter (present-on $ab) (cld-edges (pe-cld))) with eval
+let $als = (cld-classify (ap-diagram $alive)) with eval
+display (s1 $ls) with eval
+display (s2 $evs) with eval
+display (s3 $alive $als) with eval
+assert (and (= (length $ls) 14) (and (= (cld-count R $ls) 5) (= (cld-count B $ls) 9))) with eval
+assert (= (scount ev-ok $evs) 23) with eval
+assert (same? (smap ev-name (sfilter ev-fail $evs)) (list "U->B")) with eval
+assert (and (= (length $als) 1) (= (cld-count R $als) 1)) with eval
+assert (= (length $alive) 12) with eval

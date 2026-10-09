@@ -10,7 +10,6 @@
 //! sequence variables back into their surrounding list.
 
 use crate::term::Term;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Binding {
@@ -18,7 +17,7 @@ pub enum Binding {
     Seq(Vec<Term>),
 }
 
-pub type Bindings = HashMap<String, Binding>;
+pub type Bindings = crate::fxhash::FxHashMap<String, Binding>;
 
 /// Try to match `pat` against `subj`, extending `b`. Returns the (possibly
 /// extended) bindings on success, or `None` on failure. Purely functional:
@@ -50,6 +49,7 @@ pub fn match_term(pat: &Term, subj: &Term, b: Bindings) -> Option<Bindings> {
         (Term::List(ps), Term::List(ss)) => match_seq(ps, ss, b),
         (Term::Sym(a), Term::Sym(c)) if a == c => Some(b),
         (Term::Int(a), Term::Int(c)) if a == c => Some(b),
+        (Term::Num(a), Term::Num(c)) if a == c => Some(b),
         (Term::Str(a), Term::Str(c)) if a == c => Some(b),
         _ => None,
     }
@@ -111,7 +111,7 @@ pub fn match_where(
     subj: &Term,
     accept: &mut Accept,
 ) -> Result<Option<Bindings>, String> {
-    match_k(pat, subj, Bindings::new(), accept)
+    match_k(pat, subj, Bindings::default(), accept)
 }
 
 fn match_k(
@@ -144,6 +144,7 @@ fn match_k(
         (Term::List(ps), Term::List(ss)) => match_seq_k(ps, ss, b, k),
         (Term::Sym(a), Term::Sym(c)) if a == c => k(b),
         (Term::Int(a), Term::Int(c)) if a == c => k(b),
+        (Term::Num(a), Term::Num(c)) if a == c => k(b),
         (Term::Str(a), Term::Str(c)) if a == c => k(b),
         _ => Ok(None),
     }
@@ -226,7 +227,7 @@ pub fn subst(rhs: &Term, b: &Bindings) -> Result<Term, String> {
         }
         Term::List(xs) => {
             let mut out = Vec::new();
-            for el in xs {
+            for el in xs.iter() {
                 if let Some(name) = el.as_seq_var() {
                     match b.get(name) {
                         Some(Binding::Seq(v)) => out.extend(v.iter().cloned()),
@@ -242,7 +243,7 @@ pub fn subst(rhs: &Term, b: &Bindings) -> Result<Term, String> {
                     out.push(subst(el, b)?);
                 }
             }
-            Ok(Term::List(out))
+            Ok(Term::list(out))
         }
         other => Ok(other.clone()),
     }
@@ -254,7 +255,7 @@ mod tests {
     use crate::term::read_term;
 
     fn m(pat: &str, subj: &str) -> Option<Bindings> {
-        match_term(&read_term(pat).unwrap(), &read_term(subj).unwrap(), Bindings::new())
+        match_term(&read_term(pat).unwrap(), &read_term(subj).unwrap(), Bindings::default())
     }
 
     #[test]

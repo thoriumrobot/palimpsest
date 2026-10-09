@@ -1,0 +1,167 @@
+#lang palimpsest
+#fuel 4000000000
+// PART I -- VALUE, THE PLAN, AND THE OPPOSITION OF CLASSES (MATERIALIST-ECONOMY.md §3)
+// Every number below is exact (rationals); every claim is an `assert`.
+import "../lib/value.pal"
+import "../lib/report.pal"
+
+// The reference economy E3: means of production (mp), necessities (nec, the
+// wage good), luxuries (lux, non-basic: used by no industry).
+rule e3 : (e3) => (rec (goods (list mp nec lux))
+  (a (list (list 1/5 1/5 1/10) (list 1/10 1/5 0) (list 0 0 0)))
+  (l (list 1 2 1)))
+// Workers' wage bundle: 1/4 unit of necessities per hour.
+rule b3 : (b3) => (list 0 1/4 0)
+rule d3 : (d3) => (list 0 10 2)
+// The planning example of the accountable-planning post (iron, coal, corn,
+// bread; final demand 20,000 t coal and 1,000 t bread). The post quotes the
+// converged plan but not the table; this table is OUR reconstruction, chosen
+// so that the exact plan rounds to the published figures.
+rule plan4 : (plan4) => (rec (goods (list iron coal corn bread))
+  (a (list (list 1/20 1/10 1/50 0) (list 2 1/5 0 1/2) (list 0 0 0 5/3) (list 0 0 0 0)))
+  (l (list 5 2 3 1)))
+rule d4 : (d4) => (list 0 20000 0 1000)
+// A uniform-composition economy (l is the left Perron vector of A).
+rule eu : (eu) => (rec (goods (list x y)) (a (list (list 1/4 1/4) (list 1/4 1/4))) (l (list 1 1)))
+
+// ---- helpers for the report ----
+rule fmt : (fmt !x) => (decimal ?x 4)
+rule fmtv : (fmtv (list ?xs...)) => (unwords (map fmtf (list ?xs...)))
+rule app-fmtf : (app fmtf ?x) => (padl (decimal ?x 4) 10)
+rule roundv : (roundv ?v) => (map round1 ?v)
+rule app-round1 : (app round1 ?x) => (round-to ?x 1)
+rule grid3 : (grid3 ?vals) => (concat (map (g3a ?vals) ?vals))
+rule app-g3a : (app (g3a ?vals) ?x) => (concat (map (g3b ?vals ?x) ?vals))
+rule app-g3b : (app (g3b ?vals ?x) ?y) => (map (g3c ?x ?y) ?vals)
+rule app-g3c : (app (g3c ?x ?y) ?z) => (list ?x ?y ?z)
+rule app-cons-e3 : (app cons-e3 ?d) => (conserved? (e3) ?d)
+rule betas : (betas) => (snoc (map over40 (range 1 20)) 31/90)
+rule app-over40 : (app over40 ?k) => (q/ ?k 40)
+rule bundle : (bundle ?beta) => (list 0 ?beta 0)
+rule app-fmt-at : (app fmt-at ?beta) => (fmt-holds? (e3) (bundle ?beta))
+rule app-fmt-b : (app fmt-b ?b) => (fmt-holds? (e3) ?b)
+rule app-gcet-at : (app gcet-at ?beta) => (gcet-holds? (e3) (bundle ?beta) (list 0 1 3))
+rule app-pp-at : (app pp-at ?beta) => (positive-profit? (e3) (bundle ?beta))
+rule tenths : (tenths ?a ?b) => (map over10 (range ?a ?b))
+rule app-over10 : (app over10 ?k) => (q/ ?k 10)
+rule app-mawd-e3 : (app mawd-e3 ?r) => (mawd (e3) (d3) ?r)
+rule app-mawd-eu : (app mawd-eu ?r) => (mawd (eu) (list 1 2) ?r)
+rule app-is-zero : (app is-zero ?x) => (= ?x 0)
+
+// ---- Okishio: 18 mechanizing changes in the two basic sectors ----
+rule changes : (changes) => (concat (map ch-j (list 0 1)))
+rule app-ch-j : (app ch-j ?j) => (concat (map (ch-s ?j) (list 1/10 1/5 3/10)))
+rule app-ch-s : (app (ch-s ?j) ?s) => (map (ch-m ?j ?s) (list 1/40 1/20 1/10))
+rule app-ch-m : (app (ch-m ?j ?s) ?m) => (chg ?j ?s ?m)
+// (okishio-row CHANGE) => (orow j s m cost-change r-old r-new r-const-e)
+rule app-okishio-row : (app okishio-row (chg ?j ?s ?m)) => (orow ?j ?s ?m ?dc ?r0 ?r1 ?r2)
+  where ?e2 <- (mechanize (e3) ?j ?s ?m), ?dc <- (cost-change (e3) ?e2 (b3) ?j 60),
+        ?r0 <- (profit-rate (e3) (b3) 30), ?r1 <- (profit-rate ?e2 (b3) 30),
+        ?b2 <- (constant-e-wage (e3) ?e2 (b3)), ?r2 <- (profit-rate ?e2 ?b2 30)
+// a bracket move is DECIDED when the two brackets do not overlap
+rule rises? : (rises? (bracket ?a ?b) (bracket ?c ?d)) => (>= ?c ?b)
+rule falls? : (falls? (bracket ?a ?b) (bracket ?c ?d)) => (<= ?d ?a)
+// Okishio: adopted (cost-reducing) => r rises; rejected (cost-raising) => r falls
+rule app-okishio-ok : (app okishio-ok (orow ?j ?s ?m ?dc ?r0 ?r1 ?r2)) => (if (< ?dc 0) (rises? ?r0 ?r1) (falls? ?r0 ?r1))
+rule app-adopted : (app adopted (orow ?j ?s ?m ?dc ?r0 ?r1 ?r2)) => (< ?dc 0)
+rule app-trpf : (app trpf (orow ?j ?s ?m ?dc ?r0 ?r1 ?r2)) => (and (< ?dc 0) (falls? ?r0 ?r2))
+rule app-orow-line : (app orow-line (orow ?j ?s ?m ?dc ?r0 ?r1 ?r2)) => (cat (padl (str ?j) 4) (cat (padl (decimal ?s 2) 6) (cat (padl (decimal ?m 3) 7)
+  (cat (padl (decimal ?dc 5) 10) (cat (padl (if (< ?dc 0) "adopt" "reject") 8) (cat (padl (decimal (b-lo ?r0) 5) 9)
+  (cat (padl (decimal (b-lo ?r1) 5) 9) (padl (decimal (b-lo ?r2) 5) 10))))))))
+rule okishio-table : (okishio-table !rows) => (lines (list
+  "   j   cut  +mach   dCost@p  choice    r-old    r-new  r-new(e)"
+  (lines (map orow-line ?rows))
+  (cat "Okishio verdict holds in " (cat (str (count-if okishio-ok ?rows)) (cat " of " (cat (str (length ?rows))
+  (cat " changes; adopted: " (cat (str (count-if adopted ?rows)) (cat "; of those, r falls under a constant rate of exploitation: " (str (count-if trpf ?rows)))))))))))
+rule orows : (orows) => (map okishio-row (changes))
+
+// ---- report sections ----
+rule s1 : (s1) => (lines (list
+  "§3.1 LABOUR VALUES AND THE PLAN"
+  (cat "  E3 productive (Hawkins-Simon and (I-A)^-1 >= 0): " (str (productive? (e-a (e3)))))
+  (cat "  labour values lambda = l(I-A)^-1      : " (sh (lvalues (e3))))
+  (cat "  fixed point of lambda -> lambda A + l : " (str (lvalues-fixed? (e3) (lvalues (e3)))))
+  (cat "  iterates lambda_0..lambda_4           : " (fmtv (lvalues-iter (e3) 4)))
+  (cat "  plan4 exact gross output              : " (sh (gross (plan4) (d4))))
+  (cat "  ... rounded to the ton                : " (sh (roundv (gross (plan4) (d4)))))
+  (cat "  planner's loop to 1-ton agreement     : " (sh (vround-plan (plan-loop (plan4) (d4) 1))))
+  (cat "  error after 17 / 18 / 25 passes       : " (cat (fmt (iter-error (plan4) (d4) 17)) (cat "  " (cat (fmt (iter-error (plan4) (d4) 18)) (cat "  " (fmt (iter-error (plan4) (d4) 25)))))))
+  (cat "  iterates monotone (x_0 <= ... <= x_25): " (str (monotone? (iterates (plan4) (d4) 25))))
+  (cat "  labour required by the plan, lambda.d : " (cat (sh (net-value (plan4) (d4))) " hours"))))
+rule vround-plan : (vround-plan (plan ?k ?x)) => (plan ?k (vround ?x 1))
+rule s2 : (s2) => (lines (list
+  "§3.2 CONSERVATION: value of net product = living labour"
+  (cat "  E3, 27 final demands d in {0, 1, 7/2}^3 : " (str (all-of cons-e3 (grid3 (list 0 1 7/2)))))
+  (cat "  plan4                                   : " (cat (sh (net-value (plan4) (d4))) (cat " = " (sh (living-labour (plan4) (d4))))))))
+rule xt : (xt) => (xtable (lvalues (e3)))
+rule xbad : (xbad) => (perturb (xt) 0 1 11/10)
+rule s3 : (s3) => (lines (list
+  "§3.3 EXCHANGE AS AN EQUIVALENCE RELATION"
+  (cat "  T = exchange at labour values: reflexive/symmetric/transitive : " (cat (str (reflexive? (xt))) (cat " " (cat (str (symmetric? (xt))) (cat " " (str (transitive? (xt))))))))
+  (cat "  the 'third thing' recovered from T (good mp = 1)               : " (sh (third-thing (xt))))
+  (cat "  ... represents T exactly                                       : " (str (represents? (third-thing (xt)) (xt))))
+  (cat "  best 3-cycle of trades under T                                 : " (sh (best-cycle (xt))))
+  (cat "  T' = T with one ratio raised 10%: reflexive/symmetric/transitive: " (cat (str (reflexive? (xbad))) (cat " " (cat (str (symmetric? (xbad))) (cat " " (str (transitive? (xbad))))))))
+  (cat "  best 3-cycle under T' (a pure-exchange M-C-M')                 : " (sh (best-cycle (xbad))))))
+rule s4 : (s4) => (lines (list
+  "§3.4 EXPLOITATION, PRICES OF PRODUCTION, FMT, GCET"
+  (cat "  value of labour power lambda.b = " (cat (sh (vlp (e3) (b3))) (cat "   rate of exploitation e = " (sh (exploitation (e3) (b3))))))
+  (cat "  value compositions c/v by sector: " (fmtv (compositions (e3) (b3))))
+  (cat "  r* (uniform profit rate) in      : " (shw-br (profit-rate (e3) (b3) 30)))
+  (cat "  R  (maximal, w = 0) in           : " (shw-br (rmax (e3) 30)))
+  (cat "  value rate of profit s/(c+v)     : " (fmt (value-profit-rate (e3) (b3) (d3))))
+  (cat "  FMT on 21 wage bundles (0,beta,0), incl. the boundary beta = 31/90: " (str (all-of fmt-at (betas))))
+  (cat "    ... of which r* > 0: " (str (count-if pp-at (betas))))
+  (cat "  FMT on 64 bundles b in {0,1/20,1/10,1/5}^3                          : " (str (all-of fmt-b (grid3 (list 0 1/20 1/10 1/5)))))
+  (cat "  GCET (mp, nec and labour all exploited iff r* > 0), same 21 bundles  : " (str (all-of gcet-at (betas))))
+  (cat "  own k-values (mp, nec, labour) at b3: " (fmtv (kvalues-own (e3) (b3) (list 0 1 3))))))
+rule shw-br : (shw-br (bracket ?lo ?hi)) => (cat "[" (cat (decimal ?lo 8) (cat ", " (cat (decimal ?hi 8) ")"))))
+rule s5 : (s5) => (lines (list
+  "§3.5 THE WAGE-PROFIT FRONTIER (numeraire: p.d = lambda.d)"
+  (cat "  r    : " (fmtv (tenths 0 19)))
+  (cat "  w(r) : " (fmtv (frontier (e3) (d3) (tenths 0 19))))
+  (cat "  strictly decreasing on r = 0, 0.1, ..., 1.9 : " (str (strictly-decreasing? (frontier (e3) (d3) (tenths 0 19)))))
+  (cat "  w(0) = " (cat (sh (fwage (e3) (d3) 0)) (cat "   prices p(0) = lambda : " (str (same? (prices-at (e3) (d3) 0) (lvalues (e3)))))))))
+rule s6 : (s6) => (lines (list
+  "§3.6 PRICE-VALUE DEVIATIONS (MAWD over the net product)"
+  (cat "  r       : " (fmtv (tenths 0 10)))
+  (cat "  MAWD E3 : " (fmtv (map mawd-e3 (tenths 0 10))))
+  (cat "  MAWD(0) = 0 and strictly increasing on (0, 1]: " (str (strictly-increasing? (map mawd-e3 (tenths 0 10)))))
+  (cat "  uniform-composition economy (R = 1): MAWD = 0 at r = 0, ..., 0.9: " (str (all-of is-zero (map mawd-eu (tenths 0 9)))))))
+rule s7 : (s7) => (lines (list
+  "§3.7 TECHNICAL CHANGE: OKISHIO VERSUS THE FALLING RATE OF PROFIT"
+  (okishio-table (orows))))
+rule s8 : (s8) => (lines (list
+  "§3.8 SKILLED LABOUR"
+  (cat "  surgeon, 30,000 training h / 60,000 career h, training as simple labour : " (sh (skill-coeff 30000 60000)))
+  (cat "  teacher fixed point (S=10,000, H=20,000, C=60,000)                       : " (sh (teacher-coeff 10000 20000 60000)))
+  (cat "  ... by iteration, 40 passes from 1                                        : " (fmt (teacher-iter 10000 20000 60000 40)))
+  (cat "  surgeon taught by such teachers (S=10,000, H=20,000)                      : " (sh (trainee-coeff 10000 20000 60000 (teacher-coeff 10000 20000 60000))))))
+
+main = (e3)
+display (s1) with normalize
+display (s2) with normalize
+display (s3) with normalize
+display (s4) with normalize
+display (s5) with normalize
+display (s6) with normalize
+display (s7) with normalize
+display (s8) with normalize
+// ---- theorems ----
+assert (productive? (e-a (e3))) with normalize
+assert (same? (lvalues (e3)) (list 50/31 90/31 36/31)) with normalize
+assert (same? (roundv (gross (plan4) (d4))) (list 3708 34896 1667 1000)) with normalize
+assert (same? (vround-plan (plan-loop (plan4) (d4) 1)) (plan 18 (list 3708 34895 1667 1000))) with normalize
+assert (monotone? (iterates (plan4) (d4) 25)) with normalize
+assert (all-of cons-e3 (grid3 (list 0 1 7/2))) with normalize
+assert (and (equivalence? (xt)) (and (represents? (third-thing (xt)) (xt)) (= (best-cycle (xt)) 1))) with normalize
+assert (and (not (transitive? (xbad))) (> (best-cycle (xbad)) 1)) with normalize
+assert (all-of fmt-at (betas)) with normalize
+assert (= (count-if pp-at (betas)) 13) with normalize
+assert (all-of fmt-b (grid3 (list 0 1/20 1/10 1/5))) with normalize
+assert (all-of gcet-at (betas)) with normalize
+assert (strictly-decreasing? (frontier (e3) (d3) (tenths 0 19))) with normalize
+assert (strictly-increasing? (map mawd-e3 (tenths 0 10))) with normalize
+assert (all-of is-zero (map mawd-eu (tenths 0 9))) with normalize
+assert (all-of okishio-ok (orows)) with normalize
+assert (= (skill-coeff 30000 60000) 3/2) with normalize

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palimpsest Playground</title>
+<meta name="description" content="Run Palimpsest, a self-rewriting term-rewriting language, in the browser with Pyodide.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23264f73'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='18' text-anchor='middle' fill='%23fff'%3EP%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2126; --muted: #5e6670; --line: #dcd9d1;
+  --accent: #264f73; --accent-ink: #ffffff; --accent-soft: #e3ecf4;
+  --ok: #1f6f43; --bad: #a3262a; --warn: #8a5a00; --code-bg: #fbfaf7;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181c; --panel: #1c2026; --ink: #e4e6e9; --muted: #9aa3ad; --line: #2e343c;
+    --accent: #7fb0dc; --accent-ink: #0f1a24; --accent-soft: #223242;
+    --ok: #6cc690; --bad: #f08a8d; --warn: #e2b35a; --code-bg: #171b20;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181c; --panel: #1c2026; --ink: #e4e6e9; --muted: #9aa3ad; --line: #2e343c;
+  --accent: #7fb0dc; --accent-ink: #0f1a24; --accent-soft: #223242;
+  --ok: #6cc690; --bad: #f08a8d; --warn: #e2b35a; --code-bg: #171b20;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+header { padding: 18px 20px 10px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+header h1 { font: 600 22px/1.2 Georgia, "Times New Roman", serif; margin: 0; letter-spacing: .2px; }
+header p { margin: 0; color: var(--muted); font-size: 14px; flex: 1 1 320px; }
+header nav { display: flex; gap: 14px; font-size: 14px; }
+a { color: var(--accent); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 0 20px 20px; }
+@media (max-width: 920px) { main { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-width: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.bar .grow { flex: 1 1 auto; }
+select, input[type=number], button {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; min-height: 34px;
+}
+select { max-width: 100%; min-width: 0; flex: 1 1 260px; }
+input[type=number] { width: 5.5em; }
+.bar.opts { gap: 6px 16px; padding: 8px 12px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 6px 16px; }
+button.danger { color: var(--bad); }
+label.opt { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); white-space: nowrap; }
+label.opt input[type=checkbox] { margin: 0; accent-color: var(--accent); }
+textarea#editor {
+  flex: 1 1 auto; min-height: 62vh; width: 100%; resize: vertical; border: 0; outline: none;
+  padding: 12px 14px; background: var(--code-bg); color: var(--ink);
+  font: 13px/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; border-radius: 0 0 10px 10px;
+}
+#out {
+  flex: 1 1 auto; min-height: 62vh; max-height: 78vh; margin: 0; padding: 12px 14px; overflow: auto;
+  background: var(--code-bg); font: 13px/1.5 var(--mono); white-space: pre; border-radius: 0 0 10px 10px;
+}
+#out .err { color: var(--bad); }
+#out .note { color: var(--muted); font-style: italic; }
+.meta { font-size: 13px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line); min-height: 32px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.meta .tag { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 9px; font-size: 12px; }
+.meta .warn { color: var(--warn); }
+#status { font-size: 13px; color: var(--muted); }
+#status.ok { color: var(--ok); }
+#status.bad { color: var(--bad); }
+.spinner { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+footer { padding: 0 20px 24px; color: var(--muted); font-size: 13px; }
+footer code, .help code { font-family: var(--mono); font-size: 12.5px; }
+details.help { margin: 0 20px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 14px; }
+details.help summary { cursor: pointer; font-weight: 600; }
+details.help ul { margin: 6px 0 4px 18px; padding: 0; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Palimpsest Playground</h1>
+  <p>A self-rewriting term-rewriting language, running entirely in your browser: the interpreter is a Python port of the Rust reference implementation, executed by Pyodide. Output, fuel counts included, matches the native binary.</p>
+  <nav id="links">
+    <a href="README.md">README</a>
+    <a href="TUTORIAL.md">Tutorial</a>
+    <a id="repo-link" class="hidden" href="#">Source on GitHub</a>
+    <button id="theme" type="button" title="Switch between light and dark">Theme</button>
+  </nav>
+</header>
+
+<details class="help">
+  <summary>How it works</summary>
+  <ul>
+    <li>Pick a program, edit it if you like, and press <b>Run</b> (or <code>Ctrl</code>/<code>⌘</code> + <code>Enter</code>). The options mirror the command line: <code>--dry-run</code>, <code>--memo</code>, <code>--stats</code>, <code>--trace N</code>, <code>--fuel N</code>.</li>
+    <li>The repository's files live in a virtual file system, so <code>import "../lib/prelude.pal"</code> works as it does locally. A program that runs <code>rewrite self</code> rewrites its file there; the editor shows the new text, <b>Undo</b> restores the previous version from the ledger, and <b>Reset</b> reloads the original.</li>
+    <li>Your edits are kept in this browser only. <b>Download</b> saves the current file; <b>Open…</b> loads a <code>.pal</code> file from your computer.</li>
+    <li>Programs run about 15× slower than the native Rust binary. Heavy studies (marked with their native run time) can take minutes; <b>Stop</b> ends a run at any time.</li>
+  </ul>
+</details>
+
+<main>
+  <section class="panel" aria-label="Program">
+    <div class="bar">
+      <select id="file" aria-label="Program file"></select>
+      <button id="new" type="button" title="New scratch program">New</button>
+      <button id="open" type="button" title="Open a .pal file from your computer">Open…</button>
+      <input id="upload" type="file" accept=".pal,.txt" class="hidden">
+      <button id="download" type="button" title="Download this file">Download</button>
+      <button id="reset" type="button" title="Discard changes to this file">Reset</button>
+    </div>
+    <div class="meta" id="file-meta"></div>
+    <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Program source"></textarea>
+  </section>
+
+  <section class="panel" aria-label="Output">
+    <div class="bar">
+      <button id="run" class="primary" type="button" disabled>Run</button>
+      <button id="stop" class="danger" type="button" disabled>Stop</button>
+      <button id="undo" type="button" disabled title="palimpsest undo: restore the file before the last rewrite">Undo</button>
+      <span class="grow"></span>
+      <button id="clear" type="button" title="Clear the output">Clear</button>
+    </div>
+    <div class="bar opts">
+      <label class="opt"><input id="o-dry" type="checkbox"> --dry-run</label>
+      <label class="opt"><input id="o-memo" type="checkbox"> --memo</label>
+      <label class="opt"><input id="o-stats" type="checkbox"> --stats</label>
+      <label class="opt">--trace <input id="o-trace" type="number" min="0" placeholder="off"></label>
+      <label class="opt">--fuel <input id="o-fuel" type="number" min="0" placeholder="file"></label>
+    </div>
+    <div class="meta"><span id="status"><span class="spinner"></span>Loading Pyodide…</span></div>
+    <pre id="out" aria-live="polite"></pre>
+  </section>
+</main>
+
+<footer>
+  Engine: <code>web/palimpsest.py</code> (embedded below), checked line for line against the Rust binary by <code>web/test_parity.py</code>. Rebuild this page with <code>python3 web/build.py</code>. Runtime: <a href="https://pyodide.org/">Pyodide</a> %%PYODIDE_VERSION%%.
+</footer>
+
+<script type="application/json" id="manifest">%%MANIFEST%%</script>
+<script type="text/x-python" id="palimpsest-py">%%PALIMPSEST_PY%%</script>
+<script type="text/plain" id="worker-src">
+"use strict";
+let py = null;
+let known = new Map();
+
+function mkdirs(path) {
+  const dir = path.substring(0, path.lastIndexOf("/"));
+  if (dir) py.FS.mkdirTree(dir);
+}
+function writeFiles(files) {
+  for (const [p, text] of Object.entries(files)) {
+    const full = "/repo/" + p;
+    mkdirs(full);
+    py.FS.writeFile(full, text);
+    known.set(p, text);
+  }
+}
+function readIfExists(p) {
+  try { return py.FS.readFile("/repo/" + p, { encoding: "utf8" }); } catch (e) { return null; }
+}
+self.postOut = (s) => postMessage({ type: "out", text: s });
+self.postErr = (s) => postMessage({ type: "err", text: s });
+
+const GLUE = `
+import sys, os, time, js
+sys.setrecursionlimit(100000)
+os.chdir("/repo")
+os.environ["PALIMPSEST_LIB"] = "/repo/lib"
+_buf = []
+_state = [0, time.monotonic()]
+def _flush():
+    if _buf:
+        js.postOut("".join(_buf))
+        _buf.clear()
+    _state[0] = 0
+    _state[1] = time.monotonic()
+def _out(s):
+    _buf.append(s)
+    _state[0] += len(s)
+    if _state[0] > 32768 or time.monotonic() - _state[1] > 0.15:
+        _flush()
+def _err(s):
+    _flush()
+    js.postErr(s)
+def palimpsest_run(args):
+    try:
+        return run_cli(list(args), _out, _err)
+    finally:
+        _flush()
+`;
+
+async function boot(msg) {
+  let base = null, lastErr = null;
+  for (const b of msg.pyodideURLs) {
+    try { importScripts(b + "pyodide.js"); base = b; break; } catch (e) { lastErr = e; }
+  }
+  if (!base) throw new Error("could not load Pyodide (" + (lastErr && lastErr.message) + ")");
+  py = await loadPyodide({ indexURL: base });
+  py.FS.mkdirTree("/repo");
+  writeFiles(msg.files);
+  const src = msg.pySource.replace('if __name__ == "__main__":', "if False:");
+  py.runPython(src);
+  py.runPython(GLUE);
+  return py.version;
+}
+
+onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === "init") {
+    try {
+      const v = await boot(m);
+      postMessage({ type: "ready", version: v });
+    } catch (err) {
+      postMessage({ type: "fatal", text: String(err && err.message || err) });
+    }
+    return;
+  }
+  if (m.type === "run") {
+    writeFiles(m.files || {});
+    const t0 = performance.now();
+    let status = 1;
+    try {
+      const fn = py.globals.get("palimpsest_run");
+      status = fn(py.toPy(m.args));
+      fn.destroy();
+    } catch (err) {
+      postMessage({ type: "err", text: "internal error: " + String(err && err.message || err) + "\n" });
+    }
+    const changed = {};
+    for (const [p, before] of known) {
+      const now = readIfExists(p);
+      if (now !== null && now !== before) { changed[p] = now; known.set(p, now); }
+    }
+    postMessage({ type: "done", status, ms: performance.now() - t0, changed });
+  }
+};
+</script>
+<script>
+"use strict";
+const PYODIDE_VERSION = "%%PYODIDE_VERSION%%";
+const MANIFEST = JSON.parse(document.getElementById("manifest").textContent);
+const PY_SOURCE = document.getElementById("palimpsest-py").textContent;
+const WORKER_SRC = document.getElementById("worker-src").textContent;
+const STORE_KEY = "palimpsest-playground-v1";
+const RATIO = 15;
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  file: $("file"), editor: $("editor"), out: $("out"), status: $("status"), meta: $("file-meta"),
+  run: $("run"), stop: $("stop"), undo: $("undo"), reset: $("reset"), download: $("download"),
+  open: $("open"), upload: $("upload"), newBtn: $("new"),
+  dry: $("o-dry"), memo: $("o-memo"), stats: $("o-stats"), trace: $("o-trace"), fuel: $("o-fuel"),
+};
+
+const files = new Map();      // path -> current text (the browser's copy of the repository)
+const original = new Map();   // path -> text as fetched from the site
+const synced = new Map();     // path -> text the worker currently has
+const info = new Map();       // path -> manifest entry
+let current = null;
+let worker = null, workerReady = false, running = false, runStart = 0, tick = null;
+let outChars = 0;
+const OUT_LIMIT = 4_000_000;
+
+function pyodideURLs() {
+  const q = new URLSearchParams(location.search).get("pyodide");
+  const list = [];
+  if (q) { const u = new URL(q, location.href).href; list.push(u.endsWith("/") ? u : u + "/"); }
+  list.push("https://cdn.jsdelivr.net/pyodide/v" + PYODIDE_VERSION + "/full/");
+  list.push("https://cdn.jsdelivr.net/npm/pyodide@" + PYODIDE_VERSION + "/");
+  return list;
+}
+
+// ---- persistence of the user's edits (per browser) --------------------------
+function loadStore() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { return {}; }
+}
+function saveStore() {
+  try {
+    const edits = {};
+    for (const [p, t] of files) if (original.get(p) !== t) edits[p] = t;
+    const s = JSON.stringify({ edits, current, opts: readOpts() });
+    if (s.length < 3_000_000) localStorage.setItem(STORE_KEY, s);
+  } catch (e) { /* storage unavailable: edits last for this session only */ }
+}
+
+// ---- file list ---------------------------------------------------------------
+function groupOf(p) {
+  if (p.startsWith("examples/")) return "Examples";
+  if (p.startsWith("puzzles/")) return "Puzzle solutions";
+  if (p.startsWith("lib/")) return "Library";
+  return "Your files";
+}
+function buildSelect() {
+  const groups = new Map([["Your files", []], ["Examples", []], ["Puzzle solutions", []], ["Library", []]]);
+  for (const p of [...files.keys()].sort()) {
+    const e = info.get(p);
+    if (e && e.hidden) continue;
+    const g = (e && e.group) || groupOf(p);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(p);
+  }
+  ui.file.textContent = "";
+  for (const [g, list] of groups) {
+    if (!list.length) continue;
+    const og = document.createElement("optgroup");
+    og.label = g;
+    for (const p of list) {
+      const o = document.createElement("option");
+      o.value = p;
+      const dirty = original.has(p) && original.get(p) !== files.get(p);
+      o.textContent = p + (dirty ? "  •" : "");
+      og.appendChild(o);
+    }
+    ui.file.appendChild(og);
+  }
+  if (current) ui.file.value = current;
+}
+function describe(p) {
+  const e = info.get(p) || {};
+  ui.meta.textContent = "";
+  const add = (text, cls) => { const s = document.createElement("span"); if (cls) s.className = cls; s.textContent = text; ui.meta.appendChild(s); };
+  if (e.title) add(e.title);
+  if (e.native != null) {
+    const est = e.native * RATIO;
+    add("native " + fmtSecs(e.native), "tag");
+    if (est >= 20) add("expect ≈ " + fmtSecs(est) + " here", "warn");
+  }
+  if (original.has(p) && original.get(p) !== files.get(p)) add("edited", "tag");
+}
+function fmtSecs(s) {
+  if (s < 1) return s.toFixed(2) + " s";
+  if (s < 90) return s.toFixed(s < 10 ? 1 : 0) + " s";
+  return Math.round(s / 60) + " min";
+}
+function select(p, fromHash) {
+  if (current && files.has(current)) files.set(current, ui.editor.value);
+  if (!files.has(p)) return;
+  current = p;
+  ui.editor.value = files.get(p);
+  ui.editor.scrollTop = 0;
+  buildSelect();
+  describe(p);
+  if (!fromHash && location.hash.slice(1) !== p) history.replaceState(null, "", "#" + p);
+  saveStore();
+}
+
+// ---- output ----------------------------------------------------------------------
+function write(text, cls) {
+  if (outChars > OUT_LIMIT) return;
+  outChars += text.length;
+  if (outChars > OUT_LIMIT) text = text.slice(0, Math.max(0, text.length - (outChars - OUT_LIMIT))) + "\n… output truncated in the page (over 4 MB) …\n";
+  const atBottom = ui.out.scrollHeight - ui.out.scrollTop - ui.out.clientHeight < 40;
+  if (cls) {
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = text;
+    ui.out.appendChild(s);
+  } else {
+    const last = ui.out.lastChild;
+    if (last && last.nodeType === 3) last.appendData(text); else ui.out.appendChild(document.createTextNode(text));
+  }
+  if (atBottom) ui.out.scrollTop = ui.out.scrollHeight;
+}
+function setStatus(text, cls, spin) {
+  ui.status.className = cls || "";
+  ui.status.textContent = "";
+  if (spin) { const s = document.createElement("span"); s.className = "spinner"; ui.status.appendChild(s); }
+  ui.status.appendChild(document.createTextNode(text));
+}
+function setRunning(on) {
+  running = on;
+  ui.run.disabled = on || !workerReady;
+  ui.undo.disabled = on || !workerReady;
+  ui.stop.disabled = !on;
+  if (!on && tick) { clearInterval(tick); tick = null; }
+}
+
+// ---- worker --------------------------------------------------------------------
+function startWorker() {
+  workerReady = false;
+  synced.clear();
+  const url = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" }));
+  worker = new Worker(url);
+  worker.onmessage = onWorker;
+  worker.onerror = (e) => { setStatus("Worker error: " + e.message, "bad"); };
+  const all = {};
+  for (const [p, t] of files) { all[p] = t; synced.set(p, t); }
+  worker.postMessage({ type: "init", pyodideURLs: pyodideURLs(), pySource: PY_SOURCE, files: all });
+  ui.run.disabled = true; ui.undo.disabled = true; ui.stop.disabled = true;
+}
+function onWorker(e) {
+  const m = e.data;
+  if (m.type === "ready") {
+    workerReady = true;
+    setStatus("Ready — Pyodide " + m.version + ", Python engine loaded.", "ok");
+    setRunning(false);
+  } else if (m.type === "fatal") {
+    setStatus("Could not start: " + m.text, "bad");
+    write("Could not start the interpreter: " + m.text + "\n" +
+      "The page needs network access to the Pyodide CDN (cdn.jsdelivr.net).\n", "err");
+  } else if (m.type === "out") {
+    write(m.text);
+  } else if (m.type === "err") {
+    write(m.text, "err");
+  } else if (m.type === "done") {
+    for (const [p, t] of Object.entries(m.changed)) {
+      files.set(p, t);
+      synced.set(p, t);
+      if (p === current) ui.editor.value = t;
+    }
+    const secs = (m.ms / 1000).toFixed(m.ms < 10000 ? 2 : 1);
+    const changedList = Object.keys(m.changed).filter((p) => !p.includes("/.palimpsest/"));
+    let note = "exit " + m.status + " · " + secs + " s";
+    if (changedList.length) note += " · rewrote " + changedList.join(", ");
+    setStatus(note, m.status === 0 ? "ok" : "bad");
+    setRunning(false);
+    buildSelect();
+    if (current) describe(current);
+    saveStore();
+  }
+}
+function pendingFiles() {
+  const out = {};
+  for (const [p, t] of files) if (synced.get(p) !== t) { out[p] = t; synced.set(p, t); }
+  return out;
+}
+function readOpts() {
+  return { dry: ui.dry.checked, memo: ui.memo.checked, stats: ui.stats.checked, trace: ui.trace.value, fuel: ui.fuel.value };
+}
+function argsFor(p) {
+  const a = [p];
+  if (ui.dry.checked) a.push("--dry-run");
+  if (ui.memo.checked) a.push("--memo");
+  if (ui.stats.checked) a.push("--stats");
+  if (ui.trace.value !== "") a.push("--trace", String(Math.max(0, parseInt(ui.trace.value, 10) || 0)));
+  if (ui.fuel.value !== "") a.push("--fuel", String(Math.max(0, parseInt(ui.fuel.value, 10) || 0)));
+  return a;
+}
+function launch(args, label) {
+  if (!workerReady || running || !current) return;
+  files.set(current, ui.editor.value);
+  ui.out.textContent = "";
+  outChars = 0;
+  write("$ palimpsest " + args.join(" ") + "\n", "note");
+  worker.postMessage({ type: "run", args, files: pendingFiles() });
+  setRunning(true);
+  runStart = performance.now();
+  setStatus(label + "… 0 s", "", true);
+  tick = setInterval(() => setStatus(label + "… " + Math.round((performance.now() - runStart) / 1000) + " s", "", true), 1000);
+  saveStore();
+}
+function stop() {
+  if (!worker) return;
+  worker.terminate();
+  write("\n■ stopped after " + ((performance.now() - runStart) / 1000).toFixed(1) + " s\n", "note");
+  setRunning(false);
+  setStatus("Restarting the interpreter…", "", true);
+  startWorker();
+}
+
+// ---- files from the site ---------------------------------------------------------
+async function fetchAll() {
+  const entries = MANIFEST.files;
+  for (const e of entries) info.set(e.path, e);
+  const results = await Promise.all(entries.map(async (e) => {
+    try {
+      const r = await fetch(e.path, { cache: "no-cache" });
+      if (!r.ok) throw new Error(r.status);
+      return [e.path, await r.text()];
+    } catch (err) { return [e.path, null]; }
+  }));
+  let missing = 0;
+  for (const [p, t] of results) {
+    if (t === null) { missing++; continue; }
+    original.set(p, t);
+    files.set(p, t);
+  }
+  return missing;
+}
+
+function uniquePath(name) {
+  let base = name.replace(/[^A-Za-z0-9._-]/g, "-");
+  if (!base.endsWith(".pal")) base += ".pal";
+  let p = "examples/" + base, i = 2;
+  while (files.has(p) && original.has(p)) { p = "examples/" + base.replace(/\.pal$/, "") + "-" + i++ + ".pal"; }
+  return p;
+}
+const SCRATCH = `#lang palimpsest
+// A scratch program. Imports resolve relative to examples/, as for the repository's examples.
+import "../lib/prelude.pal"
+rule app-double : (app double ?n) => (* ?n 2)
+main = (map double (filter evenp (range 1 10)))
+run normalize
+show (sum (range 1 100)) with eval
+`;
+
+// ---- wiring -------------------------------------------------------------------------
+ui.run.onclick = () => current && launch(argsFor(current), "Running");
+ui.stop.onclick = stop;
+$("clear").onclick = () => { ui.out.textContent = ""; outChars = 0; };
+ui.undo.onclick = () => current && launch(["undo", current], "Undoing");
+ui.file.onchange = () => select(ui.file.value);
+ui.reset.onclick = () => {
+  if (!current) return;
+  if (original.has(current)) {
+    if (files.get(current) !== original.get(current) && !confirm("Discard your changes to " + current + "?")) return;
+    files.set(current, original.get(current));
+  } else {
+    if (!confirm("Remove " + current + " from this browser?")) return;
+    files.delete(current);
+    current = null;
+    const first = [...files.keys()].find((p) => p.startsWith("examples/")) || [...files.keys()][0];
+    if (first) { select(first); return; }
+  }
+  ui.editor.value = files.get(current) || "";
+  buildSelect(); describe(current); saveStore();
+};
+ui.download.onclick = () => {
+  if (!current) return;
+  files.set(current, ui.editor.value);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([ui.editor.value], { type: "text/plain" }));
+  a.download = current.split("/").pop();
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+ui.newBtn.onclick = () => {
+  const p = uniquePath("scratch.pal");
+  files.set(p, SCRATCH);
+  info.set(p, { path: p, title: "Scratch program", group: "Your files" });
+  select(p);
+};
+ui.open.onclick = () => ui.upload.click();
+ui.upload.onchange = async () => {
+  const f = ui.upload.files[0];
+  if (!f) return;
+  const p = uniquePath(f.name);
+  files.set(p, await f.text());
+  info.set(p, { path: p, title: "Opened from " + f.name, group: "Your files" });
+  ui.upload.value = "";
+  select(p);
+};
+ui.editor.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); ui.run.click(); return; }
+  if (e.key === "Tab" && !e.shiftKey) {
+    e.preventDefault();
+    const s = ui.editor.selectionStart, t = ui.editor.selectionEnd;
+    ui.editor.setRangeText("  ", s, t, "end");
+  }
+});
+let saveTimer = null;
+ui.editor.addEventListener("input", () => {
+  if (!current) return;
+  files.set(current, ui.editor.value);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { buildSelect(); describe(current); saveStore(); }, 600);
+});
+for (const el of [ui.dry, ui.memo, ui.stats, ui.trace, ui.fuel]) el.addEventListener("change", saveStore);
+window.addEventListener("hashchange", () => { const p = decodeURIComponent(location.hash.slice(1)); if (files.has(p)) select(p, true); });
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark";
+};
+(function repoLink() {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  if (!m) return;
+  const repo = location.pathname.split("/").filter(Boolean)[0];
+  const a = $("repo-link");
+  a.href = "https://github.com/" + m[1] + (repo && !repo.endsWith(".html") ? "/" + repo : "");
+  a.classList.remove("hidden");
+})();
+
+(async function init() {
+  setStatus("Fetching the repository's programs…", "", true);
+  const missing = await fetchAll();
+  const store = loadStore();
+  for (const [p, t] of Object.entries(store.edits || {})) {
+    files.set(p, t);
+    if (!info.has(p)) info.set(p, { path: p, group: "Your files" });
+  }
+  if (store.opts) {
+    ui.dry.checked = !!store.opts.dry; ui.memo.checked = !!store.opts.memo; ui.stats.checked = !!store.opts.stats;
+    ui.trace.value = store.opts.trace || ""; ui.fuel.value = store.opts.fuel || "";
+  }
+  if (!files.size) {
+    files.set("examples/scratch.pal", SCRATCH);
+    info.set("examples/scratch.pal", { path: "examples/scratch.pal", title: "Scratch program", group: "Your files" });
+  }
+  const want = decodeURIComponent(location.hash.slice(1));
+  const start = files.has(want) ? want : (files.has(store.current) ? store.current : (files.has(MANIFEST.start) ? MANIFEST.start : [...files.keys()][0]));
+  select(start, true);
+  if (missing) {
+    write("Note: " + missing + " of " + MANIFEST.files.length + " repository files could not be fetched" +
+      (location.protocol === "file:" ? " (pages opened from disk cannot fetch files; serve the folder over HTTP, e.g. python3 -m http.server)" : "") + ".\n", "note");
+  }
+  setStatus("Loading Pyodide " + PYODIDE_VERSION + "…", "", true);
+  startWorker();
+})();
+</script>
+</body>
+</html>

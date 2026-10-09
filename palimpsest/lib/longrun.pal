@@ -1,0 +1,71 @@
+#lang palimpsest
+// longrun.pal -- the long-run rate of profit as a demographic attractor
+// (Cockshott, Cottrell, Michaelson, Wright and Yakovenko, *Classical
+// Econophysics*, 2009, §14.3; Cockshott, *How the World Works*, 2019, §5.9),
+// in discrete time and exact arithmetic, plus two small checks from the same
+// books: the falling-profit illustration of HWW §5.9 and the labour-value
+// iteration on the input-output table of Classical Econophysics Table 10.1.
+//
+// Everything is measured in labour time. L = hours worked per period, K = the
+// capital stock in hours embodied, w = the wage share of net output, lam = the
+// share of profit accumulated, n = growth of hours worked, g = growth of
+// labour productivity (which devalues the capital stock), dl = depreciation:
+//   S_t     = (1 - w)(L_t - (g + dl) K_t)          profit, in hours
+//   K_{t+1} = K_t + lam S_t - (g + dl) K_t          accumulation
+//   L_{t+1} = (1 + n) L_t
+//   R_t     = S_t / K_t
+// K grows at rate lam R - (g + dl); it keeps pace with L exactly when
+//   R* = (n + g + dl) / lam                         (CE eq. 14.11)
+// and R* does not depend on w. The book proves R* is an attractor of the
+// continuous system; here the discrete recurrence is run exactly.
+//   A FLOOR. Because L/K > 0, R_t = (1-w)(L/K - (g+dl)) > -(1-w)(g+dl). When
+// the population shrinks fast enough that R* <= -(1-w)(g+dl), R* cannot be
+// reached: capital outlives the workers, L/K -> 0 and R_t -> -(1-w)(g+dl),
+// a limit that DOES depend on the wage share. lr-limit is max(R*, floor).
+import "linalg.pal"
+
+rule lr-r9 : (lr-r9 !x) => (round-to ?x 1000000000)
+// a parameter record: (rec (w W) (lam LAM) (n N) (g G) (dl DL))
+rule lr-par : (lr-par !w !lam !n !g !dl) => (rec (w ?w) (lam ?lam) (n ?n) (g ?g) (dl ?dl))
+rule lr-star : (lr-star !p) => (q/ (+ (@ ?p n) (+ (@ ?p g) (@ ?p dl))) (@ ?p lam))
+rule lr-floor : (lr-floor !p) => (- 0 (* (- 1 (@ ?p w)) (+ (@ ?p g) (@ ?p dl))))
+rule lr-limit : (lr-limit !p) => (max (lr-star ?p) (lr-floor ?p))
+rule lr-profit : (lr-profit !p !l !k) => (* (- 1 (@ ?p w)) (- ?l (* (+ (@ ?p g) (@ ?p dl)) ?k)))
+// one period: (lk L K) -> (lk L' K')
+rule lr-step : (lr-step !p (lk ?l ?k)) => (lk (lr-r9 (* ?l (+ 1 (@ ?p n)))) (lr-r9 (- (+ ?k (* (@ ?p lam) ?s)) (* (+ (@ ?p g) (@ ?p dl)) ?k))))
+  where ?s <- (lr-profit ?p ?l ?k)
+rule lr-rate : (lr-rate !p (lk ?l ?k)) => (lr-r9 (q/ (lr-profit ?p ?l ?k) ?k))
+// the profit-rate path R_0 .. R_{T-1} from (lk L0 K0)
+rule lr-path : (lr-path !p !st !t) => (lrp-go ?p ?st ?t (list))
+rule lrp-done : (lrp-go ?p ?st ?t ?acc) => ?acc where (<= ?t 0)
+rule lrp-go : (lrp-go ?p ?st ?t (list ?as...)) => (lrp-go ?p ?st2 ?t1 (list ?as... ?r))
+  where (> ?t 0), ?r <- (lr-rate ?p ?st), ?st2 <- (lr-step ?p ?st), ?t1 <- (- ?t 1)
+// distance to the attractor along a path
+rule app-dist-to : (app (dist-to ?rs) ?r) => (abs (- ?r ?rs))
+rule lr-dists : (lr-dists !p !path) => (smap (dist-to (lr-star ?p)) ?path)
+// non-increasing list
+rule lr-noninc-0 : (lr-noninc? (list)) => true
+rule lr-noninc-1 : (lr-noninc? (list ?x)) => true
+rule lr-noninc-n : (lr-noninc? (list ?x ?y ?zs...)) => (if (<= ?y ?x) (lr-noninc? (list ?y ?zs...)) false)
+
+// ---- HWW §5.9: profits half of national income, capital twice national income,
+// half of profit reinvested, income constant: r_t = 50 / (200 + 25 t) ----------
+rule hww-rate : (hww-rate !t) => (q/ 50 (+ 200 (* 25 ?t)))
+
+// ---- Classical Econophysics Table 10.1: labour per dollar of output ---------
+// four industries A B C D; column j = inputs bought by industry j (in $),
+// the wage bill stands in for direct labour, as in the book's §10.4.1.
+rule ce-table : (ce-table) => (rec (goods (list A B C D))
+  (a (list (list 0 100/200 100/300 10/40)
+           (list 100/310 0 0 0)
+           (list 0 20/200 0 0)
+           (list 10/310 0 20/300 0)))
+  (l (list 100/310 45/200 85/300 14/40)))
+rule ce-sales : (ce-sales) => (list 310 200 300 40)
+rule ce-final : (ce-final) => (list 100 100 280 10)
+// iterate the book's algorithm until successive estimates differ by < TOL
+rule ce-iterate : (ce-iterate !e !tol) => (cei-go ?e ?tol (@ ?e l) 0)
+rule cei-go : (cei-go ?e ?tol ?v ?k) => (cei-pick ?e ?tol ?v2 ?k1 (< (vnorm (vsub ?v2 ?v)) ?tol))
+  where ?v2 <- (vadd (vm ?v (@ ?e a)) (@ ?e l)), ?k1 <- (+ ?k 1)
+rule cei-done : (cei-pick ?e ?tol ?v ?k true) => (iters ?k ?v)
+rule cei-more : (cei-pick ?e ?tol ?v ?k false) => (cei-go ?e ?tol ?v ?k)

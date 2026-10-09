@@ -1,0 +1,855 @@
+#lang palimpsest
+// hegemony.pal -- the economy of HEGEMONY (2 players: Working Class vs
+// Capitalist Class, passive State) as a term-rewriting system.
+//
+// The model is written in two layers, mirroring rewriting logic:
+//
+//   EQUATIONS (`rule`)        -- the accounting identities, rule tables and
+//                                behavioural policies. Applied exhaustively to
+//                                normal form; they DEFINE one round.
+//   TRANSITIONS (`transition`)-- in the programs that import this library,
+//                                "play one round" is a transition, fired once
+//                                per run under strategy control.
+//
+// The whole game state is ONE term, a record (see `h-setup`). Every movement of
+// money goes through `pay` (a double-entry posting into the flow matrix), every
+// movement of goods through `gmove`/`gprod`/`guse`, every movement of workers
+// between the pool and a company crew through `staff`/`unstaff`. Those three
+// choke points are what make the conservation theorems in HEGEMONY-ECONOMY.md
+// checkable: no other rule touches a balance, a stock or a crew.
+//
+// Fidelity: card values printed in the rulebook are used verbatim; values the
+// rulebook does not print (2-player public companies, export cards, the market
+// deck order, the immigration deck) are marked ASSUMED and collected in one
+// place each so they can be corrected. Action cards are not modelled: every
+// turn is a Basic Action (discarding a card for a Basic Action is always legal),
+// so the model is the game restricted to Basic + Free Actions -- a legal subgame.
+import "prelude.pal"
+import "render.pal"
+import "chart.pal"
+
+// ============================================================================
+// 1. RULEBOOK TABLES (pure functions of policy sections)
+// ============================================================================
+// Population track: 10-11 workers -> 3, 12-14 -> 4, ... 30+ -> 10.
+rule h-pop : (h-pop ?w) => (min 10 (/ ?w 3))
+rule ceil-half : (ceil-half ?n) => (/ (+ ?n 1) 2)
+rule ceil-div : (ceil-div ?a ?b) => (/ (+ ?a (- ?b 1)) ?b)
+rule pos : (pos ?x) => (max 0 ?x)
+
+// Working Class income tax per Population (Labor Market x Taxation).
+rule ir-AA : (income-rate A A) => 7
+rule ir-AB : (income-rate A B) => 6
+rule ir-AC : (income-rate A C) => 5
+rule ir-BA : (income-rate B A) => 4
+rule ir-BB : (income-rate B B) => 4
+rule ir-BC : (income-rate B C) => 4
+rule ir-CA : (income-rate C A) => 1
+rule ir-CB : (income-rate C B) => 2
+rule ir-CC : (income-rate C C) => 3
+
+// Tax Multiplier: base A3 B2 C1; welfare modifiers (A+2 B+1 C0) doubled at
+// Taxation A, ignored at Taxation C.
+rule wmod-A : (wmod A) => 2
+rule wmod-B : (wmod B) => 1
+rule wmod-C : (wmod C) => 0
+rule tmult-A : (tax-mult A ?h ?e) => (+ 3 (* 2 (+ (wmod ?h) (wmod ?e))))
+rule tmult-B : (tax-mult B ?h ?e) => (+ 2 (+ (wmod ?h) (wmod ?e)))
+rule tmult-C : (tax-mult C ?h ?e) => 1
+
+// Corporate tax on Revenue (after Employment Tax).
+rule ctab-A : (ctab A) => (list 0 1 5 12 24 40 100 160)
+rule ctab-B : (ctab B) => (list 0 2 5 10 15 30 70 120)
+rule ctab-C : (ctab C) => (list 0 2 4 7 10 20 40 60)
+rule corp-tax : (corp-tax ?t ?r) => (nth (count-le ?r (list 5 10 25 50 100 200 300)) (ctab ?t))
+rule count-le-0 : (count-le ?r (list)) => 0
+rule count-le-n : (count-le ?r (list ?x ?xs...)) => (if (>= ?r ?x) (+ 1 (count-le ?r (list ?xs...))) 0)
+
+// Wealth table: VP = number of thresholds reached by Capital.
+rule wealth-idx : (wealth-idx ?c) => (count-le ?c (list 10 25 50 75 100 125 150 175 200 250 300 350 400 450 500))
+
+// Labor Market -> minimum wage level; wage cards list (wages L3 L2 L1).
+rule minlv-A : (min-level A) => 3
+rule minlv-B : (min-level B) => 2
+rule minlv-C : (min-level C) => 1
+rule wage-at-3 : (wage-at (wages ?a ?b ?c) 3) => ?a
+rule wage-at-2 : (wage-at (wages ?a ?b ?c) 2) => ?b
+rule wage-at-1 : (wage-at (wages ?a ?b ?c) 1) => ?c
+
+// Welfare State (Policies 4,5): price of a public Health / Education.
+rule sprice-A : (state-price A) => 0
+rule sprice-B : (state-price B) => 5
+rule sprice-C : (state-price C) => 10
+
+// Foreign Trade (Policy 6): import tariffs; Import prices Food 10, Luxury 6.
+rule tariff-fA : (tariff food A) => 10
+rule tariff-fB : (tariff food B) => 5
+rule tariff-fC : (tariff food C) => 0
+rule tariff-lA : (tariff lux A) => 6
+rule tariff-lB : (tariff lux B) => 3
+rule tariff-lC : (tariff lux C) => 0
+rule import-base-f : (import-base food) => 10
+rule import-base-l : (import-base lux) => 6
+
+// Fiscal Policy (1): rows of the Public Sector in play; IMF loan limit.
+rule rows-A : (fiscal-rows A) => 3
+rule rows-B : (fiscal-rows B) => 2
+rule rows-C : (fiscal-rows C) => 1
+rule imf-A : (imf-limit A) => 2
+rule imf-B : (imf-limit B) => 2
+rule imf-C : (imf-limit C) => 1
+
+// Immigration (7): extra Workers per round.
+rule immig-A : (immig-n A) => 0
+rule immig-B : (immig-n B) => 1
+rule immig-C : (immig-n C) => 2
+
+// A Bill moves a Policy one section; A <-> B <-> C.
+rule toward-a-B : (toward-a B) => A
+rule toward-a-C : (toward-a C) => B
+rule toward-c-A : (toward-c A) => B
+rule toward-c-B : (toward-c B) => C
+// Is the move FROM -> TO in the Working Class's (A) direction?
+rule leftward : (leftward ?from ?to) => (str< (str ?to) (str ?from))
+
+// End-game bonus for the number of Policies 1-5 in one's own section.
+rule pol-bonus : (pol-bonus ?k) => (nth ?k (list 0 1 4 8 12 18))
+
+// Capitalist price options (board) and the "best response" price: the highest
+// option not above the competing source's price (else the lowest option).
+rule price-opts-food : (price-opts food) => (list 9 12 15)
+rule price-opts-x : (price-opts ?r) => (list 5 8 10) where (<> ?r food)
+rule best-price : (best-price ?alt (list ?x ?xs...)) => (bp ?alt ?x (list ?x ?xs...))
+rule bp-0 : (bp ?alt ?b (list)) => ?b
+rule bp-n : (bp ?alt ?b (list ?x ?xs...)) => (bp ?alt (if (<= ?x ?alt) ?x ?b) (list ?xs...))
+
+// ============================================================================
+// 2. CARDS
+// ============================================================================
+// (card NAME OUTPUT QTY COST (wages L3 L2 L1) (slots SKILLED... u...))
+// Printed in the rulebook (p.4, p.9, p.18): the four starting Capitalist
+// Companies and the four Companies of the p.18 market example.
+rule card-supermarket : (card-of supermarket) => (card supermarket food 4 16 (wages 25 20 15) (list agri u))
+rule card-mall        : (card-of mall)        => (card mall lux 6 16 (wages 25 20 15) (list lux u))
+rule card-clinic      : (card-of clinic)      => (card clinic health 6 16 (wages 30 20 10) (list health u))
+rule card-college     : (card-of college)     => (card college edu 6 16 (wages 30 20 10) (list edu u))
+rule card-stadium     : (card-of stadium)     => (card stadium lux 8 20 (wages 35 30 25) (list lux u u))
+rule card-institute   : (card-of institute)   => (card institute edu 8 20 (wages 40 30 20) (list edu u u))
+rule card-radio       : (card-of radio)       => (card radio infl 2 8 (wages 20 15 10) (list u u))
+// ASSUMED: the three 2-player Public Companies (not printed legibly in the
+// rulebook). Two Workers each (the rulebook's 2-player setup places a skilled
+// + an unskilled Worker on the hospital and the university), cost 20 (the
+// rulebook's "60 for a row of 3").
+rule card-p-hospital  : (card-of p-hospital)  => (card p-hospital health 4 20 (wages 30 20 10) (list health u))
+rule card-p-univ      : (card-of p-univ)      => (card p-univ edu 4 20 (wages 30 20 10) (list edu u))
+rule card-p-media     : (card-of p-media)     => (card p-media infl 3 20 (wages 30 20 10) (list media u))
+// ASSUMED: market deck order after the four face-up example cards.
+rule market-deck : (market-deck) => (list clinic college mall supermarket stadium institute radio clinic college mall supermarket stadium institute radio clinic college)
+// ASSUMED: immigration deck (Working Class Worker on each card), cyclic.
+rule immig-deck : (immig-deck) => (list u agri u health u edu u lux u media)
+// ASSUMED: export cards, cyclic by round. (tx RESOURCE QTY PRICE). Card 0 is the
+// rulebook's p.19 example (plus a Health line); all unit prices lie inside the
+// bands printed on the board (Food 8-12, others 5-9).
+rule export-card : (export-card ?k) => (nth (mod ?k 4) (list
+  (list (tx food 3 25) (tx lux 4 25) (tx lux 8 45) (tx health 3 20) (tx edu 3 20) (tx edu 5 35))
+  (list (tx food 4 40) (tx food 2 18) (tx lux 5 35) (tx health 4 30) (tx health 2 12) (tx edu 4 24))
+  (list (tx food 3 30) (tx lux 3 21) (tx lux 6 36) (tx health 5 40) (tx edu 6 42) (tx edu 2 10))
+  (list (tx food 5 45) (tx food 3 24) (tx lux 4 32) (tx health 3 24) (tx edu 3 21))))
+
+// A Company on the board: a record.
+rule mk-co : (mk-co (card ?n ?out ?q ?cost ?w ?slots) ?own ?row ?lvl ?crew) =>
+  (rec (name ?n) (own ?own) (out ?out) (qty ?q) (cost ?cost) (wages ?w) (lvl ?lvl) (slots ?slots) (crew ?crew) (row ?row) (committed false))
+
+// ============================================================================
+// 3. INITIAL STATE (2-player setup, rulebook pp. 8-10)
+// ============================================================================
+// Accounts: wc.money, cc.rev, cc.cap, st.treasury, and `world` (the Supply /
+// Foreign Market / bank -- the money issuer, so its balance is minus the money
+// in the economy). Flow matrix rows are categories, columns are the 4 sectors.
+rule flow-cats : (flow-cats) => (list wage-cc wage-pub sale-cc sale-st import tariff export tax-wc tax-emp tax-corp capex divest loan interest repay lobby shock)
+rule zero-row : (zero-row) => (rec (wc 0) (cc 0) (st 0) (world 0))
+rule zero-gstat : (zero-gstat) => (rec (prod 0) (imp 0) (use 0) (exp 0) (lost 0))
+rule h-setup : (h-setup) => (rec
+  (round 1)
+  (pol (rec (fiscal C) (labor B) (tax A) (health B) (edu C) (trade B) (immig B)))
+  (bills (list))
+  (wc (rec (money 30) (infl 1) (prosp 0) (vp 0) (loans 0) (workers 10) (food 0)
+           (lux 0) (health 0) (edu 0)
+           (pool (rec (u 2) (agri 0) (lux 0) (health 0) (edu 0) (media 0)))
+           (demo false) (bills 3) (cubes 17)))
+  (cc (rec (rev 120) (cap 0) (vp 0) (loans 0) (infl 1) (wmark 0)
+           (food 1) (lux 2) (health 0) (edu 2)
+           (price (rec (food 12) (lux 8) (health 8) (edu 8)))
+           (market (list stadium institute radio supermarket))
+           (deck (market-deck)) (next-id 1) (bills 3) (cubes 17)))
+  (st (rec (treasury 120) (loans 0) (writeoff 0) (health 5) (edu 5) (infl 3)))
+  (world -270)
+  (bag (rec (wc 8) (cc 8) (mc 8)))
+  (imm 1) (seed 2026)
+  (cos (rec
+    (sm      (mk-co (card-of supermarket) cc 0 2 (list agri u)))
+    (mall    (mk-co (card-of mall) cc 0 2 (list lux u)))
+    (college (mk-co (card-of college) cc 0 2 (list)))
+    (clinic  (mk-co (card-of clinic) cc 0 2 (list)))
+    (ph1 (mk-co (card-of p-hospital) st 1 2 (list health u)))
+    (pu1 (mk-co (card-of p-univ) st 1 2 (list edu u)))
+    (pm1 (mk-co (card-of p-media) st 1 2 (list)))
+    (ph2 (mk-co (card-of p-hospital) st 2 2 (list)))
+    (pu2 (mk-co (card-of p-univ) st 2 2 (list)))
+    (pm2 (mk-co (card-of p-media) st 2 2 (list)))
+    (ph3 (mk-co (card-of p-hospital) st 3 2 (list)))
+    (pu3 (mk-co (card-of p-univ) st 3 2 (list)))
+    (pm3 (mk-co (card-of p-media) st 3 2 (list)))))
+  (flows (rec (wage-cc (zero-row)) (wage-pub (zero-row)) (sale-cc (zero-row)) (sale-st (zero-row))
+              (import (zero-row)) (tariff (zero-row)) (export (zero-row)) (tax-wc (zero-row))
+              (tax-emp (zero-row)) (tax-corp (zero-row)) (capex (zero-row)) (divest (zero-row))
+              (loan (zero-row)) (interest (zero-row)) (repay (zero-row)) (lobby (zero-row)) (shock (zero-row))))
+  (loan-cause (rec (wage 0) (food 0) (tax 0) (interest 0) (capex 0) (other 0)))
+  (goods0 (rec (food 1) (lux 2) (health 5) (edu 7) (infl 5)))
+  (gstat (rec (food (zero-gstat)) (lux (zero-gstat)) (health (zero-gstat)) (edu (zero-gstat)) (infl (zero-gstat))))
+  (events (list)) (tax-labor B)
+  (hist (list)))
+
+// ============================================================================
+// 4. THE LEDGER -- the only rules that change a money balance
+// ============================================================================
+// (pay FROM TO AMT CAT S): debit FROM (forcing Loans if it cannot pay), credit
+// TO, and post -AMT / +AMT into row CAT of the flow matrix. Every row of the
+// matrix therefore sums to zero, and so does the sum of all balances.
+rule pay : (pay ?from ?to ?amt ?cat ?s) => ?s3
+  where ?s1 <- (debit ?from ?amt ?cat ?s), ?s2 <- (credit ?to ?amt ?s1), ?s3 <- (flow ?cat ?from ?to ?amt ?s2)
+// pay-c: the Capitalist pays from Capital first (Lobby, interest, pay-off).
+rule pay-c : (pay-c ?from ?to ?amt ?cat ?s) => ?s3
+  where ?s1 <- (debit-c ?from ?amt ?cat ?s), ?s2 <- (credit ?to ?amt ?s1), ?s3 <- (flow ?cat ?from ?to ?amt ?s2)
+rule flow : (flow ?cat ?from ?to ?amt ?s) => (add@ (add@ ?s flows ?cat ?from ?neg) flows ?cat ?to ?amt) where ?neg <- (- 0 ?amt)
+
+rule credit-wc : (credit wc ?a ?s) => (add@ ?s wc money ?a)
+rule credit-cc : (credit cc ?a ?s) => (add@ ?s cc rev ?a)
+rule credit-st : (credit st ?a ?s) => (add@ ?s st treasury ?a)
+rule credit-world : (credit world ?a ?s) => (add@ ?s world ?a)
+
+rule debit-world : (debit world ?a ?cat ?s) => (add@ ?s world ?n) where ?n <- (- 0 ?a)
+rule debit-wc : (debit wc ?a ?cat ?s) => (add@ ?s1 wc money ?n)
+  where ?n <- (- 0 ?a), ?s1 <- (cover-or-borrow wc (@ ?s wc money) ?a ?cat ?s)
+rule debit-st : (debit st ?a ?cat ?s) => (add@ ?s1 st treasury ?n)
+  where ?n <- (- 0 ?a), ?s1 <- (cover-or-borrow st (@ ?s st treasury) ?a ?cat ?s)
+// Capitalist: Revenue first, then Capital; a shortfall forces Loans (into
+// Capital) first, then the cascade is applied to the post-loan balances.
+rule debit-cc : (debit cc ?a ?cat ?s) => (take-rev-first ?a ?s1)
+  where ?s1 <- (cover-or-borrow cc (+ (@ ?s cc rev) (@ ?s cc cap)) ?a ?cat ?s)
+rule debit-c-cc : (debit-c cc ?a ?cat ?s) => (take-cap-first ?a ?s1)
+  where ?s1 <- (cover-or-borrow cc (+ (@ ?s cc rev) (@ ?s cc cap)) ?a ?cat ?s)
+rule debit-c-other : (debit-c ?who ?a ?cat ?s) => (debit ?who ?a ?cat ?s) where (<> ?who cc)
+rule trf-1 : (take-rev-first ?a ?s) => (add@ ?s cc rev ?n) where (>= (@ ?s cc rev) ?a), ?n <- (- 0 ?a)
+rule trf-2 : (take-rev-first ?a ?s) => (set@ (add@ ?s cc cap ?n) cc rev 0) where (< (@ ?s cc rev) ?a), ?n <- (- (@ ?s cc rev) ?a)
+rule tcf-1 : (take-cap-first ?a ?s) => (add@ ?s cc cap ?n) where (>= (@ ?s cc cap) ?a), ?n <- (- 0 ?a)
+rule tcf-2 : (take-cap-first ?a ?s) => (set@ (add@ ?s cc rev ?n) cc cap 0) where (< (@ ?s cc cap) ?a), ?n <- (- (@ ?s cc cap) ?a)
+
+// Loans are never voluntary: only a shortfall on a payment creates them.
+rule cover-ok : (cover-or-borrow ?who ?have ?a ?cat ?s) => ?s where (>= ?have ?a)
+rule cover-borrow : (cover-or-borrow ?who ?have ?a ?cat ?s) => (borrow ?who ?k ?cat ?s)
+  where (< ?have ?a), ?k <- (ceil-div (- ?a ?have) 50)
+rule borrow : (borrow ?who ?k ?cat ?s) => (add@ (add@ ?s2 ?who loans ?k) loan-cause (cause-of ?cat) ?k)
+  where ?amt <- (* 50 ?k), ?s1 <- (loan-credit ?who ?amt ?s), ?s2 <- (flow loan world ?who ?amt (add@ ?s1 world (- 0 ?amt)))
+rule loan-credit-cc : (loan-credit cc ?a ?s) => (add@ ?s cc cap ?a)
+rule loan-credit-x : (loan-credit ?w ?a ?s) => (credit ?w ?a ?s) where (<> ?w cc)
+rule cause-of : (cause-of !c) => (cause ?c)
+rule cause-wage : (cause wage-cc) => wage
+rule cause-wagep : (cause wage-pub) => wage
+rule cause-food : (cause sale-cc) => food
+rule cause-import : (cause import) => food
+rule cause-tariff : (cause tariff) => food
+rule cause-taxw : (cause tax-wc) => tax
+rule cause-taxe : (cause tax-emp) => tax
+rule cause-taxc : (cause tax-corp) => tax
+rule cause-int : (cause interest) => interest
+rule cause-capex : (cause capex) => capex
+rule cause-other : (cause ?c) => other
+
+// Accounting identities (theorems of the model, checked by `assert`).
+rule money-total : (money-total ?s) => (+ (@ ?s wc money) (+ (@ ?s cc rev) (+ (@ ?s cc cap) (+ (@ ?s st treasury) (@ ?s world)))))
+rule rows-balanced : (rows-balanced? ?s) => (all-zero (map row-sum (values-of (@ ?s flows))))
+rule values-of : (values-of (rec ?es...)) => (map entry-val (list ?es...))
+rule app-entry-val : (app entry-val (?k ?v)) => ?v
+rule app-row-sum : (app row-sum ?r) => (sum@ ?r)
+rule all-zero-0 : (all-zero (list)) => true
+rule all-zero-n : (all-zero (list ?x ?xs...)) => (and (= ?x 0) (all-zero (list ?xs...)))
+// column of a sector = net flow into it over the whole game
+rule col-sum : (col-sum ?who ?s) => (sum (map (col-of ?who) (values-of (@ ?s flows))))
+rule app-col-of : (app (col-of ?who) ?r) => (@ ?r ?who)
+
+// ============================================================================
+// 5. GOODS AND WORKERS -- the only rules that change a stock or a crew
+// ============================================================================
+// Holdings live at (WHO RES): cc storage, wc Goods & Services, st Public
+// Services. gstat accumulates gross production, imports from the Supply, use
+// (consumption / spending), exports, and losses (storage overflow, discards).
+// Material balance: holdings = goods0 + prod + imp - use - exp - lost.
+rule gmove : (gmove ?res ?from ?to ?q ?s) => (add@ (add@ ?s ?from ?res ?nq) ?to ?res ?q) where ?nq <- (- 0 ?q)
+rule gprod : (gprod ?res ?who ?q ?stored ?s) => (add@ (add@ (add@ ?s ?who ?res ?stored) gstat ?res prod ?q) gstat ?res lost ?l)
+  where ?l <- (- ?q ?stored)
+rule guse : (guse ?res ?who ?q ?s) => (add@ (add@ ?s ?who ?res ?nq) gstat ?res use ?q) where ?nq <- (- 0 ?q)
+rule gexp : (gexp ?res ?who ?q ?s) => (add@ (add@ ?s ?who ?res ?nq) gstat ?res exp ?q) where ?nq <- (- 0 ?q)
+rule gimp : (gimp ?res ?who ?q ?s) => (add@ (add@ ?s ?who ?res ?q) gstat ?res imp ?q)
+rule gdiscard : (gdiscard ?res ?who ?q ?s) => (add@ (add@ ?s ?who ?res ?nq) gstat ?res lost ?q) where ?nq <- (- 0 ?q)
+rule hold : (hold ?who ?res ?s) => (if (has@ (@ ?s ?who) ?res) (@ ?s ?who ?res) 0)
+rule goods-now : (goods-now ?res ?s) => (+ (hold cc ?res ?s) (+ (hold wc ?res ?s) (hold st ?res ?s)))
+rule goods-balanced : (goods-balanced? ?res ?s) => (= (goods-now ?res ?s)
+  (- (- (- (+ (@ ?s goods0 ?res) (+ (@ ?s gstat ?res prod) (@ ?s gstat ?res imp))) (@ ?s gstat ?res use)) (@ ?s gstat ?res exp)) (@ ?s gstat ?res lost)))
+rule all-goods-balanced : (all-goods-balanced? ?s) => (and (goods-balanced? food ?s) (and (goods-balanced? lux ?s) (and (goods-balanced? health ?s) (and (goods-balanced? edu ?s) (goods-balanced? infl ?s)))))
+
+// Companies.
+rule co : (co ?id ?k ?s) => (@ ?s cos ?id ?k)
+rule co-ids : (co-ids ?s) => (keys@ (@ ?s cos))
+rule staffed? : (staffed? ?id ?s) => (not (empty? (co ?id crew ?s)))
+rule active? : (active? ?id ?s) => (if (= (co ?id own ?s) cc) true (<= (co ?id row ?s) (fiscal-rows (@ ?s pol fiscal))))
+rule cur-wage : (cur-wage ?id ?s) => (wage-at (co ?id wages ?s) (co ?id lvl ?s))
+rule pop : (pop ?s) => (h-pop (@ ?s wc workers))
+rule pool-size : (pool-size ?s) => (sum@ (@ ?s wc pool))
+rule crew-total : (crew-total ?s) => (sum (map (crew-len ?s) (co-ids ?s)))
+rule app-crew-len : (app (crew-len ?s) ?id) => (length (co ?id crew ?s))
+// Labor conservation: every Worker is in the pool or in exactly one crew.
+rule labor-balanced : (labor-balanced? ?s) => (= (@ ?s wc workers) (+ (pool-size ?s) (crew-total ?s)))
+
+// Filtering company ids by a named predicate.
+rule fi-0 : (filter-ids ?p (list) ?s) => (list)
+rule fi-n : (filter-ids ?p (list ?x ?xs...) ?s) => (if (test ?p ?x ?s) (prepend ?x (filter-ids ?p (list ?xs...) ?s)) (filter-ids ?p (list ?xs...) ?s))
+rule ids : (ids ?p ?s) => (filter-ids ?p (co-ids ?s) ?s)
+rule test-staffed : (test staffed ?id ?s) => (staffed? ?id ?s)
+rule test-cc : (test cc ?id ?s) => (= (co ?id own ?s) cc)
+rule test-cc-op : (test cc-op ?id ?s) => (and (= (co ?id own ?s) cc) (staffed? ?id ?s))
+rule test-pub-op : (test pub-op ?id ?s) => (and (= (co ?id own ?s) st) (and (active? ?id ?s) (staffed? ?id ?s)))
+rule test-pub-active : (test pub-active ?id ?s) => (and (= (co ?id own ?s) st) (active? ?id ?s))
+rule test-vacancy : (test vacancy ?id ?s) => (and (active? ?id ?s) (not (staffed? ?id ?s)))
+rule test-staffable : (test staffable ?id ?s) => (and (test vacancy ?id ?s) (can-staff? ?id ?s))
+rule test-row : (test (row ?r) ?id ?s) => (and (= (co ?id own ?s) st) (= (co ?id row ?s) ?r))
+rule test-uncommitted-cc : (test uncommitted-cc ?id ?s) => (and (= (co ?id own ?s) cc) (= (co ?id committed ?s) false))
+rule count-ids : (count-ids ?p ?s) => (length (ids ?p ?s))
+
+// Generic left fold of a state-transformer over a list.
+rule each-0 : (each ?op (list) ?s) => ?s
+rule each-n : (each ?op (list ?x ?xs...) ?s) => (each ?op (list ?xs...) ?s2) where ?s2 <- (do ?op ?x ?s)
+
+// Staffing from the unemployed pool. Skilled slots take a Worker of that
+// industry; unskilled slots take an unskilled Worker if any, else a skilled one.
+rule take-crew : (take-crew ?slots ?pool) => (tc ?slots ?pool (list))
+rule tc-0 : (tc (list) ?p ?acc) => (got ?acc ?p)
+rule tc-sk : (tc (list ?x ?xs...) ?p ?acc) => (tc (list ?xs...) ?p2 ?acc2)
+  where (<> ?x u), (>= (@ ?p ?x) 1), ?p2 <- (add@ ?p ?x -1), ?acc2 <- (snoc ?acc ?x)
+rule tc-sk-no : (tc (list ?x ?xs...) ?p ?acc) => nope where (<> ?x u)
+rule tc-u : (tc (list u ?xs...) ?p ?acc) => (tc-u2 ?t (list ?xs...) ?p ?acc) where ?t <- (first-avail (list u agri lux health edu media) ?p)
+rule tc-u2-none : (tc-u2 none ?xs ?p ?acc) => nope
+rule tc-u2 : (tc-u2 (some ?t) ?xs ?p ?acc) => (tc ?xs ?p2 ?acc2) where ?p2 <- (add@ ?p ?t -1), ?acc2 <- (snoc ?acc ?t)
+rule fa-0 : (first-avail (list) ?p) => none
+rule fa-n : (first-avail (list ?t ?ts...) ?p) => (if (>= (@ ?p ?t) 1) (some ?t) (first-avail (list ?ts...) ?p))
+rule got?-y : (got? (got ?a ?b)) => true
+rule got?-n : (got? nope) => false
+rule can-staff? : (can-staff? ?id ?s) => (got? ?r) where ?r <- (take-crew (co ?id slots ?s) (@ ?s wc pool))
+rule staff : (staff ?id ?s) => (staff2 ?id ?r ?s) where ?r <- (take-crew (co ?id slots ?s) (@ ?s wc pool))
+rule staff2 : (staff2 ?id (got ?crew ?p) ?s) => (set@ (set@ (set@ ?s wc pool ?p) cos ?id crew ?crew) cos ?id committed true)
+rule unstaff : (unstaff ?id ?s) => (set@ (set@ (set@ ?s wc pool ?p) cos ?id crew (list)) cos ?id committed false)
+  where ?p <- (return-crew (co ?id crew ?s) (@ ?s wc pool))
+rule rc-0 : (return-crew (list) ?p) => ?p
+rule rc-n : (return-crew (list ?t ?ts...) ?p) => (return-crew (list ?ts...) ?p2) where ?p2 <- (add@ ?p ?t 1)
+
+// Unfilled Worker slots on the board (for the Demonstration condition).
+rule open-slots : (open-slots ?s) => (sum (map (slot-len ?s) (ids vacancy ?s)))
+rule app-slot-len : (app (slot-len ?s) ?id) => (length (co ?id slots ?s))
+// wages the Working Class expects to receive this round (all operational Companies)
+rule wage-bill : (wage-bill ?p ?s) => (sum (map (wage-of ?s) (ids ?p ?s)))
+rule app-wage-of : (app (wage-of ?s) ?id) => (cur-wage ?id ?s)
+rule expected-wages : (expected-wages ?s) => (+ (wage-bill cc-op ?s) (wage-bill pub-op ?s))
+
+// Event log: (ev ROUND WHO WHAT ARG...)
+rule log : (log ?e ?s) => (set@ ?s events ?es) where ?es <- (snoc (@ ?s events) ?e)
+
+// ============================================================================
+// 6. PREPARATION PHASE (skipped in round 1)
+// ============================================================================
+rule prep-phase : (prep-phase ?s) => ?s8
+  where ?s1 <- (pay wc world (* 5 (@ ?s wc loans)) interest ?s),
+        ?s2 <- (pay-c cc world (* 5 (@ ?s1 cc loans)) interest ?s1),
+        ?s3 <- (pay st world (* 5 (@ ?s2 st loans)) interest ?s2),
+        ?s4 <- (st-repay ?s3),
+        ?s5 <- (set@ ?s4 wc prosp (pos (- (@ ?s4 wc prosp) 1))),
+        ?s6 <- (refill-market ?s5),
+        ?s7 <- (new-workers ?s6),
+        ?s8 <- (set@ (set@ ?s7 wc bills 3) cc bills 3)
+// 2/3-player rule: the State repays a Loan whenever it holds more than 50.
+rule st-repay-y : (st-repay ?s) => (st-repay ?s2)
+  where (> (@ ?s st loans) 0), (> (@ ?s st treasury) 50), ?s2 <- (add@ (pay st world 50 repay ?s) st loans -1)
+rule st-repay-n : (st-repay ?s) => ?s
+rule refill-y : (refill-market ?s) => (refill-market ?s2)
+  where (< (length (@ ?s cc market)) 4), ?d <- (@ ?s cc deck), (not (empty? ?d)),
+        ?s2 <- (set@ (set@ ?s cc market (snoc (@ ?s cc market) (nth 0 ?d))) cc deck (drop 1 ?d))
+rule refill-n : (refill-market ?s) => ?s
+rule new-workers : (new-workers ?s) => (immigrate ?n ?s1)
+  where ?n <- (immig-n (@ ?s pol immig)), ?s1 <- (add@ (add@ ?s wc pool u 2) wc workers 2)
+rule imm-n : (immigrate ?n ?s) => (immigrate ?n1 ?s2)
+  where (> ?n 0), ?n1 <- (- ?n 1), ?t <- (nth (mod (@ ?s imm) 10) (immig-deck)),
+        ?s2 <- (add@ (add@ (add@ ?s wc pool ?t 1) wc workers 1) imm 1)
+rule imm-0 : (immigrate ?n ?s) => ?s
+
+// ============================================================================
+// 7. ACTION PHASE -- 5 turns each, Working Class first
+// ============================================================================
+// Behaviour is a priority list of guarded rules: the first applicable rule is
+// the turn's Main Action. One Free Action per turn (flag `free` / `used`).
+rule action-phase-end : (action-phase ?k ?s) => ?s where (> ?k 5)
+rule action-phase-k : (action-phase ?k ?s) => (action-phase ?k1 ?s2)
+  where ?s1 <- (wc-turn ?k ?s), ?s2 <- (cc-turn ?k ?s1), ?k1 <- (+ ?k 1)
+
+// ---- Working Class ---------------------------------------------------------
+rule wc-turn : (wc-turn ?k ?s) => ?s3
+  where ?r1 <- (wc-pre ?s), ?r2 <- (wc-main ?k ?r1), ?s3 <- (wc-post ?r2)
+// Free Action first: turn held goods into Prosperity (Health > Education > Luxury).
+rule wc-pre-h : (wc-pre ?s) => (sf used ?s2) where (>= (@ ?s wc health) (pop ?s)), ?s2 <- (use health ?s)
+rule wc-pre-e : (wc-pre ?s) => (sf used ?s2) where (>= (@ ?s wc edu) (pop ?s)), ?s2 <- (use edu ?s)
+rule wc-pre-l : (wc-pre ?s) => (sf used ?s2) where (>= (@ ?s wc lux) (pop ?s)), ?s2 <- (use lux ?s)
+rule wc-pre-n : (wc-pre ?s) => (sf free ?s)
+// Main Action, in priority order.
+rule wc-assign : (wc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where ?v <- (best-vacancy ?s), (<> ?v none),
+        ?s2 <- (log (ev (@ ?s round) ?k wc assign ?v) (staff ?v ?s))
+rule wc-demo : (wc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where (demo-ok? ?s), ?s2 <- (log (ev (@ ?s round) ?k wc demonstrate (pool-size ?s)) (set@ ?s wc demo true))
+rule wc-buy : (wc-main ?k (sf ?f ?s)) => (wc-after-buy ?f ?res ?s2)
+  where ?b <- (buy-choice ?s), (not (eq? ?b none)), ?res <- (plan-res ?b),
+        ?s2 <- (log (ev (@ ?s round) ?k wc buy ?res (plan-cost ?b)) (exec-plan ?b ?s))
+rule wc-bill : (wc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where ?b <- (wc-bill-choice ?s), (not (eq? ?b none)), ?s2 <- (log (ev (@ ?s round) ?k wc propose ?b) (propose ?b wc ?s))
+rule wc-pressure : (wc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where (>= (@ ?s wc cubes) 3), ?s2 <- (log (ev (@ ?s round) ?k wc pressure) (pressure wc ?s))
+rule wc-pass : (wc-main ?k (sf ?f ?s)) => (sf ?f ?s)
+// having bought a full set, use it at once if the Free Action is still unused
+rule wab-use : (wc-after-buy free ?res ?s) => (sf used ?s2) where (>= (@ ?s wc ?res) (pop ?s)), ?s2 <- (use ?res ?s)
+rule wab-keep : (wc-after-buy ?f ?res ?s) => (sf ?f ?s)
+// Free Action last: pay off a Loan when it does not endanger the round's needs.
+rule wc-post-repay : (wc-post (sf free ?s)) => (add@ ?s2 wc loans -1)
+  where (> (@ ?s wc loans) 0), (>= (wc-budget ?s) 50), ?s2 <- (pay wc world 50 repay ?s)
+rule wc-post : (wc-post (sf ?f ?s)) => ?s
+
+// Prosperity: +1 (max 10), scoring VP equal to the new value.
+rule use : (use ?res ?s) => ?s3
+  where ?p <- (pop ?s), ?s1 <- (guse ?res wc ?p ?s), ?s2 <- (prosper ?s1), ?s3 <- (use-bonus ?res ?s2)
+rule prosper : (prosper ?s) => (add@ (set@ ?s wc prosp ?np) wc vp ?np) where ?np <- (min 10 (+ 1 (@ ?s wc prosp)))
+rule use-bonus-h : (use-bonus health ?s) => (add@ (add@ (add@ ?s wc vp 2) wc workers 1) wc pool u 1)
+rule use-bonus-e : (use-bonus edu ?s) => (upgrade ?s)
+rule use-bonus-l : (use-bonus lux ?s) => ?s
+// Education upgrades an unemployed unskilled Worker, to the industry of the
+// first vacancy whose skilled slot nobody in the pool can fill (else Health).
+rule upgrade-y : (upgrade ?s) => (add@ (add@ ?s wc pool u -1) wc pool ?t 1)
+  where (>= (@ ?s wc pool u) 1), ?t <- (upgrade-target (ids vacancy ?s) ?s)
+rule upgrade-n : (upgrade ?s) => ?s
+rule ut-0 : (upgrade-target (list) ?s) => health
+rule ut-n : (upgrade-target (list ?x ?xs...) ?s) => (if (needs-skill? ?k ?s) ?k (upgrade-target (list ?xs...) ?s))
+  where ?k <- (nth 0 (co ?x slots ?s))
+rule needs-skill? : (needs-skill? ?k ?s) => (and (<> ?k u) (= (@ ?s wc pool ?k) 0))
+
+// Assign: the staffable vacancy paying the highest Wage (ties: board order).
+rule best-vacancy : (best-vacancy ?s) => (argmax-wage ?c none -1 ?s) where ?c <- (ids staffable ?s)
+rule amw-0 : (argmax-wage (list) ?b ?w ?s) => ?b
+rule amw-n : (argmax-wage (list ?x ?xs...) ?b ?w ?s) => (if (> ?wx ?w) (argmax-wage (list ?xs...) ?x ?wx ?s) (argmax-wage (list ?xs...) ?b ?w ?s))
+  where ?wx <- (cur-wage ?x ?s)
+rule demo-ok? : (demo-ok? ?s) => (and (= (@ ?s wc demo) false) (>= (pool-size ?s) (+ 2 (open-slots ?s))))
+
+// Budget = money minus what the round's mandatory costs could still require:
+// Food at the import price and Income Tax, net of the Wages it will receive.
+rule wc-reserve : (wc-reserve ?s) => (pos (- (* ?p (+ (food-import-price ?s) (income-rate (@ ?s pol labor) (@ ?s pol tax)))) (expected-wages ?s)))
+  where ?p <- (pop ?s)
+rule wc-budget : (wc-budget ?s) => (- (@ ?s wc money) (wc-reserve ?s))
+rule food-import-price : (food-import-price ?s) => (+ 10 (tariff food (@ ?s pol trade)))
+
+// Buying: for each of Health, Education, Luxury, the cheapest way to complete
+// one full use (Population tokens) from at most 2 sources, each capped at the
+// Population; choose the cheapest affordable plan (ties: Health, Edu, Luxury).
+rule buy-choice : (buy-choice ?s) => (cheapest (list ?a ?b ?c) none ?bud)
+  where ?bud <- (wc-budget ?s), ?a <- (plan-for health ?s), ?b <- (plan-for edu ?s), ?c <- (plan-for lux ?s)
+rule cheapest-0 : (cheapest (list) ?best ?bud) => ?best
+rule cheapest-none : (cheapest (list none ?xs...) ?best ?bud) => (cheapest (list ?xs...) ?best ?bud)
+rule cheapest-n : (cheapest (list (plan ?r ?c ?ls) ?xs...) ?best ?bud) => (cheapest (list ?xs...) ?nb ?bud)
+  where ?nb <- (if (and (<= ?c ?bud) (cheaper? ?c ?best)) (plan ?r ?c ?ls) ?best)
+rule cheaper?-none : (cheaper? ?c none) => true
+rule cheaper?-plan : (cheaper? ?c (plan ?r ?c2 ?ls)) => (< ?c ?c2)
+rule plan-res : (plan-res (plan ?r ?c ?ls)) => ?r
+rule plan-cost : (plan-cost (plan ?r ?c ?ls)) => ?c
+rule plan-for : (plan-for ?res ?s) => (plan-fill ?res ?need (sources ?res ?s) (pop ?s) (list) 0)
+  where ?need <- (- (pop ?s) (@ ?s wc ?res)), (> ?need 0)
+rule plan-for-none : (plan-for ?res ?s) => none
+rule pf-done : (plan-fill ?res 0 ?srcs ?cap ?ls ?c) => (plan ?res ?c ?ls)
+rule pf-short : (plan-fill ?res ?n (list) ?cap ?ls ?c) => none where (> ?n 0)
+rule pf-n : (plan-fill ?res ?n (list (src ?w ?p ?a) ?rest...) ?cap ?ls ?c) => (plan-fill ?res ?n2 (list ?rest...) ?cap ?ls2 ?c2)
+  where (> ?n 0), ?q <- (min ?n (min ?a ?cap)), ?n2 <- (- ?n ?q), ?c2 <- (+ ?c (* ?q ?p)),
+        ?ls2 <- (if (> ?q 0) (snoc ?ls (line ?w ?q ?p)) ?ls)
+// sources, cheapest first (ties: State, then Capitalist, then Foreign Market)
+rule sources-h : (sources health ?s) => (sort2 (src st (state-price (@ ?s pol health)) (@ ?s st health)) (src cc (@ ?s cc price health) (@ ?s cc health)))
+rule sources-e : (sources edu ?s) => (sort2 (src st (state-price (@ ?s pol edu)) (@ ?s st edu)) (src cc (@ ?s cc price edu) (@ ?s cc edu)))
+rule sources-l : (sources lux ?s) => (sort2 (src cc (@ ?s cc price lux) (@ ?s cc lux)) (src world (+ 6 (tariff lux (@ ?s pol trade))) 999))
+rule sources-f : (sources food ?s) => (sort2 (src cc (@ ?s cc price food) (@ ?s cc food)) (src world (food-import-price ?s) 999))
+rule sort2 : (sort2 (src ?a ?pa ?na) (src ?b ?pb ?nb)) => (if (< ?pb ?pa) (list (src ?b ?pb ?nb) (src ?a ?pa ?na)) (list (src ?a ?pa ?na) (src ?b ?pb ?nb)))
+// executing a plan line: money and goods move together
+rule exec-plan : (exec-plan (plan ?r ?c (list)) ?s) => ?s
+rule exec-plan-n : (exec-plan (plan ?r ?c (list ?l ?ls...)) ?s) => (exec-plan (plan ?r ?c (list ?ls...)) ?s2) where ?s2 <- (buy-line ?r ?l ?s)
+rule buy-st : (buy-line ?r (line st ?q ?p) ?s) => (gmove ?r st wc ?q ?s1) where ?s1 <- (pay wc st (* ?q ?p) sale-st ?s)
+rule buy-cc : (buy-line ?r (line cc ?q ?p) ?s) => (gmove ?r cc wc ?q ?s1) where ?s1 <- (pay wc cc (* ?q ?p) sale-cc ?s)
+rule buy-world : (buy-line ?r (line world ?q ?p) ?s) => (gimp ?r wc ?q ?s2)
+  where ?t <- (tariff ?r (@ ?s pol trade)), ?s1 <- (pay wc world (* ?q (- ?p ?t)) import ?s), ?s2 <- (pay wc st (* ?q ?t) tariff ?s1)
+
+// Bills and political pressure (shared).
+rule wc-bill-choice : (wc-bill-choice ?s) => (first-bill (list labor health edu fiscal) A ?s) where (> (@ ?s wc bills) 0)
+rule wc-bill-none : (wc-bill-choice ?s) => none
+rule cc-bill-choice : (cc-bill-choice ?s) => (first-bill (list labor tax health edu fiscal) C ?s) where (> (@ ?s cc bills) 0)
+rule cc-bill-none : (cc-bill-choice ?s) => none
+rule fb-0 : (first-bill (list) ?goal ?s) => none
+rule fb-n : (first-bill (list ?p ?ps...) ?goal ?s) => (if (and (<> ?sec ?goal) (not (bill-on? ?p (@ ?s bills)))) (bill ?p (step-to ?goal ?sec)) (first-bill (list ?ps...) ?goal ?s))
+  where ?sec <- (@ ?s pol ?p)
+rule step-to-A : (step-to A ?sec) => (toward-a ?sec)
+rule step-to-C : (step-to C ?sec) => (toward-c ?sec)
+rule bill-on-0 : (bill-on? ?p (list)) => false
+rule bill-on-n : (bill-on? ?p (list (bill ?q ?t ?w) ?bs...)) => (if (= ?p ?q) true (bill-on? ?p (list ?bs...)))
+rule propose : (propose (bill ?p ?t) ?who ?s) => (add@ (set@ ?s bills ?bs) ?who bills -1) where ?bs <- (snoc (@ ?s bills) (bill ?p ?t ?who))
+rule pressure : (pressure ?who ?s) => (add@ (add@ ?s ?who cubes -3) bag ?who 3)
+
+// ---- Capitalist Class ------------------------------------------------------
+rule cc-turn : (cc-turn ?k ?s) => ?s3
+  where ?r1 <- (cc-pre ?s), ?r2 <- (cc-main ?k ?r1), ?s3 <- (cc-post ?r2)
+// Free Action: Adjust Prices to the best response (only when they differ).
+rule cc-pre-price : (cc-pre ?s) => (sf used ?s2) where ?t <- (target-prices ?s), (not (eq? ?t (@ ?s cc price))), ?s2 <- (set@ ?s cc price ?t)
+rule cc-pre-n : (cc-pre ?s) => (sf free ?s)
+rule target-prices : (target-prices ?s) => (rec (food (target-price food ?s)) (lux (target-price lux ?s)) (health (target-price health ?s)) (edu (target-price edu ?s)))
+rule tp-food : (target-price food ?s) => (best-price (food-import-price ?s) (price-opts food))
+rule tp-lux : (target-price lux ?s) => (best-price (+ 6 (tariff lux (@ ?s pol trade))) (price-opts lux))
+rule tp-health : (target-price health ?s) => (best-price (state-price (@ ?s pol health)) (price-opts health))
+rule tp-edu : (target-price edu ?s) => (best-price (state-price (@ ?s pol edu)) (price-opts edu))
+// Main Action.
+rule cc-build : (cc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where ?n <- (build-choice ?s), (<> ?n none), ?s2 <- (log (ev (@ ?s round) ?k cc build ?n) (build ?n ?s))
+rule cc-export : (cc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where ?txs <- (export-plan ?s), (not (empty? ?txs)), ?s2 <- (log (ev (@ ?s round) ?k cc export (length ?txs)) (do-export ?txs ?s))
+rule cc-bill : (cc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where ?b <- (cc-bill-choice ?s), (not (eq? ?b none)), ?s2 <- (log (ev (@ ?s round) ?k cc propose ?b) (propose ?b cc ?s))
+rule cc-pressure : (cc-main ?k (sf ?f ?s)) => (sf ?f ?s2)
+  where (>= (@ ?s cc cubes) 3), ?s2 <- (log (ev (@ ?s round) ?k cc pressure) (pressure cc ?s))
+rule cc-pass : (cc-main ?k (sf ?f ?s)) => (sf ?f ?s)
+rule cc-post-repay : (cc-post (sf free ?s)) => (add@ ?s2 cc loans -1)
+  where (> (@ ?s cc loans) 0), (>= (- (+ (@ ?s cc rev) (@ ?s cc cap)) (cc-reserve ?s)) 50), ?s2 <- (pay-c cc world 50 repay ?s)
+rule cc-post : (cc-post (sf ?f ?s)) => ?s
+
+// Reserve: this round's Wages and Employment Tax for the running Companies.
+rule cc-reserve : (cc-reserve ?s) => (+ (wage-bill cc-op ?s) (* (count-ids cc-op ?s) (tm ?s)))
+rule tm : (tm ?s) => (tax-mult (@ ?s pol tax) (@ ?s pol health) (@ ?s pol edu))
+rule local-price-infl : (local-price infl ?s) => 10
+rule local-price : (local-price ?r ?s) => (@ ?s cc price ?r) where (<> ?r infl)
+// Build: the affordable market card that the unemployed can staff at once,
+// with the highest margin  qty x local price - minimum Wage  (must be positive,
+// unless a Demonstration is on the board).
+rule build-choice : (build-choice ?s) => (best-card (@ ?s cc market) none -999 ?s)
+  where (< (count-ids cc ?s) 12)
+rule build-choice-none : (build-choice ?s) => none
+rule bc-0 : (best-card (list) ?b ?m ?s) => ?b
+rule bc-n : (best-card (list ?n ?ns...) ?b ?m ?s) => (if (and (card-ok? ?c ?s) (> ?mc ?m)) (best-card (list ?ns...) ?n ?mc ?s) (best-card (list ?ns...) ?b ?m ?s))
+  where ?c <- (card-of ?n), ?mc <- (margin ?c ?s)
+rule margin : (margin (card ?n ?out ?q ?cost ?w ?sl) ?s) => (- (* ?q (local-price ?out ?s)) (wage-at ?w (min-level (@ ?s pol labor))))
+rule card-ok? : (card-ok? (card ?n ?out ?q ?cost ?w ?sl) ?s) =>
+  (and (<= ?cost (- (+ (@ ?s cc rev) (@ ?s cc cap)) (cc-reserve ?s)))
+  (and (got? (take-crew ?sl (@ ?s wc pool)))
+       (or (@ ?s wc demo) (> (margin (card ?n ?out ?q ?cost ?w ?sl) ?s) 0))))
+rule build : (build ?n ?s) => (demo-check ?s4)
+  where ?c <- (card-of ?n), ?id <- (sym (cat "c" (str (@ ?s cc next-id)))),
+        ?s1 <- (pay cc world (card-cost ?c) capex ?s),
+        ?s2 <- (set@ (add@ ?s1 cc next-id 1) cc market (remove-first ?n (@ ?s1 cc market))),
+        ?s3 <- (set@ ?s2 cos (put@ (@ ?s2 cos) ?id (mk-co ?c cc 0 (min-level (@ ?s2 pol labor)) (list)))),
+        ?s4 <- (staff ?id ?s3)
+rule card-cost : (card-cost (card ?n ?out ?q ?cost ?w ?sl)) => ?cost
+rule rf-0 : (remove-first ?x (list)) => (list)
+rule rf-n : (remove-first ?x (list ?y ?ys...)) => (if (= ?x ?y) (list ?ys...) (prepend ?y (remove-first ?x (list ?ys...))))
+// The Demonstration token goes once the condition no longer holds.
+rule demo-check : (demo-check ?s) => (if (and (@ ?s wc demo) (not (>= (pool-size ?s) (+ 2 (open-slots ?s))))) (set@ ?s wc demo false) ?s)
+
+// Export: every transaction of this round's card (once each) that the stock
+// above a domestic reserve covers. Reserve: Population units of each good,
+// except Food, where this round's own Food production counts towards it.
+rule export-plan : (export-plan ?s) => (ep (export-card (- (@ ?s round) 1)) (stock-above-reserve ?s) (list))
+rule stock-above-reserve : (stock-above-reserve ?s) => (rec
+  (food (pos (- (@ ?s cc food) (pos (- ?p (food-output ?s))))))
+  (lux (pos (- (@ ?s cc lux) ?p))) (health (pos (- (@ ?s cc health) ?p))) (edu (pos (- (@ ?s cc edu) ?p))))
+  where ?p <- (pop ?s)
+rule food-output : (food-output ?s) => (sum (map (food-qty ?s) (ids cc-op ?s)))
+rule app-food-qty : (app (food-qty ?s) ?id) => (if (= (co ?id out ?s) food) (co ?id qty ?s) 0)
+rule ep-0 : (ep (list) ?x ?acc) => ?acc
+rule ep-n : (ep (list (tx ?r ?q ?m) ?ts...) ?x ?acc) => (if (>= (@ ?x ?r) ?q) (ep (list ?ts...) (add@ ?x ?r (- 0 ?q)) (snoc ?acc (tx ?r ?q ?m))) (ep (list ?ts...) ?x ?acc))
+rule do-export-0 : (do-export (list) ?s) => ?s
+rule do-export-n : (do-export (list (tx ?r ?q ?m) ?ts...) ?s) => (do-export (list ?ts...) ?s2)
+  where ?s1 <- (gexp ?r cc ?q ?s), ?s2 <- (pay world cc ?m export ?s1)
+
+// ============================================================================
+// 8. PRODUCTION PHASE  (State -> Capitalist -> Working Class, step by step)
+// ============================================================================
+rule production-phase : (production-phase ?s) => ?s8
+  where ?s0 <- (set@ ?s tax-labor (@ ?s pol labor)),
+        ?s1 <- (each produce (ids pub-op ?s0) ?s0),
+        ?s2 <- (each produce (ids cc-op ?s1) ?s1),
+        ?s3 <- (each uncommit (co-ids ?s2) ?s2),
+        ?s4 <- (demo-resolve ?s3),
+        ?s5 <- (cover-needs ?s4),
+        ?s6 <- (imf-check ?s5),
+        ?s7 <- (taxes ?s6),
+        ?s8 <- ?s7
+// A Company pays its Wage (once, not per Worker) to the Working Class, then
+// produces into its owner's storage up to capacity; the excess is lost.
+rule produce : (do produce ?id ?s) => (gprod ?out ?own ?q ?stored ?s1)
+  where ?own <- (co ?id own ?s), ?out <- (co ?id out ?s), ?q <- (co ?id qty ?s),
+        ?cat <- (wage-cat ?own), ?s1 <- (pay ?own wc (cur-wage ?id ?s) ?cat ?s),
+        ?stored <- (min ?q (pos (- (capacity ?own ?out ?s1) (@ ?s1 ?own ?out))))
+rule wage-cat-cc : (wage-cat cc) => wage-cc
+rule wage-cat-st : (wage-cat st) => wage-pub
+rule cap-cc-food : (capacity cc food ?s) => 8
+rule cap-cc-infl : (capacity cc infl ?s) => 99999
+rule cap-cc-x : (capacity cc ?r ?s) => 12 where (<> ?r food), (<> ?r infl)
+// Public Services: production of the available Public Companies + 6.
+rule cap-st : (capacity st ?r ?s) => (+ 6 (sum (map (pub-qty ?r ?s) (ids pub-active ?s))))
+rule app-pub-qty : (app (pub-qty ?r ?s) ?id) => (if (= (co ?id out ?s) ?r) (co ?id qty ?s) 0)
+rule uncommit : (do uncommit ?id ?s) => (set@ ?s cos ?id committed false)
+// Demonstration still on the board: +1 Influence to the Working Class; the
+// Capitalist loses VP = unemployed Workers, capped by its empty Company spaces.
+rule demo-resolve-y : (demo-resolve ?s) => (log (ev (@ ?s round) 0 wc demo-penalty ?l) ?s2)
+  where (@ ?s wc demo), ?l <- (min (pool-size ?s) (- 12 (count-ids cc ?s))),
+        ?s2 <- (set@ (add@ (gimp infl wc 1 ?s) cc vp (- 0 ?l)) wc demo false)
+rule demo-resolve-n : (demo-resolve ?s) => ?s
+// Cover Needs: Food = Population, mandatory, cheapest source first, any number
+// of sources (Capitalist storage, then/or the Foreign Market).
+rule cover-needs : (cover-needs ?s) => (food-from (sources food ?s) (pop ?s) ?s)
+rule ff-0 : (food-from ?srcs 0 ?s) => ?s
+rule ff-n : (food-from (list (src ?w ?p ?a) ?rest...) ?n ?s) => (food-from (list ?rest...) ?n2 ?s2)
+  where (> ?n 0), ?q <- (min ?n ?a), ?n2 <- (- ?n ?q), ?s2 <- (eat ?w ?q ?p ?s)
+rule eat-0 : (eat ?w 0 ?p ?s) => ?s
+rule eat-cc : (eat cc ?q ?p ?s) => (guse food wc ?q (gmove food cc wc ?q ?s1)) where (> ?q 0), ?s1 <- (pay wc cc (* ?q ?p) sale-cc ?s)
+rule eat-world : (eat world ?q ?p ?s) => (guse food wc ?q (gimp food wc ?q ?s2))
+  where (> ?q 0), ?t <- (tariff food (@ ?s pol trade)), ?s1 <- (pay wc world (* ?q (- ?p ?t)) import ?s), ?s2 <- (pay wc st (* ?q ?t) tariff ?s1)
+
+// Taxes. Working Class: rate(Labor Market when paid, Taxation) x Population.
+// Capitalist: Employment Tax = operational Companies x Tax Multiplier, then
+// Corporate Tax on the Revenue that remains.
+rule taxes : (taxes ?s) => ?s3
+  where ?s1 <- (pay wc st (* (pop ?s) (income-rate (@ ?s tax-labor) (@ ?s pol tax))) tax-wc ?s),
+        ?s2 <- (pay cc st (* (count-ids cc-op ?s1) (tm ?s1)) tax-emp ?s1),
+        ?s3 <- (pay cc st (corp-tax (@ ?s2 pol tax) (@ ?s2 cc rev)) tax-corp ?s2)
+
+// ============================================================================
+// 9. POLICY EFFECTS AND THE IMF
+// ============================================================================
+rule set-policy-same : (set-policy ?p ?new ?s) => ?s where (= (@ ?s pol ?p) ?new)
+rule set-policy : (set-policy ?p ?new ?s) => (reprice (policy-effect ?p ?old ?new ?s1))
+  where ?old <- (@ ?s pol ?p), ?s1 <- (log (ev (@ ?s round) 0 policy ?p ?old ?new) (set@ ?s pol ?p ?new))
+// prices follow every policy change (the Capitalist may adjust immediately)
+rule reprice : (reprice ?s) => (set@ ?s cc price (target-prices ?s))
+// Fiscal Policy: open rows are bought for 60 each (Workers auto-assigned when
+// the pool can staff them); closed rows are sold for 60, their Workers laid off
+// even if committed, and Public Services above the new capacity discarded.
+rule pe-fiscal : (policy-effect fiscal ?old ?new ?s) => (fiscal-move ?r0 ?r1 ?s)
+  where ?r0 <- (fiscal-rows ?old), ?r1 <- (fiscal-rows ?new)
+rule fm-same : (fiscal-move ?a ?a ?s) => ?s
+rule fm-open : (fiscal-move ?a ?b ?s) => (fiscal-move ?a1 ?b ?s2)
+  where (< ?a ?b), ?a1 <- (+ ?a 1), ?s1 <- (pay st world 60 capex ?s), ?s2 <- (each autostaff (ids (row ?a1) ?s1) ?s1)
+rule fm-close : (fiscal-move ?a ?b ?s) => (fiscal-move ?a1 ?b ?s3)
+  where (> ?a ?b), ?a1 <- (- ?a 1), ?s1 <- (each unstaff-do (ids (row ?a) ?s) ?s),
+        ?s2 <- (pay world st 60 divest ?s1), ?s3 <- (trim-public ?a1 ?s2)
+rule autostaff : (do autostaff ?id ?s) => (if (can-staff? ?id ?s) (staff ?id ?s) ?s)
+rule unstaff-do : (do unstaff-do ?id ?s) => (unstaff ?id ?s)
+// trim to the capacity of the remaining rows (evaluated with the new policy)
+rule trim-public : (trim-public ?rows ?s) => (each trim (list health edu infl) ?s)
+rule trim : (do trim ?r ?s) => (gdiscard ?r st ?x ?s) where ?x <- (pos (- (@ ?s st ?r) (capacity st ?r ?s)))
+// Labor Market: Wages below the new minimum rise to it; the Capitalist lowers
+// every uncommitted Company to the minimum; the passive State always pays it.
+rule pe-labor : (policy-effect labor ?old ?new ?s) => (each (relevel (min-level ?new)) (co-ids ?s) ?s)
+rule relevel : (do (relevel ?m) ?id ?s) => (set@ ?s cos ?id lvl ?l)
+  where ?cur <- (co ?id lvl ?s), ?l <- (if (or (< ?cur ?m) (or (= (co ?id own ?s) st) (= (co ?id committed ?s) false))) ?m ?cur)
+rule pe-other : (policy-effect ?p ?old ?new ?s) => ?s where (<> ?p fiscal), (<> ?p labor)
+
+// Check IMF: the State may first repay Loans at 55 each; if it still holds at
+// least the Fiscal Policy's limit, the IMF intervenes.
+rule imf-check : (imf-check ?s) => (imf-check2 ?s1) where ?s1 <- (imf-repay ?s)
+rule imf-repay-y : (imf-repay ?s) => (imf-repay ?s2)
+  where (>= (@ ?s st loans) (imf-limit (@ ?s pol fiscal))), (>= (@ ?s st treasury) 55),
+        ?s2 <- (add@ (pay st world 55 repay ?s) st loans -1)
+rule imf-repay-n : (imf-repay ?s) => ?s
+rule imf-check2 : (imf-check2 ?s) => (if (>= (@ ?s st loans) (imf-limit (@ ?s pol fiscal))) (imf ?s) ?s)
+rule imf-profile : (imf-profile) => (list (fiscal C) (labor C) (tax A) (health B) (edu C) (trade B) (immig B))
+rule imf : (imf ?s) => (imf-settle ?s2)
+  where ?s0 <- (log (ev (@ ?s round) 0 imf (@ ?s st loans)) (refund-bills (@ ?s bills) ?s)),
+        ?s1 <- (set@ ?s0 bills (list)),
+        ?s2 <- (each impose (imf-profile) ?s1)
+rule impose : (do impose (?p ?sec) ?s) => (set-policy ?p ?sec ?s)
+// each discarded Bill: its marker returns and its proposer gains 1 Influence
+rule refund-0 : (refund-bills (list) ?s) => ?s
+rule refund-n : (refund-bills (list (bill ?p ?t ?w) ?bs...) ?s) => (refund-bills (list ?bs...) ?s2)
+  where ?s2 <- (add@ (gimp infl ?w 1 ?s) ?w bills 1)
+// the State repays what it can at 55 per Loan; the rest is written off
+rule imf-settle-y : (imf-settle ?s) => (imf-settle ?s2)
+  where (> (@ ?s st loans) 0), (>= (@ ?s st treasury) 55), ?s2 <- (add@ (pay st world 55 repay ?s) st loans -1)
+rule imf-settle-n : (imf-settle ?s) => (set@ (add@ ?s st writeoff (@ ?s st loans)) st loans 0)
+
+// ============================================================================
+// 10. ELECTIONS
+// ============================================================================
+rule election-phase-skip : (election-phase ?s) => ?s where (empty? (@ ?s bills))
+rule election-phase : (election-phase ?s) => (vote-all (list fiscal labor tax health edu trade immig) ?s1)
+  where ?s1 <- (refill-bag ?s)
+rule refill-bag : (refill-bag ?s) => (add@ (add-cubes cc ?c (add-cubes wc ?w ?s)) bag mc 5)
+  where ?w <- (ceil-half (pop ?s)), ?c <- (ceil-half (count-ids cc-op ?s))
+rule add-cubes : (add-cubes ?who ?n ?s) => (add@ (add@ ?s ?who cubes ?nk) bag ?who ?k)
+  where ?k <- (min ?n (@ ?s ?who cubes)), ?nk <- (- 0 ?k)
+rule vote-all-0 : (vote-all (list) ?s) => ?s
+rule vote-all-n : (vote-all (list ?p ?ps...) ?s) => (vote-all (list ?ps...) ?s2)
+  where ?b <- (find-bill ?p (@ ?s bills)), ?s2 <- (if (eq? ?b none) ?s (vote ?b ?s))
+rule find-bill-0 : (find-bill ?p (list)) => none
+rule find-bill-n : (find-bill ?p (list (bill ?q ?t ?w) ?bs...)) => (if (= ?p ?q) (bill ?q ?t ?w) (find-bill ?p (list ?bs...)))
+rule other-0 : (other wc) => cc
+rule other-1 : (other cc) => wc
+// Preferences: the Working Class favours moves toward A, the Capitalist toward C.
+rule favors-wc : (favors? wc ?from ?to) => (leftward ?from ?to)
+rule favors-cc : (favors? cc ?from ?to) => (leftward ?to ?from)
+// Draw 5 cubes with the deterministic generator `rng` (seeded in the state).
+rule draw : (draw ?n ?acc ?s) => (drawn ?acc ?s) where (or (= ?n 0) (= (sum@ (@ ?s bag)) 0))
+rule draw-n : (draw ?n ?acc ?s) => (draw ?n1 ?acc2 ?s2)
+  where ?n1 <- (- ?n 1), ?seed <- (rng (@ ?s seed)), ?i <- (mod ?seed (sum@ (@ ?s bag))),
+        ?col <- (pick-color ?i (@ ?s bag)), ?acc2 <- (add@ ?acc ?col 1),
+        ?s2 <- (add@ (set@ ?s seed ?seed) bag ?col -1)
+rule pick-color : (pick-color ?i ?bag) => (if (< ?i (@ ?bag wc)) wc (if (< ?i (+ (@ ?bag wc) (@ ?bag cc))) cc mc))
+rule vote : (vote (bill ?p ?t ?who) ?s) => ?s3
+  where ?opp <- (other ?who), ?from <- (@ ?s pol ?p), ?agree <- (favors? ?opp ?from ?t),
+        ?d <- (draw 5 (rec (wc 0) (cc 0) (mc 0)) ?s),
+        ?s2 <- (tally ?p ?t ?who ?opp ?agree ?d),
+        ?s3 <- (add@ (set@ ?s2 bills (remove-bill ?p (@ ?s2 bills))) ?who bills 1)
+rule remove-bill-0 : (remove-bill ?p (list)) => (list)
+rule remove-bill-n : (remove-bill ?p (list (bill ?q ?t ?w) ?bs...)) => (if (= ?p ?q) (list ?bs...) (prepend (bill ?q ?t ?w) (remove-bill ?p (list ?bs...))))
+// Unanimous: passes; all drawn cubes are discarded; supporters who drew a cube +1 VP.
+rule tally-unanimous : (tally ?p ?t ?who ?opp true (drawn ?c ?s)) => (pass ?p ?t ?who ?s3)
+  where ?s1 <- (add@ (add@ ?s ?who cubes (@ ?c ?who)) ?opp cubes (@ ?c ?opp)),
+        ?s2 <- (if (> (@ ?c ?opp) 0) (add@ ?s1 ?opp vp 1) ?s1),
+        ?s3 <- (log (ev (@ ?s round) 0 vote ?p ?t ?who pass (@ ?c ?who) (@ ?c ?opp) 0 0) ?s2)
+// Contested: each side commits the least Influence that guarantees its result
+// against the other's whole Influence, or nothing if no amount guarantees it.
+rule tally-contest : (tally ?p ?t ?who ?opp false (drawn ?c ?s)) => (settle ?p ?t ?who ?opp ?pv ?ov ?x ?y ?s)
+  where ?pv <- (@ ?c ?who), ?ov <- (@ ?c ?opp), ?ip <- (@ ?s ?who infl), ?io <- (@ ?s ?opp infl),
+        ?x <- (commit (- (+ ?ov ?io) ?pv) ?ip), ?y <- (commit (- (+ (+ ?pv ?ip) 1) ?ov) ?io)
+rule commit : (commit ?need ?have) => (if (<= ?need 0) 0 (if (<= ?need ?have) ?need 0))
+rule settle : (settle ?p ?t ?who ?opp ?pv ?ov ?x ?y ?s) => ?s4
+  where ?win <- (>= (+ ?pv ?x) (+ ?ov ?y)),
+        ?s1 <- (guse infl ?opp ?y (guse infl ?who ?x ?s)),
+        ?s2 <- (if ?win (add@ (add@ ?s1 ?who cubes ?pv) bag ?opp ?ov) (add@ (add@ ?s1 ?opp cubes ?ov) bag ?who ?pv)),
+        ?s3 <- (log (ev (@ ?s round) 0 vote ?p ?t ?who (if ?win pass fail) ?pv ?ov ?x ?y) ?s2),
+        ?s4 <- (if ?win (pass ?p ?t ?who ?s3) ?s3)
+rule pass : (pass ?p ?t ?who ?s) => (add@ ?s1 ?who vp 3) where ?s1 <- (set-policy ?p ?t ?s)
+
+// ============================================================================
+// 11. SCORING, ROUNDS, GAME END
+// ============================================================================
+rule scoring-phase : (scoring-phase ?s) => (add@ (set@ (set@ ?s1 cc vp ?vp) cc wmark (max ?w ?i)) round 1)
+  where ?s1 <- (set@ (add@ ?s cc cap (@ ?s cc rev)) cc rev 0),
+        ?i <- (wealth-idx (@ ?s1 cc cap)), ?w <- (@ ?s1 cc wmark),
+        ?vp <- (+ (@ ?s1 cc vp) (+ ?i (* 3 (pos (- ?i ?w)))))
+// One round. Preparation is skipped in round 1; after round 5 the game ends.
+rule play-round : (play-round !s) => ?s7
+  where ?s1 <- (if (= (@ ?s round) 1) ?s (prep-phase ?s)),
+        ?s2 <- (action-phase 1 ?s1),
+        ?s3 <- (production-phase ?s2),
+        ?s4 <- (election-phase ?s3),
+        ?s5 <- (scoring-phase ?s4),
+        ?s6 <- (snapshot ?s5),
+        ?s7 <- (if (> (@ ?s6 round) 5) (game-end ?s6) ?s6)
+rule play-rounds-0 : (play-rounds 0 ?s) => ?s
+rule play-rounds-n : (play-rounds ?n !s) => (play-rounds ?n1 ?s1) where (> ?n 0), ?n1 <- (- ?n 1), ?s1 <- (play-round ?s)
+rule play-game : (play-game !s) => (play-rounds 5 ?s)
+
+rule game-end : (game-end ?s) => (log (ev 5 0 end) ?s5)
+  where ?s1 <- (add@ ?s cc vp (* -5 (@ ?s cc loans))),
+        ?s2 <- (wc-settle-loans ?s1),
+        ?a <- (count-sec A ?s2), ?c <- (count-sec C ?s2),
+        ?s3 <- (add@ (add@ ?s2 wc vp (pol-bonus ?a)) cc vp (pol-bonus ?c)),
+        ?s4 <- (add@ ?s3 wc vp (min 15 (/ (@ ?s3 wc money) 10))),
+        ?s5 <- (add@ ?s4 cc vp (+ (/ (@ ?s4 cc food) 2) (+ (/ (@ ?s4 cc lux) 3) (+ (/ (@ ?s4 cc health) 3) (/ (@ ?s4 cc edu) 3)))))
+rule count-sec : (count-sec ?x ?s) => (count-if (is-sec ?x ?s) (list fiscal labor tax health edu))
+rule app-is-sec : (app (is-sec ?x ?s) ?p) => (= (@ ?s pol ?p) ?x)
+// Working Class Loans: 55 each, paid in steps of 5; -1 VP per 5 left unpaid.
+rule wc-settle-loans : (wc-settle-loans ?s) => (set@ (add@ ?s1 wc vp (- 0 (/ (- ?due ?paid) 5))) wc loans 0)
+  where ?due <- (* 55 (@ ?s wc loans)), ?paid <- (min ?due (* 5 (/ (@ ?s wc money) 5))),
+        ?s1 <- (pay wc world ?paid repay ?s)
+
+// A one-line summary of the economy after each round.
+rule snapshot : (snapshot ?s) => (set@ ?s hist ?h)
+  where ?h <- (snoc (@ ?s hist) (rec (round (- (@ ?s round) 1))
+     (wc-vp (@ ?s wc vp)) (cc-vp (@ ?s cc vp)) (wc-money (@ ?s wc money)) (cc-cap (@ ?s cc cap))
+     (treasury (@ ?s st treasury)) (workers (@ ?s wc workers)) (pop (pop ?s)) (unemployed (pool-size ?s))
+     (prosp (@ ?s wc prosp)) (cc-cos (count-ids cc ?s)) (wages-cum (- 0 (+ (@ ?s flows wage-cc cc) (@ ?s flows wage-pub st))))
+     (wc-loans (@ ?s wc loans)) (cc-loans (@ ?s cc loans)) (st-loans (@ ?s st loans))
+     (policy (pol-word ?s))))
+rule pol-word : (pol-word ?s) => (sym (cat (str (@ ?s pol fiscal)) (cat (str (@ ?s pol labor)) (cat (str (@ ?s pol tax)) (cat (str (@ ?s pol health)) (cat (str (@ ?s pol edu)) (cat (str (@ ?s pol trade)) (str (@ ?s pol immig)))))))))
+
+// All invariants at once (used after every round by the programs).
+rule invariants : (invariants? !s) => (and (= (money-total ?s) 0) (and (rows-balanced? ?s) (and (all-goods-balanced? ?s) (labor-balanced? ?s))))
+
+// ============================================================================
+// 12. RENDERING (for `display`)
+// ============================================================================
+// cellstr renders ANY value, so it must force its argument first (`!v`):
+// otherwise its list case would print a pending call instead of its value.
+rule cell : (cell ?v ?w) => (padl (cellstr ?v) ?w)
+rule cellstr : (cellstr !v) => (cellstr-v ?v)
+rule cellstr-l : (cellstr-v (?h ?t...)) => (shw (?h ?t...))
+rule cellstr-a : (cellstr-v ?v) => (str ?v)
+rule lcell : (lcell ?v ?w) => (padr (cellstr ?v) ?w)
+rule cells-0 : (cells (list) ?w) => ""
+rule cells-n : (cells (list ?x ?xs...) ?w) => (cat (cell ?x ?w) (cells (list ?xs...) ?w))
+rule lines-0 : (lines (list)) => ""
+rule lines-n : (lines (list ?x ?xs...)) => (cat ?x (cat "\n" (lines (list ?xs...))))
+rule rule-line : (rule-line ?n) => (repeat-str ?n "-")
+rule check-mark : (check-mark true) => "holds"
+rule check-mark-f : (check-mark false) => "VIOLATED"
+
+// Per-round history table + VP race chart + unemployment chart.
+rule hist-keys : (hist-keys) => (list round wc-vp cc-vp wc-money cc-cap treasury pop unemployed prosp cc-cos wc-loans cc-loans st-loans policy)
+rule hist-table : (hist-table ?s) => (lines (prepend (cells (list rnd WC-VP CC-VP WC-$ CC-cap State-$ pop unemp prosp CC-cos WC-L CC-L St-L) 8) (prepend (rule-line 112) (map (hist-row) (@ ?s hist)))))
+rule app-hist-row : (app (hist-row) ?r) => (cat (cells (list (@ ?r round) (@ ?r wc-vp) (@ ?r cc-vp) (@ ?r wc-money) (@ ?r cc-cap) (@ ?r treasury) (@ ?r pop) (@ ?r unemployed) (@ ?r prosp) (@ ?r cc-cos) (@ ?r wc-loans) (@ ?r cc-loans) (@ ?r st-loans)) 8) (cat "   " (str (@ ?r policy))))
+rule hseries : (hseries ?k ?tag ?div ?s) => (hs ?k ?div (@ ?s hist) (?tag))
+rule hs-0 : (hs ?k ?d (list) ?acc) => ?acc
+rule hs-n : (hs ?k ?d (list ?r ?rs...) (?tag ?vs...)) => (hs ?k ?d (list ?rs...) (?tag ?vs... ?v)) where ?v <- (/ (pos (@ ?r ?k)) ?d)
+
+rule dashboard : (dashboard (economy ?s)) => (dashboard-s ?s)
+rule ledger-of : (ledger-of (economy ?s)) => (cat (ledger-view ?s) (cat "\n\n" (goods-view ?s)))
+rule dashboard-s : (dashboard-s ?s) => (lines (list
+  (cat "HEGEMONY (2 players) -- after round " (cat (str (- (@ ?s round) 1)) (if (> (@ ?s round) 5) " of 5: GAME OVER" " of 5")))
+  (cat "policies  Fiscal Labor Tax Health Edu Trade Immig = " (str (pol-word ?s)))
+  (cat "VP        Working Class " (cat (str (@ ?s wc vp)) (cat "   Capitalist Class " (str (@ ?s cc vp)))))
+  ""
+  (hist-table ?s)
+  ""
+  "VP race (o = Working Class, x = Capitalist Class; 1 row = 6 VP), one column per round"
+  (overlay (hseries wc-vp sa 6 ?s) (hseries cc-vp sb 6 ?s) 10)
+  "Unemployed Workers per round"
+  (colplot (hseries unemployed series 1 ?s) 12)
+  (cat "invariants: money conserved " (cat (check-mark (= (money-total ?s) 0)) (cat ", flow rows balanced " (cat (check-mark (rows-balanced? ?s)) (cat ", goods balanced " (cat (check-mark (all-goods-balanced? ?s)) (cat ", labor balanced " (check-mark (labor-balanced? ?s)))))))))))
+
+// The transactions-flow matrix (Godley table): one row per flow category,
+// one column per sector; every row sums to zero, and each column's total is
+// that sector's net change in money over the game.
+rule ledger-view : (ledger-view ?s) => (lines (list
+  (cat (lcell category 10) (cells (list WC CC State World row-sum) 9))
+  (rule-line 55)
+  (lines (map (ledger-row ?s) (flow-cats)))
+  (rule-line 55)
+  (cat (lcell column 10) (cells (list (col-sum wc ?s) (col-sum cc ?s) (col-sum st ?s) (col-sum world ?s) 0) 9))
+  (cat (lcell balance0 10) (cells (list (- (@ ?s wc money) (col-sum wc ?s)) (- (+ (@ ?s cc rev) (@ ?s cc cap)) (col-sum cc ?s)) (- (@ ?s st treasury) (col-sum st ?s)) (- (@ ?s world) (col-sum world ?s)) 0) 9))
+  (cat (lcell balance 10) (cells (list (@ ?s wc money) (+ (@ ?s cc rev) (@ ?s cc cap)) (@ ?s st treasury) (@ ?s world) (money-total ?s)) 9))))
+rule app-ledger-row : (app (ledger-row ?s) ?c) => (cat (lcell ?c 10) (cells (list (@ ?r wc) (@ ?r cc) (@ ?r st) (@ ?r world) (sum@ ?r)) 9)) where ?r <- (@ ?s flows ?c)
+rule goods-view : (goods-view ?s) => (lines (list
+  (cat (lcell good 8) (cells (list start +prod +import -used -export -lost =held check) 9))
+  (rule-line 89)
+  (lines (map (goods-row ?s) (list food lux health edu infl)))))
+rule app-goods-row : (app (goods-row ?s) ?g) => (cat (lcell ?g 8) (cells (list (@ ?s goods0 ?g) (@ ?r prod) (@ ?r imp) (@ ?r use) (@ ?r exp) (@ ?r lost) (goods-now ?g ?s) (if (goods-balanced? ?g ?s) ok BAD)) 9))
+  where ?r <- (@ ?s gstat ?g)
+
+// Strict structural equality and printing: `equal?` and `shw` match ANY term
+// on sight, so they must only ever see values. These force both sides first.
+rule eq? : (eq? !a !b) => (equal? ?a ?b)
+rule shw-v : (shw-v !x) => (shw ?x)

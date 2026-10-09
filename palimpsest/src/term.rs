@@ -10,16 +10,31 @@
 //! Any other symbol is a literal that must match verbatim.
 
 use std::fmt;
+use std::rc::Rc;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Term {
     Sym(String),
     Int(i64),
     Str(String),
-    List(Vec<Term>),
+    /// An exact number that is not an i64 integer: a non-integer rational or
+    /// an integer outside the i64 range (see `num.rs` for the invariant that
+    /// keeps `Int` and `Num` disjoint, so equality stays structural).
+    Num(Rc<num_rational::BigRational>),
+    /// Lists are reference-counted and immutable: cloning a term is O(1) in
+    /// its size, so a large model state can be passed through thousands of
+    /// rewrite steps (bound by matching, copied into right-hand sides, rebuilt
+    /// along one path by `oncetd`) without ever deep-copying the parts that
+    /// did not change. Equality is still structural.
+    List(Rc<Vec<Term>>),
 }
 
 impl Term {
+    /// Build a list term.
+    pub fn list(items: Vec<Term>) -> Term {
+        Term::List(Rc::new(items))
+    }
+
     /// Is this symbol a term variable like `?x` (but not a sequence variable)?
     pub fn as_term_var(&self) -> Option<&str> {
         if let Term::Sym(s) = self {
@@ -69,6 +84,7 @@ impl fmt::Display for Term {
         match self {
             Term::Sym(s) => write!(f, "{}", s),
             Term::Int(n) => write!(f, "{}", n),
+            Term::Num(q) => write!(f, "{}", crate::num::fmt_rat(q)),
             Term::Str(s) => {
                 write!(f, "\"")?;
                 for c in s.chars() {
@@ -156,10 +172,10 @@ fn lex(input: &str) -> Result<Vec<Tok>, String> {
 }
 
 fn atom_to_term(a: &str) -> Term {
-    if let Ok(n) = a.parse::<i64>() {
-        Term::Int(n)
-    } else {
-        Term::Sym(a.to_string())
+    // i64 first (the common case), then big integers and `n/d` rationals.
+    match crate::num::parse_num(a) {
+        Some(t) => t,
+        None => Term::Sym(a.to_string()),
     }
 }
 
@@ -181,7 +197,7 @@ fn parse_from(toks: &[Tok], pos: &mut usize) -> Result<Term, String> {
                 }
                 items.push(parse_from(toks, pos)?);
             }
-            Ok(Term::List(items))
+            Ok(Term::list(items))
         }
         Tok::Close => Err("unexpected ')'".into()),
         Tok::Atom(a) => {

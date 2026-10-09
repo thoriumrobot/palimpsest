@@ -1,0 +1,70 @@
+#lang palimpsest
+// dialectics.pal -- Structural Dialectics (the "Structural Dialectics" post,
+// draft 8) as exact rewrite rules: possibility, viability and the
+// counterfactual, necessity, Bayesian support and warrant, realization,
+// synthesis, Phase Inversion, and the diagnostic taxonomy.
+//
+// A period of an incumbent is described by
+//   (per T PHI POSS D PRIOR L1 L0 PCRIT)
+//     T      the period index
+//     PHI    viability Phi(Omega_t) (boundary fixed at 0)
+//     POSS   true iff the candidate x is admissible (x in A_t)
+//     D      d_t(x) >= 0, the modeled contribution of candidate-associated
+//            mechanisms already active:  Phi(Omega_t | not x) = PHI - D
+//     PRIOR  P(x | Omega_t);  L1 = P(D | x), L0 = P(D | not x)
+//     PCRIT  the warrant threshold
+// (`none` in PRIOR means no Bayesian assessment is made in that period.)
+// A transition is (trans T SUCC-PHIS): synthesis evaluated on the edge
+// T -> T+1, with the successor's viability path SUCC-PHIS starting at T+1.
+import "linalg.pal"
+
+rule per-t : (per-t (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => ?t
+rule per-phi : (per-phi (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => ?phi
+rule per-poss : (per-poss (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => ?poss
+rule per-d : (per-d (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => ?d
+// --- viability and the counterfactual ---
+rule viable? : (viable? !p) => (> (per-phi ?p) 0)
+rule counterfactual : (counterfactual !p) => (- (per-phi ?p) (per-d ?p))
+// --- possibility, necessity, Phase Inversion ---
+rule poss? : (poss? !p) => (per-poss ?p)
+rule nec? : (nec? !p) => (and (poss? ?p) (and (viable? ?p) (<= (counterfactual ?p) 0)))
+rule phase-inversion? : (phase-inversion? !p) => (and (not (viable? ?p)) (poss? ?p))
+// --- Bayesian support and warrant ---
+rule posterior : (posterior (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => (q/ (* ?l1 ?pr) (+ (* ?l1 ?pr) (* ?l0 (- 1 ?pr)))) where (number? ?pr)
+rule posterior-none : (posterior (per ?t ?phi ?poss ?d none ?l1 ?l0 ?pc)) => none
+rule warr? : (warr? !p) => (warr-go ?p (posterior ?p))
+rule warr-go-none : (warr-go ?p none) => false
+rule warr-go : (warr-go (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc) ?post) => (and (or (nec? (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) (phase-inversion? (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc))) (>= ?post ?pc)) where (number? ?post)
+// the smallest prior that yields warrant (when the structural condition holds):
+// posterior >= PCRIT  <=>  prior >= PCRIT L0 / (PCRIT L0 + (1 - PCRIT) L1)
+rule prior-threshold : (prior-threshold !l1 !l0 !pc) => (q/ (* ?pc ?l0) (+ (* ?pc ?l0) (* (- 1 ?pc) ?l1)))
+// --- the diagnostic taxonomy (before synthesis) ---
+rule diagnosis : (diagnosis !p) => (if (viable? ?p) (if (nec? ?p) instability stasis) (if (poss? ?p) phase-inversion nonviable-incumbent))
+// --- realization and synthesis on an edge t -> t+1 ---
+// Real_t(x): the transition is enabled on this edge and the successor actually
+// produced equals the predicted one (here: the successor path supplied is the
+// one the transition rule generates, so Real reduces to "scheduled").
+rule syn? : (syn? !p !scheduled !succ-phi) => (and (warr? ?p) (and ?scheduled (> ?succ-phi 0)))
+// --- running a whole example: (example PERIODS TRANS-T SUCC-PHIS) ---
+// returns the per-period table (dg T PHI CF DIAG POST WARR SYN) up to the
+// transition edge, then the successor's periods (succ T PHI)
+rule run-example : (run-example !pers !tt !succ) => (append ?inc ?suc)
+  where ?inc <- (smap (incumbent-row ?tt ?succ) (sfilter (upto ?tt) ?pers)), ?suc <- (succ-rows (+ ?tt 1) ?succ)
+rule app-upto : (app (upto ?tt) ?p) => (<= (per-t ?p) ?tt)
+rule app-incumbent-row : (app (incumbent-row ?tt ?succ) ?p) => (dg (per-t ?p) (per-phi ?p) (counterfactual ?p) (diagnosis ?p) (posterior ?p) (warr? ?p) ?syn)
+  where ?syn <- (if (= (per-t ?p) ?tt) (syn? ?p true (nth 0 ?succ)) false)
+rule succ-rows : (succ-rows !t !phis) => (sr-go ?t ?phis (list))
+rule sr-go-0 : (sr-go ?t (list) ?acc) => ?acc
+rule sr-go-n : (sr-go ?t (list ?x ?xs...) (list ?acc...)) => (sr-go ?t1 (list ?xs...) (list ?acc... (succ ?t ?x))) where ?t1 <- (+ ?t 1)
+// --- the post's §8 verification list, as one predicate over a run ---
+//  counterfactual = Phi - d; possibility and viability hold when necessity is
+//  reported; warrant only with the threshold met and Nec or Phase Inversion;
+//  synthesis only with warrant and a viable successor; the successor is the
+//  current state after the transition (its rows carry no incumbent diagnosis)
+rule verify-run : (verify-run !pers !rows) => (sall (row-ok ?pers) ?rows)
+rule app-row-ok-succ : (app (row-ok ?pers) (succ ?t ?x)) => true
+rule app-row-ok : (app (row-ok ?pers) (dg ?t ?phi ?cf ?diag ?post ?w ?syn)) => (and (= ?cf (- ?phi (per-d ?p))) (and (if (= ?diag instability) (and (poss? ?p) (viable? ?p)) true)
+    (and (if ?w (and (number? ?post) (and (>= ?post (pc-of ?p)) (or (nec? ?p) (phase-inversion? ?p)))) true) (if ?syn ?w true))))
+  where ?p <- (find-per ?t ?pers)
+rule pc-of : (pc-of (per ?t ?phi ?poss ?d ?pr ?l1 ?l0 ?pc)) => ?pc
+rule find-per : (find-per !t (list ?p ?ps...)) => (if (= (per-t ?p) ?t) ?p (find-per ?t (list ?ps...)))

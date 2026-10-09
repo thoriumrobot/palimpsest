@@ -1,0 +1,70 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 4000000000
+#caps { rewrite: [self] }
+#rebind main
+#memo
+// THE INTEGRATED ECONOMY AS A SELF-REWRITING PROGRAM (MATERIALIST-ECONOMY.md §6)
+// The file's `main` holds the state of the same economy under three regimes
+// -- capitalism, capitalism under the Cold War (which ends in period 30), and
+// accountable planning -- plus a compact history. Each run fires the
+// transition `crank` once: ten periods of every regime, each period the
+// equation chain of lib/polecon.pal. After period 60 the guard fails, the
+// rewrite is the identity, and the file is a byte-identical quine: the fixed
+// point certifies that the simulation is finished. Every run re-checks the
+// invariants below on the history so far.
+//
+//   cp examples/me-economy.pal /tmp/e.pal
+//   for i in 1 2 3 4 5 6 7; do palimpsest /tmp/e.pal; done   # 6x WROTE, then FIXED POINT
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+// a compact history row, rounded to 1/10000 for display (the state itself is exact)
+rule crow : (crow (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => (h ?t ?m (round-to ?u 10000) (round-to ?rad 10000) (round-to ?phi 10000) (round-to ?ce 10000) ?gov ?cr)
+rule app-crow : (app crow ?r) => (crow ?r)
+rule advance1 : (advance1 !s !rows !n) => (adv (pe-run ?s (pe-par) ?n) ?rows)
+rule adv : (adv (traj ?s2 ?new) (list ?old...)) => (pair ?s2 (append (list ?old...) (smap crow ?new)))
+transition crank : (economy ?cap ?cold ?ap) => (economy (st ?c1 ?hc) (st ?w1 ?hw) (st ?a1 ?ha))
+  where (< (st-t ?cap) 60),
+        ?pc <- (advance1 (st-s ?cap) (st-h ?cap) 10), ?c1 <- (fst ?pc), ?hc <- (snd ?pc),
+        ?pw <- (advance1 (st-s ?cold) (st-h ?cold) 10), ?w1 <- (fst ?pw), ?hw <- (snd ?pw),
+        ?pa <- (advance1 (st-s ?ap) (st-h ?ap) 10), ?a1 <- (fst ?pa), ?ha <- (snd ?pa)
+rule st-s : (st-s (st ?s ?h)) => ?s
+rule st-h : (st-h (st ?s ?h)) => ?h
+rule st-t : (st-t (st ?s ?h)) => (@ ?s t)
+// ---- the dashboard ----
+rule h-u : (app h-u (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?u
+rule h-rad : (app h-rad (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?rad
+rule h-phi : (app h-phi (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?phi
+rule h-ce : (app h-ce (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?ce
+rule h-gov : (app h-gov (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?gov
+rule h-cr : (app h-cr (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => ?cr
+rule block : (block ?name (st ?s ?h)) => (lines (list
+  (cat (padr ?name 22) (cat "period " (str (@ ?s t))))
+  (cat "  unemployment  [0,1]   |" (cat (spark8 (smap h-u ?h) 0 1) "|"))
+  (cat "  radical vote  [0,1]   |" (cat (spark8 (smap h-rad ?h) 0 1) "|"))
+  (cat "  viability Phi [-1,1]  |" (cat (spark8 (smap h-phi ?h) -1 1) "|"))
+  (cat "  living std    [0,3]   |" (cat (spark8 (smap h-ce ?h) 0 3) "|"))
+  (cat "  last row: " (sh (if (empty? ?h) none (last ?h))))))
+rule dashboard : (dashboard (economy ?c ?w ?a)) => (lines (list
+  "THE SAME ECONOMY UNDER THREE REGIMES (one column per period; h = (t mode u rad Phi ce gov crisis))"
+  (block "capitalism" ?c) (block "Cold War, ends at 30" ?w) (block "accountable planning" ?a)))
+// ---- invariants on the history so far (true at every run) ----
+rule app-u-zero : (app u-zero ?r) => (= (app h-u ?r) 0)
+rule app-rad-zero : (app rad-zero ?r) => (= (app h-rad ?r) 0)
+rule app-phi-pos : (app phi-pos ?r) => (> (app h-phi ?r) 0)
+rule app-pre-cold : (app pre-cold (h ?t ?m ?u ?rad ?phi ?ce ?gov ?cr)) => (< ?t 30)
+rule app-gov-mod : (app gov-mod ?r) => (= (app h-gov ?r) 0)
+rule incr-0 : (incr? (list)) => true
+rule incr-1 : (incr? (list ?x)) => true
+rule incr-n : (incr? (list ?x ?y ?zs...)) => (if (> ?y ?x) (incr? (list ?y ?zs...)) false)
+rule nondecr-0 : (nondecr? (list)) => true
+rule nondecr-1 : (nondecr? (list ?x)) => true
+rule nondecr-n : (nondecr? (list ?x ?y ?zs...)) => (if (>= ?y ?x) (nondecr? (list ?y ?zs...)) false)
+rule invariants? : (invariants? (economy ?c ?w ?a)) => (and (sall u-zero ?ha) (and (sall rad-zero ?ha) (and (incr? (smap h-ce ?ha)) (and (sall phi-pos ?ha)
+  (and (sall rad-zero (sfilter pre-cold ?hw)) (and (nondecr? (smap h-u ?hc)) (and (sall gov-mod ?hc) (sall gov-mod ?hw))))))))
+  where ?ha <- (st-h ?a), ?hw <- (st-h ?w), ?hc <- (st-h ?c)
+main = (economy (st (pe-init cap) (list)) (st (pe-init cold) (list)) (st (pe-init ap) (list)))
+rewrite self with try(oncetd(crank))
+assert (invariants? main) with eval
+display (dashboard main) with eval

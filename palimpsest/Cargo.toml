@@ -11,3 +11,10 @@ path = "src/main.rs"
 [profile.release]
 opt-level = 2
 panic = "unwind"
+
+[dependencies]
+# Exact arithmetic: arbitrary-precision integers and rationals (see src/num.rs).
+num-bigint = "0.4"
+num-rational = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"

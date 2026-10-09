@@ -1,0 +1,50 @@
+#lang palimpsest
+// cld.pal -- causal-loop diagrams as data, generically.
+//
+// A diagram is (cld NODES EDGES): NODES a list of symbols (cycles are reported
+// from their least node in this order), EDGES a list of (edge FROM TO SIGN WHY)
+// with SIGN = pos | neg. This generalizes the loop code written for the
+// Hegemony study (lib/hegemony-loops.pal), which hard-wires one diagram.
+//
+//   (cld-cycles D)      every elementary cycle exactly once (depth-first from
+//                       each node, visiting only nodes after it)
+//   (cld-classify D)    each cycle with its polarity: (loop R|B LENGTH PATH)
+//   (cld-restrict D ES) the same diagram with only the edges in ES
+import "report.pal"
+
+rule cld-nodes : (cld-nodes (cld ?ns ?es)) => ?ns
+rule cld-edges : (cld-edges (cld ?ns ?es)) => ?es
+rule cld-index : (cld-index !ns !n) => (with-default (index-of ?n ?ns) -1)
+rule cld-succs-0 : (cld-succs ?x (list)) => (list)
+rule cld-succs-n : (cld-succs ?x (list (edge ?a ?b ?sg ?why) ?es...)) => (if (= ?a ?x) (prepend ?b (cld-succs ?x (list ?es...))) (cld-succs ?x (list ?es...)))
+rule cld-cycles : (cld-cycles !d) => (concat (map (cyc-from ?ns ?es) ?ns)) where ?ns <- (cld-nodes ?d), ?es <- (cld-edges ?d)
+rule app-cyc-from : (app (cyc-from ?ns ?es) ?s) => (cdfs ?ns ?es ?s ?s (list ?s) (cld-succs ?s ?es))
+rule cdfs-0 : (cdfs ?ns ?es ?s ?cur ?path (list)) => (list)
+rule cdfs-n : (cdfs ?ns ?es ?s ?cur ?path (list ?y ?ys...)) => (append ?here (cdfs ?ns ?es ?s ?cur ?path (list ?ys...)))
+  where ?here <- (cdfs-step ?ns ?es ?s ?y ?path)
+rule cdfs-close : (cdfs-step ?ns ?es ?s ?y ?path) => (list (cyc ?path)) where (= ?y ?s)
+rule cdfs-deeper : (cdfs-step ?ns ?es ?s ?y ?path) => (cdfs ?ns ?es ?s ?y ?p2 (cld-succs ?y ?es))
+  where (<> ?y ?s), (> (cld-index ?ns ?y) (cld-index ?ns ?s)), (not (member ?y ?path)), ?p2 <- (snoc ?path ?y)
+rule cdfs-skip : (cdfs-step ?ns ?es ?s ?y ?path) => (list)
+rule cld-esign : (cld-esign ?a ?b (list (edge ?a ?b ?sg ?why) ?es...)) => ?sg
+rule cld-esign-n : (cld-esign ?a ?b (list (edge ?x ?y ?sg ?why) ?es...)) => (cld-esign ?a ?b (list ?es...)) where (or (<> ?a ?x) (<> ?b ?y))
+rule cld-smul-pp : (cld-smul pos pos) => pos
+rule cld-smul-pm : (cld-smul pos neg) => neg
+rule cld-smul-mp : (cld-smul neg pos) => neg
+rule cld-smul-mm : (cld-smul neg neg) => pos
+rule cld-polarity : (cld-polarity (cyc (list ?x ?xs...)) ?es) => (cpol-go (list ?x ?xs... ?x) pos ?es)
+rule cpol-go-1 : (cpol-go (list ?a) ?acc ?es) => ?acc
+rule cpol-go-n : (cpol-go (list ?a ?b ?rest...) ?acc ?es) => (cpol-go (list ?b ?rest...) ?acc2 ?es) where ?acc2 <- (cld-smul ?acc (cld-esign ?a ?b ?es))
+rule cld-kind-p : (cld-kind pos) => R
+rule cld-kind-n : (cld-kind neg) => B
+rule cld-classify : (cld-classify !d) => (map (cclass ?es) (cld-cycles ?d)) where ?es <- (cld-edges ?d)
+rule app-cclass : (app (cclass ?es) (cyc ?p)) => (loop (cld-kind (cld-polarity (cyc ?p) ?es)) (length ?p) ?p)
+rule cld-count : (cld-count ?k !ls) => (count-if (cl-is ?k) ?ls)
+rule app-cl-is : (app (cl-is ?k) (loop ?k2 ?n ?p)) => (= ?k ?k2)
+rule cld-restrict : (cld-restrict (cld ?ns ?es) !keep) => (cld ?ns ?keep)
+// rendering
+rule cld-loops-view : (cld-loops-view !ls) => (lines (map cl-line ?ls))
+rule app-cl-line : (app cl-line (loop ?k ?n (list ?p...))) => (cat (str ?k) (cat (padl (str ?n) 3) (cat "  " (cl-arrow (list ?p... (cl-first (list ?p...)))))))
+rule cl-first : (cl-first (list ?x ?xs...)) => ?x
+rule cl-arrow-1 : (cl-arrow (list ?x)) => (str ?x)
+rule cl-arrow-n : (cl-arrow (list ?x ?y ?ys...)) => (cat (str ?x) (cat " -> " (cl-arrow (list ?y ?ys...))))

@@ -8,7 +8,8 @@
 
 use crate::matcher::{match_term, match_where, subst, Binding, Bindings};
 use crate::term::Term;
-use std::collections::HashMap;
+use crate::fxhash::FxHashMap as HashMap;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// A `where` clause attached to a rule. Clauses are processed in order after the
@@ -111,6 +112,16 @@ fn env_bind(env: &Env, name: String, clos: Closure) -> Env {
     Rc::new(Scope::Bind(name, clos, env.clone()))
 }
 
+/// State of the `--trace` printer.
+pub struct Trace {
+    pub limit: u64,
+    pub count: u64,
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n { s.to_string() } else { format!("{}...", s.chars().take(n).collect::<String>()) }
+}
+
 pub struct Engine {
     pub rules: Vec<Rule>,
     pub rule_index: HashMap<String, usize>,
@@ -119,6 +130,68 @@ pub struct Engine {
     /// left-hand side can only match subjects with that head symbol, `None` when
     /// it may match anything (a variable head). Used to skip non-matching rules.
     rule_heads: Vec<Option<String>>,
+    /// True head index: for each concrete head symbol, the indices (ascending)
+    /// of rules whose left-hand side pins that head. Wildcard-headed rules live
+    /// in `wild_rules`. `AllRules` merges the two ascending lists, so rules are
+    /// still tried in exact source order -- dispatch is O(candidates), not
+    /// O(all rules), and behaviour (including fuel use) is unchanged.
+    by_head: HashMap<String, Vec<usize>>,
+    wild_rules: Vec<usize>,
+    /// Optional rewrite-step profile: successful applications per rule name
+    /// (primitives are counted under `<prim>`). Enabled by `--stats`.
+    pub stats: Option<RefCell<HashMap<String, u64>>>,
+    /// Optional REWRITE TRACE (`--trace N`): print the first N successful
+    /// steps as `rule: redex => contractum`, indented by the nesting depth of
+    /// guard / `where` / strict-argument evaluation in which they happen.
+    /// Printing only; no effect on results or fuel.
+    pub trace: Option<RefCell<Trace>>,
+    /// Current nesting of condition evaluation (for trace indentation).
+    cond_level: std::cell::Cell<usize>,
+    /// Optional NORMAL-FORM MEMO (`#memo` / `--memo`): the set of list
+    /// subterms (by `Rc` identity) already proven to be in normal form with
+    /// respect to the standard evaluator `prim + rules`. Rules are static and
+    /// match context-free, so a term that is normal stays normal: the
+    /// leftmost-outermost redex search may skip it. Normal forms, and the order
+    /// in which redexes are reduced, are exactly those of the uncached
+    /// evaluator; only the work of re-proving normality is saved -- which also
+    /// means fuel spent by guards on failed rule attempts is not spent twice,
+    /// so a memoized run uses LESS fuel. That is why it is opt-in: existing
+    /// programs keep their exact fuel fingerprints.
+    memo: Option<RefCell<Memo>>,
+    /// The standard evaluator `repeat(oncetd(prim + rules))`, built once.
+    std_eval: Strat,
+}
+
+/// Pointer-identity set of known-normal list terms; each entry keeps its term
+/// alive so an address can never be reused by a different term while cached.
+pub struct Memo {
+    known: HashMap<usize, Term>,
+    /// NORMALIZATION CACHE for strict arguments: argument term (by `Rc`
+    /// identity; the key term is kept alive so its address cannot be reused)
+    /// -> its normal form under the standard evaluator. Normal forms are a
+    /// function of the term alone (static rules, context-free matching), so
+    /// a strict argument forced once -- e.g. for a rule whose guard then
+    /// failed -- is not forced again for the next candidate rule.
+    nf: HashMap<usize, (Term, Term)>,
+    pub nf_hits: u64,
+    pub hits: u64,
+}
+
+const MEMO_CAP: usize = 1 << 21;
+/// The normalization cache holds key AND value terms alive, so it is kept
+/// small: cleared when it reaches this many entries.
+const NF_CAP: usize = 1 << 14;
+
+fn term_addr(t: &Term) -> Option<usize> {
+    match t {
+        Term::List(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        _ => None,
+    }
+}
+
+/// Is `s` exactly the standard evaluator's inner strategy `prim + rules`?
+fn is_std_inner(s: &Strat) -> bool {
+    matches!(s, Strat::Choice(a, b) if matches!(**a, Strat::Prim) && matches!(**b, Strat::AllRules))
 }
 
 /// The head symbol that a term must have for a list/atom pattern to match it, or
@@ -134,20 +207,134 @@ fn head_key(t: &Term) -> Option<String> {
     }
 }
 
+/// Allocation-free variant of `head_key`, used on the hot dispatch path.
+fn head_str(t: &Term) -> Option<&str> {
+    match t {
+        Term::Sym(s) if !s.starts_with('?') => Some(s.as_str()),
+        Term::List(xs) => match xs.first() {
+            Some(Term::Sym(s)) if !s.starts_with('?') => Some(s.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 impl Engine {
     pub fn new() -> Self {
         Engine {
             rules: Vec::new(),
-            rule_index: HashMap::new(),
-            strategies: HashMap::new(),
+            rule_index: HashMap::default(),
+            strategies: HashMap::default(),
             rule_heads: Vec::new(),
+            by_head: HashMap::default(),
+            wild_rules: Vec::new(),
+            stats: None,
+            trace: None,
+            cond_level: std::cell::Cell::new(0),
+            memo: None,
+            std_eval: Strat::Repeat(Box::new(Strat::OnceTd(Box::new(Strat::Choice(
+                Box::new(Strat::Prim),
+                Box::new(Strat::AllRules),
+            ))))),
+        }
+    }
+
+    /// Turn on the normal-form memo (see the `memo` field).
+    pub fn enable_memo(&mut self) {
+        self.memo = Some(RefCell::new(Memo { known: HashMap::default(), nf: HashMap::default(), nf_hits: 0, hits: 0 }));
+    }
+
+    pub fn memo_stats(&self) -> Option<(usize, u64)> {
+        self.memo.as_ref().map(|m| {
+            let m = m.borrow();
+            (m.known.len(), m.hits)
+        })
+    }
+
+    /// Hits of the normalization cache (see `Memo::nf`).
+    pub fn memo_nf_hits(&self) -> Option<u64> {
+        self.memo.as_ref().map(|m| m.borrow().nf_hits)
+    }
+
+    #[inline]
+    fn memo_known(&self, t: &Term) -> bool {
+        if let (Some(m), Some(a)) = (&self.memo, term_addr(t)) {
+            let mut m = m.borrow_mut();
+            if m.known.contains_key(&a) {
+                m.hits += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn memo_insert(&self, t: &Term) {
+        if let (Some(m), Some(a)) = (&self.memo, term_addr(t)) {
+            let mut m = m.borrow_mut();
+            if m.known.len() >= MEMO_CAP {
+                m.known.clear();
+            }
+            m.known.insert(a, t.clone());
         }
     }
 
     pub fn add_rule(&mut self, r: Rule) {
-        self.rule_index.insert(r.name.clone(), self.rules.len());
+        let idx = self.rules.len();
+        self.rule_index.insert(r.name.clone(), idx);
+        let hk = head_key(&r.lhs);
+        match &hk {
+            Some(h) => self.by_head.entry(h.clone()).or_default().push(idx),
+            None => self.wild_rules.push(idx),
+        }
+        self.rule_heads.push(hk);
+        self.rules.push(r);
+    }
+
+    /// Register a TRANSITION: a rule that is reachable only by name from a
+    /// strategy (`oncetd(crank)`), never through `rules` / the `where`
+    /// evaluator. This is rewriting logic's split between EQUATIONS (applied
+    /// exhaustively to normal form: accounting identities, tables, derived
+    /// quantities) and RULES-AS-TRANSITIONS (applied once, under control: "play
+    /// one round"). Without it, any rule whose result still matches its own
+    /// left-hand side would be re-fired by `outermost` until the run ends.
+    pub fn add_transition(&mut self, r: Rule) {
+        let idx = self.rules.len();
+        self.rule_index.insert(r.name.clone(), idx);
         self.rule_heads.push(head_key(&r.lhs));
         self.rules.push(r);
+    }
+
+    /// Turn on the per-rule rewrite profile (see `stats`).
+    pub fn enable_stats(&mut self) {
+        self.stats = Some(RefCell::new(HashMap::default()));
+    }
+
+    fn record(&self, name: &str) {
+        if let Some(st) = &self.stats {
+            *st.borrow_mut().entry(name.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    /// Turn on the rewrite trace for the first `limit` steps (see `trace`).
+    pub fn enable_trace(&mut self, limit: u64) {
+        self.trace = Some(RefCell::new(Trace { limit, count: 0 }));
+    }
+
+    /// Steps traced so far, and the limit.
+    pub fn trace_count(&self) -> Option<(u64, u64)> {
+        self.trace.as_ref().map(|t| { let t = t.borrow(); (t.count, t.limit) })
+    }
+
+    fn trace_step(&self, name: &str, before: &Term, after: &Term) {
+        if let Some(tr) = &self.trace {
+            let mut tr = tr.borrow_mut();
+            if tr.count < tr.limit {
+                tr.count += 1;
+                let ind = "  ".repeat(self.cond_level.get().min(12));
+                println!("  {:>5} {}{}: {}  =>  {}", tr.count, ind, name, clip(&before.to_string(), 150), clip(&after.to_string(), 150));
+            }
+        }
     }
 
     /// Apply a rule at the root of `t`. Handles `where` clauses: bindings extend
@@ -199,13 +386,16 @@ impl Engine {
 
         // Fast path: an unconditional rule takes the first match.
         if r.conds.is_empty() {
-            return match match_term(lhs, subject, Bindings::new()) {
+            return match match_term(lhs, subject, Bindings::default()) {
                 Some(b) => {
                     if *fuel == 0 {
                         return Err("out of fuel (rewrite step budget exhausted)".into());
                     }
                     *fuel -= 1;
-                    Ok(Some(subst(&r.rhs, &b)?))
+                    self.record(&r.name);
+                    let out = subst(&r.rhs, &b)?;
+                    self.trace_step(&r.name, subject, &out);
+                    Ok(Some(out))
                 }
                 None => Ok(None),
             };
@@ -223,7 +413,10 @@ impl Engine {
                     return Err("out of fuel (rewrite step budget exhausted)".into());
                 }
                 *fuel -= 1;
-                Ok(Some(subst(&r.rhs, &b)?))
+                self.record(&r.name);
+                let out = subst(&r.rhs, &b)?;
+                self.trace_step(&r.name, subject, &out);
+                Ok(Some(out))
             }
             None => Ok(None),
         }
@@ -265,13 +458,13 @@ impl Engine {
         for (p, s) in pat_items.iter().zip(subj_items.iter()) {
             if let Some(name) = p.as_strict_var() {
                 new_pat.push(Term::Sym(format!("?{}", name)));
-                new_subj.push(self.eval_cond(s, fuel, depth)?);
+                new_subj.push(self.force_strict(s, fuel, depth)?);
             } else {
                 new_pat.push(p.clone());
                 new_subj.push(s.clone());
             }
         }
-        Ok((Some(Term::List(new_pat)), Some(Term::List(new_subj))))
+        Ok((Some(Term::list(new_pat)), Some(Term::list(new_subj))))
     }
 
     /// Evaluate a rule's `where` clauses against a candidate binding. Returns the
@@ -306,13 +499,39 @@ impl Engine {
     /// Normalize a condition/binding expression with the standard evaluator
     /// (`outermost(prim + rules)`), so guards may call library functions.
     fn eval_cond(&self, t: &Term, fuel: &mut u64, depth: usize) -> Result<Term, String> {
-        let ev = Strat::Repeat(Box::new(Strat::OnceTd(Box::new(Strat::Choice(
-            Box::new(Strat::Prim),
-            Box::new(Strat::AllRules),
-        )))));
-        Ok(self
-            .apply_d(&ev, t, fuel, depth + 1, &env_empty())?
-            .unwrap_or_else(|| t.clone()))
+        if self.memo.is_some() && self.memo_known(t) {
+            return Ok(t.clone());
+        }
+        self.cond_level.set(self.cond_level.get() + 1);
+        let r = self.apply_d(&self.std_eval, t, fuel, depth + 1, &env_empty());
+        self.cond_level.set(self.cond_level.get() - 1);
+        Ok(r?.unwrap_or_else(|| t.clone()))
+    }
+
+    /// Normalize the argument at a strict (`!x`) position. Under the memo,
+    /// reuse a normal form already computed for the same argument term (by
+    /// identity): when several rules share a head and the first one's guard
+    /// fails, the next candidate would otherwise force the same argument again.
+    fn force_strict(&self, t: &Term, fuel: &mut u64, depth: usize) -> Result<Term, String> {
+        if let (Some(m), Some(a)) = (&self.memo, term_addr(t)) {
+            let mut m = m.borrow_mut();
+            let hit = m.nf.get(&a).map(|(_, v)| v.clone());
+            if let Some(v) = hit {
+                m.nf_hits += 1;
+                return Ok(v);
+            }
+        }
+        let v = self.eval_cond(t, fuel, depth)?;
+        if let (Some(m), Some(a)) = (&self.memo, term_addr(t)) {
+            if !std::ptr::eq(t, &v) && term_addr(&v) != Some(a) {
+                let mut m = m.borrow_mut();
+                if m.nf.len() >= NF_CAP {
+                    m.nf.clear();
+                }
+                m.nf.insert(a, (t.clone(), v.clone()));
+            }
+        }
+        Ok(v)
     }
 
     /// Apply a strategy to a term. `Ok(Some(t'))` on success, `Ok(None)` on a
@@ -337,16 +556,24 @@ impl Engine {
             Strat::Id => Ok(Some(t.clone())),
             Strat::Fail => Ok(None),
             Strat::AllRules => {
-                let skey = head_key(t);
-                for (i, r) in self.rules.iter().enumerate() {
-                    // Skip rules that require a head symbol different from the
-                    // subject's; a wildcard-headed rule (None) is always tried.
-                    if let Some(h) = &self.rule_heads[i] {
-                        if skey.as_deref() != Some(h.as_str()) {
-                            continue;
-                        }
-                    }
-                    if let Some(t2) = self.apply_rule(r, t, fuel, depth)? {
+                // Candidates = rules pinned to the subject's head symbol, plus
+                // wildcard-headed rules, merged in ascending source order.
+                let empty: Vec<usize> = Vec::new();
+                let pinned = match head_str(t) {
+                    Some(k) => self.by_head.get(k).unwrap_or(&empty),
+                    None => &empty,
+                };
+                let wild = &self.wild_rules;
+                let (mut i, mut j) = (0usize, 0usize);
+                while i < pinned.len() || j < wild.len() {
+                    let idx = if j >= wild.len() || (i < pinned.len() && pinned[i] < wild[j]) {
+                        i += 1;
+                        pinned[i - 1]
+                    } else {
+                        j += 1;
+                        wild[j - 1]
+                    };
+                    if let Some(t2) = self.apply_rule(&self.rules[idx], t, fuel, depth)? {
                         return Ok(Some(t2));
                     }
                 }
@@ -358,6 +585,8 @@ impl Engine {
                         return Err("out of fuel (rewrite step budget exhausted)".into());
                     }
                     *fuel -= 1;
+                    self.record("<prim>");
+                    self.trace_step("<prim>", t, &v);
                     Ok(Some(v))
                 }
                 None => Ok(None),
@@ -480,13 +709,13 @@ impl Engine {
         match t {
             Term::List(xs) => {
                 let mut out = Vec::with_capacity(xs.len());
-                for x in xs {
+                for x in xs.iter() {
                     match self.apply_d(s, x, fuel, depth + 1, env)? {
                         Some(x2) => out.push(x2),
                         None => return Ok(None),
                     }
                 }
-                Ok(Some(Term::List(out)))
+                Ok(Some(Term::list(out)))
             }
             _ => Ok(Some(t.clone())),
         }
@@ -506,17 +735,37 @@ impl Engine {
         td: bool,
         env: &Env,
     ) -> Result<Option<Term>, String> {
+        let memo = td && self.memo.is_some() && is_std_inner(s) && matches!(t, Term::List(_));
+        if memo && self.memo_known(t) {
+            return Ok(None);
+        }
         if td {
             if let Some(t2) = self.apply_d(s, t, fuel, depth + 1, env)? {
                 return Ok(Some(t2));
             }
         }
-        if let Term::List(xs) = t {
+        if is_record(t) {
+            // RECORD ENTRIES ARE LABELS, NOT CALLS: in `(rec (k v) ...)` only
+            // the values are evaluation positions. Without this, a field whose
+            // name happens to coincide with a function (a field `(pop 3)` next
+            // to a rule `(pop ?s)`) would be rewritten as a call.
+            if let Term::List(xs) = t {
+                for i in 1..xs.len() {
+                    if let Term::List(kv) = &xs[i] {
+                        if let Some(v2) = self.once(s, &kv[1], fuel, depth + 1, td, env)? {
+                            let mut v = xs.to_vec();
+                            v[i] = Term::list(vec![kv[0].clone(), v2]);
+                            return Ok(Some(Term::list(v)));
+                        }
+                    }
+                }
+            }
+        } else if let Term::List(xs) = t {
             for i in 0..xs.len() {
                 if let Some(ci) = self.once(s, &xs[i], fuel, depth + 1, td, env)? {
-                    let mut v = xs.clone();
+                    let mut v = xs.to_vec();
                     v[i] = ci;
-                    return Ok(Some(Term::List(v)));
+                    return Ok(Some(Term::list(v)));
                 }
             }
         }
@@ -524,6 +773,9 @@ impl Engine {
             if let Some(t2) = self.apply_d(s, t, fuel, depth + 1, env)? {
                 return Ok(Some(t2));
             }
+        }
+        if memo {
+            self.memo_insert(t);
         }
         Ok(None)
     }
@@ -541,12 +793,24 @@ impl Engine {
     ) -> Result<Term, String> {
         // First normalize children.
         let t1 = match t {
+            Term::List(xs) if is_record(t) => {
+                // record entries are labels: normalize the values only
+                let mut out = Vec::with_capacity(xs.len());
+                out.push(xs[0].clone());
+                for e in xs[1..].iter() {
+                    if let Term::List(kv) = e {
+                        let v = self.innermost(s, &kv[1], fuel, depth + 1, env)?;
+                        out.push(Term::list(vec![kv[0].clone(), v]));
+                    }
+                }
+                Term::list(out)
+            }
             Term::List(xs) => {
                 let mut out = Vec::with_capacity(xs.len());
-                for x in xs {
+                for x in xs.iter() {
                     out.push(self.innermost(s, x, fuel, depth + 1, env)?);
                 }
-                Term::List(out)
+                Term::list(out)
             }
             _ => t.clone(),
         };
@@ -559,14 +823,6 @@ impl Engine {
 }
 
 // --------------------------------------------------------------- primitives ---
-
-fn as_int(t: &Term) -> Option<i64> {
-    if let Term::Int(n) = t {
-        Some(*n)
-    } else {
-        None
-    }
-}
 
 fn boolsym(b: bool) -> Term {
     Term::Sym(if b { "true" } else { "false" }.to_string())
@@ -581,6 +837,15 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
         Term::List(xs) => xs,
         _ => return None,
     };
+    // Record primitives (variadic): `@`, `set@`, `add@`, `has@`.
+    if let Some(Term::Sym(op)) = xs.first() {
+        match op.as_str() {
+            "@" | "set@" | "add@" | "has@" | "put@" | "del@" | "keys@" | "sum@" => {
+                return eval_record_prim(op, &xs[1..])
+            }
+            _ => {}
+        }
+    }
     // Unary primitives.
     if xs.len() == 2 {
         if let Term::Sym(op) = &xs[0] {
@@ -590,6 +855,7 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
                     return match &xs[1] {
                         Term::Sym(s) => Some(Term::Str(s.clone())),
                         Term::Int(n) => Some(Term::Str(n.to_string())),
+                        Term::Num(q) => Some(Term::Str(crate::num::fmt_rat(q))),
                         Term::Str(s) => Some(Term::Str(s.clone())),
                         Term::List(_) => None,
                     };
@@ -610,7 +876,7 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
                             for c in s.chars() {
                                 v.push(Term::Str(c.to_string()));
                             }
-                            Some(Term::List(v))
+                            Some(Term::list(v))
                         }
                         _ => None,
                     };
@@ -633,10 +899,18 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
                     }
                     return None;
                 }
-                "abs" => {
+                "abs" => return crate::num::abs(&xs[1]),
+                // exact-number helpers (see num.rs)
+                "num" => return crate::num::numer(&xs[1]),
+                "den" => return crate::num::denom(&xs[1]),
+                "floor" => return crate::num::floor(&xs[1]),
+                "ceil" => return crate::num::ceil(&xs[1]),
+                "isqrt" => return crate::num::isqrt(&xs[1]),
+                "number?" => {
+                    // fires on atoms only, so an unevaluated call is reduced first
                     return match &xs[1] {
-                        Term::Int(n) => Some(Term::Int(n.abs())),
-                        _ => None,
+                        Term::List(_) => None,
+                        t => Some(boolsym(crate::num::is_num(t))),
                     };
                 }
                 "rng" => {
@@ -668,38 +942,32 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
         _ => return None,
     };
     let (a, b) = (&xs[1], &xs[2]);
+    use crate::num;
+    use std::cmp::Ordering::*;
     match op {
-        "+" => Some(Term::Int(as_int(a)?.checked_add(as_int(b)?)?)),
-        "-" => Some(Term::Int(as_int(a)?.checked_sub(as_int(b)?)?)),
-        "*" => Some(Term::Int(as_int(a)?.checked_mul(as_int(b)?)?)),
-        "/" => {
-            let (x, y) = (as_int(a)?, as_int(b)?);
-            if y == 0 {
-                None
-            } else {
-                Some(Term::Int(x / y))
-            }
-        }
-        "mod" => {
-            let (x, y) = (as_int(a)?, as_int(b)?);
-            if y == 0 {
-                None
-            } else {
-                Some(Term::Int(x.rem_euclid(y)))
-            }
-        }
-        "<" => Some(boolsym(as_int(a)? < as_int(b)?)),
-        "<=" => Some(boolsym(as_int(a)? <= as_int(b)?)),
-        ">" => Some(boolsym(as_int(a)? > as_int(b)?)),
-        ">=" => Some(boolsym(as_int(a)? >= as_int(b)?)),
-        // Equality on primitive literal values only (ints, strings, symbols).
+        // Arithmetic and comparison work on all exact numbers: i64 fast path,
+        // exact big rationals on overflow or when an operand is a `Num`.
+        "+" => num::add(a, b),
+        "-" => num::sub(a, b),
+        "*" => num::mul(a, b),
+        // `/` and `mod` stay INTEGER operations (truncating / Euclidean), on
+        // integers of any size; `q/` is exact division.
+        "/" => num::idiv(a, b),
+        "mod" => num::imod(a, b),
+        "q/" => num::qdiv(a, b),
+        "round-to" => num::round_to(a, b),
+        "expt" => num::expt(a, b),
+        "decimal" => num::dec(a, b),
+        "<" => Some(boolsym(num::cmp(a, b)? == Less)),
+        "<=" => Some(boolsym(num::cmp(a, b)? != Greater)),
+        ">" => Some(boolsym(num::cmp(a, b)? == Greater)),
+        ">=" => Some(boolsym(num::cmp(a, b)? != Less)),
+        // Equality on primitive literal values only (numbers, strings, symbols).
         "=" | "<>" => {
             let both_prim = matches!(
                 (a, b),
-                (Term::Int(_), Term::Int(_))
-                    | (Term::Str(_), Term::Str(_))
-                    | (Term::Sym(_), Term::Sym(_))
-            );
+                (Term::Str(_), Term::Str(_)) | (Term::Sym(_), Term::Sym(_))
+            ) || (num::is_num(a) && num::is_num(b));
             if !both_prim {
                 return None;
             }
@@ -728,7 +996,7 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
         // `equal?`), so `a` and `b` are compared exactly as they stand: this
         // makes `matches?` a genuine reification of matching, not a shortcut
         // for it.
-        "matches?" => Some(boolsym(match_term(a, b, Bindings::new()).is_some())),
+        "matches?" => Some(boolsym(match_term(a, b, Bindings::default()).is_some())),
         // Constructive counterpart: reify the witnessing substitution itself
         // (see `eval_match_witness` below) instead of just a boolean.
         "match-witness" => Some(eval_match_witness(a, b)),
@@ -736,8 +1004,8 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
             (Term::Str(x), Term::Str(y)) => Some(boolsym(x < y)),
             _ => None,
         },
-        "min" => Some(Term::Int(as_int(a)?.min(as_int(b)?))),
-        "max" => Some(Term::Int(as_int(a)?.max(as_int(b)?))),
+        "min" => Some(if num::cmp(a, b)? == Greater { b.clone() } else { a.clone() }),
+        "max" => Some(if num::cmp(a, b)? == Less { b.clone() } else { a.clone() }),
         "padl" | "padr" => match (a, b) {
             // pad a string with spaces to a given width (padl = right-justify,
             // padr = left-justify); longer strings are returned unchanged.
@@ -761,6 +1029,175 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
     }
 }
 
+// ------------------------------------------------------- record primitives ---
+//
+// A RECORD is a term `(rec (k1 v1) (k2 v2) ...)` whose keys are symbols. Records
+// are ordinary terms (they print, match, and self-rewrite like any other data);
+// these primitives just give O(n) native field access so that a large model
+// state can be read and updated without a hand-written rule per field.
+//
+//   (@ R k1 ... kn)        value at the key path k1/.../kn (nested records)
+//   (set@ R k1 ... kn V)   R with that field replaced by V
+//   (add@ R k1 ... kn D)   R with that (integer) field incremented by integer D
+//   (has@ R k)             true / false: does R have key k at top level
+//   (put@ R k V)           insert-or-replace top-level key k (new keys go last)
+//   (del@ R k)             R without top-level key k (no-op if absent)
+//   (keys@ R)              (list k1 k2 ...) in record order
+//   (sum@ R)               sum of R's top-level values (fires only if all are ints)
+//
+// `put@`/`del@` are the only primitives that change a record's key set, so a
+// model that never calls them has a fixed schema.
+//
+// CLOSED WORLD: a missing key (or a non-record on the path, or a non-integer
+// under `add@`) makes the primitive NOT FIRE. The term stays stuck, visibly,
+// instead of silently inventing a field -- a typo in a model is a stuck term in
+// the output, never a wrong number. Values are never forced: a field may hold an
+// unevaluated expression, which normal-order evaluation reduces in place later.
+// Like every primitive these fire only on literal record structure, so under
+// `outermost` an argument that is still a rule call is reduced first.
+
+/// A record: `(rec (k v) ...)` where every entry is a pair with a symbol key.
+pub fn is_record(t: &Term) -> bool {
+    match rec_entries(t) {
+        Some(es) => es.iter().all(|e| matches!(e, Term::List(kv) if kv.len() == 2 && matches!(kv[0], Term::Sym(_)))),
+        None => false,
+    }
+}
+
+fn rec_entries(r: &Term) -> Option<&[Term]> {
+    match r {
+        Term::List(xs) if matches!(xs.first(), Some(Term::Sym(h)) if h == "rec") => Some(&xs[1..]),
+        _ => None,
+    }
+}
+
+fn rec_find(r: &Term, key: &Term) -> Option<usize> {
+    let es = rec_entries(r)?;
+    if !matches!(key, Term::Sym(_)) {
+        return None;
+    }
+    es.iter().position(|e| matches!(e, Term::List(kv) if kv.len() == 2 && &kv[0] == key))
+        .map(|i| i + 1)
+}
+
+fn rec_get<'a>(r: &'a Term, path: &[Term]) -> Option<&'a Term> {
+    let mut cur = r;
+    for k in path {
+        let i = rec_find(cur, k)?;
+        match cur {
+            Term::List(xs) => match &xs[i] {
+                Term::List(kv) => cur = &kv[1],
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    Some(cur)
+}
+
+fn rec_update(r: &Term, path: &[Term], f: &dyn Fn(&Term) -> Option<Term>) -> Option<Term> {
+    if path.is_empty() {
+        return f(r);
+    }
+    let i = rec_find(r, &path[0])?;
+    let Term::List(xs) = r else { return None };
+    let Term::List(kv) = &xs[i] else { return None };
+    let nv = rec_update(&kv[1], &path[1..], f)?;
+    let mut out = xs.to_vec();
+    out[i] = Term::list(vec![kv[0].clone(), nv]);
+    Some(Term::list(out))
+}
+
+fn eval_record_prim(op: &str, args: &[Term]) -> Option<Term> {
+    match op {
+        "@" => {
+            if args.len() < 2 {
+                return None;
+            }
+            rec_get(&args[0], &args[1..]).cloned()
+        }
+        "has@" => {
+            if args.len() != 2 {
+                return None;
+            }
+            rec_entries(&args[0])?;
+            Some(boolsym(rec_find(&args[0], &args[1]).is_some()))
+        }
+        "set@" => {
+            if args.len() < 3 {
+                return None;
+            }
+            let v = args[args.len() - 1].clone();
+            rec_update(&args[0], &args[1..args.len() - 1], &|_| Some(v.clone()))
+        }
+        "add@" => {
+            if args.len() < 3 {
+                return None;
+            }
+            let d = args[args.len() - 1].clone();
+            if !crate::num::is_num(&d) {
+                return None;
+            }
+            rec_update(&args[0], &args[1..args.len() - 1], &|old| crate::num::add(old, &d))
+        }
+        "put@" => {
+            if args.len() != 3 || !matches!(args[1], Term::Sym(_)) {
+                return None;
+            }
+            rec_entries(&args[0])?;
+            let entry = Term::list(vec![args[1].clone(), args[2].clone()]);
+            let Term::List(xs) = &args[0] else { return None };
+            let mut out = xs.to_vec();
+            match rec_find(&args[0], &args[1]) {
+                Some(i) => out[i] = entry,
+                None => out.push(entry),
+            }
+            Some(Term::list(out))
+        }
+        "del@" => {
+            if args.len() != 2 {
+                return None;
+            }
+            rec_entries(&args[0])?;
+            let Term::List(xs) = &args[0] else { return None };
+            let mut out = xs.to_vec();
+            if let Some(i) = rec_find(&args[0], &args[1]) {
+                out.remove(i);
+            }
+            Some(Term::list(out))
+        }
+        "keys@" => {
+            if args.len() != 1 {
+                return None;
+            }
+            let es = rec_entries(&args[0])?;
+            let mut out = vec![Term::Sym("list".into())];
+            for e in es {
+                match e {
+                    Term::List(kv) if kv.len() == 2 => out.push(kv[0].clone()),
+                    _ => return None,
+                }
+            }
+            Some(Term::list(out))
+        }
+        "sum@" => {
+            if args.len() != 1 {
+                return None;
+            }
+            let es = rec_entries(&args[0])?;
+            let mut tot = Term::Int(0);
+            for e in es {
+                match e {
+                    Term::List(kv) if kv.len() == 2 && crate::num::is_num(&kv[1]) => tot = crate::num::add(&tot, &kv[1])?,
+                    _ => return None,
+                }
+            }
+            Some(tot)
+        }
+        _ => None,
+    }
+}
+
 /// `match-witness`: like `matches?`, but on success returns the *substitution*
 /// `sigma` itself, reified as a term — `(some (dict (entry name val) ...))` —
 /// rather than just a boolean. This is the constructive half of descriptive
@@ -772,7 +1209,7 @@ pub fn eval_prim(t: &Term) -> Option<Term> {
 /// `(list ...)`, matching the convention `explode` and library code already
 /// use for runtime-built sequences. Returns `none` when `a` does not match `b`.
 fn eval_match_witness(a: &Term, b: &Term) -> Term {
-    match match_term(a, b, Bindings::new()) {
+    match match_term(a, b, Bindings::default()) {
         None => Term::Sym("none".to_string()),
         Some(bindings) => {
             let mut names: Vec<&String> = bindings.keys().collect();
@@ -784,16 +1221,16 @@ fn eval_match_witness(a: &Term, b: &Term) -> Term {
                     Binding::Seq(v) => {
                         let mut lst = vec![Term::Sym("list".to_string())];
                         lst.extend(v.iter().cloned());
-                        Term::List(lst)
+                        Term::list(lst)
                     }
                 };
-                entries.push(Term::List(vec![
+                entries.push(Term::list(vec![
                     Term::Sym("entry".to_string()),
                     Term::Sym(name.clone()),
                     val,
                 ]));
             }
-            Term::List(vec![Term::Sym("some".to_string()), Term::List(entries)])
+            Term::list(vec![Term::Sym("some".to_string()), Term::list(entries)])
         }
     }
 }
@@ -1514,6 +1951,226 @@ mod tests {
         let t = read_term("(list 5 3 8 1 9 2)").unwrap();
         let out = e.apply(&s, &t, &mut fuel).unwrap().unwrap();
         assert_eq!(format!("{}", out), "(list 1 2 3 5 8 9)");
+    }
+
+    #[test]
+    fn record_primitives() {
+        let r = "(rec (a 1) (b (rec (c 2) (d x))) (e (+ 1 1)))";
+        let cases = [
+            (format!("(@ {} a)", r), "1"),
+            (format!("(@ {} b c)", r), "2"),
+            (format!("(@ {} b d)", r), "x"),
+            (format!("(has@ {} e)", r), "true"),
+            (format!("(has@ {} zz)", r), "false"),
+            (format!("(set@ {} b c 9)", r), "(rec (a 1) (b (rec (c 9) (d x))) (e (+ 1 1)))"),
+            (format!("(add@ {} b c 5)", r), "(rec (a 1) (b (rec (c 7) (d x))) (e (+ 1 1)))"),
+            (format!("(add@ {} a -3)", r), "(rec (a -2) (b (rec (c 2) (d x))) (e (+ 1 1)))"),
+            (format!("(put@ {} z 0)", r), "(rec (a 1) (b (rec (c 2) (d x))) (e (+ 1 1)) (z 0))"),
+            (format!("(put@ {} a 0)", r), "(rec (a 0) (b (rec (c 2) (d x))) (e (+ 1 1)))"),
+            (format!("(del@ {} b)", r), "(rec (a 1) (e (+ 1 1)))"),
+            (format!("(keys@ {})", r), "(list a b e)"),
+            ("(sum@ (rec (a 1) (b 2) (c 39)))".to_string(), "42"),
+        ];
+        for (input, want) in cases {
+            let e = Engine::new();
+            let mut fuel = 100u64;
+            let out = e
+                .apply(&parse_strategy("prim").unwrap(), &read_term(&input).unwrap(), &mut fuel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(format!("{}", out), want, "for {}", input);
+        }
+        // closed world: missing keys, non-records and non-integers do not fire
+        for stuck in [
+            format!("(@ {} zz)", r),
+            format!("(set@ {} zz 1)", r),
+            format!("(add@ {} b d 1)", r),
+            format!("(add@ {} e 1)", r),
+            "(@ (notrec (a 1)) a)".to_string(),
+            format!("(sum@ {})", r),
+        ] {
+            let e = Engine::new();
+            let mut fuel = 100u64;
+            let out = e
+                .apply(&parse_strategy("prim").unwrap(), &read_term(&stuck).unwrap(), &mut fuel)
+                .unwrap();
+            assert_eq!(out, None, "should be stuck: {}", stuck);
+        }
+        // normal order: the field (e) is reduced in place afterwards
+        let e = Engine::new();
+        let mut fuel = 100u64;
+        let out = e
+            .apply(&parse_strategy("outermost(prim)").unwrap(), &read_term(&format!("(add@ {} a (@ {} b c))", r, r)).unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{}", out), "(rec (a 3) (b (rec (c 2) (d x))) (e 2))");
+    }
+
+    #[test]
+    fn record_keys_are_labels_not_calls() {
+        let mut e = Engine::new();
+        e.add_rule(Rule {
+            name: "pop".into(),
+            lhs: read_term("(pop ?x)").unwrap(),
+            rhs: read_term("popped").unwrap(),
+            conds: vec![],
+        });
+        let mut fuel = 100u64;
+        let out = e
+            .apply(&parse_strategy("outermost(prim + rules)").unwrap(), &read_term("(rec (pop (+ 1 2)) (q (pop 7)))").unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        // the key `pop` is a label; the VALUE (pop 7) is still a call
+        assert_eq!(format!("{}", out), "(rec (pop 3) (q popped))");
+        let out2 = e
+            .apply(&parse_strategy("innermost(prim + rules)").unwrap(), &read_term("(rec (pop (+ 1 2)) (q (pop 7)))").unwrap(), &mut fuel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{}", out2), "(rec (pop 3) (q popped))");
+    }
+
+    #[test]
+    fn head_index_preserves_source_order_with_wildcards() {
+        // pinned rule, wildcard rule, pinned rule: the wildcard (index 1) must
+        // be tried before the second pinned rule (index 2).
+        let mut e = Engine::new();
+        for (n, l, r) in [
+            ("p1", "(f 1)", "one"),
+            ("w", "(?h ?x)", "wild"),
+            ("p2", "(f ?x)", "pinned"),
+        ] {
+            e.add_rule(Rule { name: n.into(), lhs: read_term(l).unwrap(), rhs: read_term(r).unwrap(), conds: vec![] });
+        }
+        let mut fuel = 100u64;
+        let s = parse_strategy("rules").unwrap();
+        let a = e.apply(&s, &read_term("(f 1)").unwrap(), &mut fuel).unwrap().unwrap();
+        let b = e.apply(&s, &read_term("(f 2)").unwrap(), &mut fuel).unwrap().unwrap();
+        assert_eq!(format!("{} {}", a, b), "one wild");
+    }
+
+    #[test]
+    fn transitions_fire_only_by_name() {
+        let mut e = Engine::new();
+        e.add_transition(Rule {
+            name: "tick".into(),
+            lhs: read_term("(clock ?n)").unwrap(),
+            rhs: read_term("(clock (+ ?n 1))").unwrap(),
+            conds: vec![],
+        });
+        let mut fuel = 1000u64;
+        // `rules` never sees a transition: normalizing leaves the clock alone.
+        let a = e.apply(&parse_strategy("outermost(prim + rules)").unwrap(), &read_term("(clock 0)").unwrap(), &mut fuel).unwrap().unwrap();
+        assert_eq!(format!("{}", a), "(clock 0)");
+        // named, under control: exactly one tick per application.
+        let b = e.apply(&parse_strategy("oncetd(tick) ; outermost(prim + rules)").unwrap(), &read_term("(clock 0)").unwrap(), &mut fuel).unwrap().unwrap();
+        assert_eq!(format!("{}", b), "(clock 1)");
+    }
+
+    #[test]
+    fn stats_count_rule_firings() {
+        let mut e = peano_engine();
+        e.enable_stats();
+        let s = parse_strategy("innermost(add-zero + add-suc)").unwrap();
+        let mut fuel = 1000u64;
+        e.apply(&s, &read_term("(+ (S (S 0)) (S (S 0)))").unwrap(), &mut fuel).unwrap();
+        let st = e.stats.as_ref().unwrap().borrow();
+        assert_eq!(st.get("add-suc"), Some(&2));
+        assert_eq!(st.get("add-zero"), Some(&1));
+    }
+
+    #[test]
+    fn exact_rational_primitives() {
+        let e = Engine::new();
+        let s = parse_strategy("outermost(prim)").unwrap();
+        let cases = [
+            ("(+ 1/3 1/6)", "1/2"),
+            ("(q/ 6 4)", "3/2"),
+            ("(q/ 6 3)", "2"),
+            ("(* 9223372036854775807 2)", "18446744073709551614"),
+            ("(- (* 9223372036854775807 2) 9223372036854775807)", "9223372036854775807"),
+            ("(< 1/3 0.5)", "(< 1/3 0.5)"),
+            ("(< 1/3 1/2)", "true"),
+            ("(= 2/4 1/2)", "true"),
+            ("(max 1/3 1/4)", "1/3"),
+            ("(/ 7 2)", "3"),
+            ("(/ 7/2 2)", "(/ 7/2 2)"),
+            ("(round-to 2/3 1000)", "667/1000"),
+            ("(decimal 2/3 4)", "\"0.6667\""),
+            ("(expt 3/2 3)", "27/8"),
+            ("(floor -7/2)", "-4"),
+            ("(num 6/4)", "3"),
+            ("(den 6/4)", "2"),
+            ("(str -1/3)", "\"-1/3\""),
+            ("(add@ (rec (a 1/2)) a 1/2)", "(rec (a 1))"),
+            ("(sum@ (rec (a 1/2) (b 1/3)))", "5/6"),
+            ("(number? 1/2)", "true"),
+            ("(number? x)", "false"),
+        ];
+        for (src, want) in cases {
+            let mut fuel = 1000u64;
+            let out = e.apply(&s, &read_term(src).unwrap(), &mut fuel).unwrap().unwrap();
+            assert_eq!(format!("{}", out), want, "case {}", src);
+        }
+    }
+
+    #[test]
+    fn memo_preserves_normal_forms() {
+        // A recursive definition with guards and sharing: the memoized
+        // evaluator must reach the same normal form (with no more fuel).
+        let mk = || {
+            let mut e = Engine::new();
+            for (name, l, r) in [
+                ("if-t", "(if true ?t ?e)", "?t"),
+                ("if-f", "(if false ?t ?e)", "?e"),
+                ("fib", "(fib ?n)", "(if (< ?n 2) ?n (+ (fib (- ?n 1)) (fib (- ?n 2))))"),
+                ("pair", "(both ?x)", "(list ?x ?x (fib 12))"),
+            ] {
+                e.add_rule(Rule { name: name.into(), lhs: read_term(l).unwrap(), rhs: read_term(r).unwrap(), conds: vec![] });
+            }
+            e
+        };
+        let s = parse_strategy("outermost(prim + rules)").unwrap();
+        let t = read_term("(both (list (fib 10) (fib 11)))").unwrap();
+        let plain = mk();
+        let mut f1 = 10_000_000u64;
+        let a = plain.apply(&s, &t, &mut f1).unwrap().unwrap();
+        let mut memo = mk();
+        memo.enable_memo();
+        let mut f2 = 10_000_000u64;
+        let b = memo.apply(&s, &t, &mut f2).unwrap().unwrap();
+        assert_eq!(a, b);
+        assert_eq!(format!("{}", a), "(list (list 55 89) (list 55 89) 144)");
+        assert!(f2 >= f1, "memo must not use more fuel");
+        assert!(memo.memo_stats().unwrap().1 > 0, "memo should have hits");
+    }
+
+    #[test]
+    fn trace_is_observation_only() {
+        // --trace prints steps; the normal form and the fuel spent must be
+        // exactly those of an untraced run, and only `limit` steps are counted.
+        let mk = || {
+            let mut e = Engine::new();
+            for (name, l, r) in [
+                ("if-t", "(if true ?t ?e)", "?t"),
+                ("if-f", "(if false ?t ?e)", "?e"),
+                ("fib", "(fib ?n)", "(if (< ?n 2) ?n (+ (fib (- ?n 1)) (fib (- ?n 2))))"),
+            ] {
+                e.add_rule(Rule { name: name.into(), lhs: read_term(l).unwrap(), rhs: read_term(r).unwrap(), conds: vec![] });
+            }
+            e
+        };
+        let s = parse_strategy("outermost(prim + rules)").unwrap();
+        let t = read_term("(fib 9)").unwrap();
+        let plain = mk();
+        let mut f1 = 1_000_000u64;
+        let a = plain.apply(&s, &t, &mut f1).unwrap().unwrap();
+        let mut traced = mk();
+        traced.enable_trace(5);
+        let mut f2 = 1_000_000u64;
+        let b = traced.apply(&s, &t, &mut f2).unwrap().unwrap();
+        assert_eq!(a, b);
+        assert_eq!(f1, f2);
+        assert_eq!(traced.trace_count(), Some((5, 5)));
     }
 
     #[test]

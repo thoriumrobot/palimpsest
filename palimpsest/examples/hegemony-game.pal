@@ -1,0 +1,22 @@
+#lang palimpsest
+#mode rewrite-then-run
+#fuel 400000000
+#caps { rewrite: [self] }
+#rebind main
+// HEGEMONY, 2 players, as a self-rewriting program. The file's `main` IS the
+// game state. Each run fires the transition `crank` once -- one full round:
+// Preparation, 5 Action turns each, Production, Elections, Scoring -- and
+// writes the new state back into this file. After round 5 the guard fails, the
+// rewrite is the identity, and the file is a quine: the fixed point certifies
+// that the game is over. Every run also re-checks the four conservation laws.
+//
+//   cp examples/hegemony-game.pal /tmp/g.pal
+//   for i in 1 2 3 4 5 6; do palimpsest /tmp/g.pal; done   # 5x WROTE, then FIXED POINT
+import "../lib/hegemony.pal"
+transition crank : (economy ?s) => (economy ?s2) where (<= (@ ?s round) 5), ?s2 <- (play-round ?s)
+rule app-inv : (app inv-of (economy ?s)) => (invariants? ?s)
+main = (economy (h-setup))
+rewrite self with try(oncetd(crank))
+assert (app inv-of main) with normalize
+display (dashboard main) with normalize
+display (ledger-of main) with normalize

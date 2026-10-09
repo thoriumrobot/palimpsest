@@ -1,0 +1,145 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART II -- THE DISTRIBUTION OF MONEY AS STATISTICAL MECHANICS (MATERIALIST-ECONOMY.md §4)
+// Exact multiplicities, the exact microcanonical marginal, a random-exchange
+// agent model, capital income and the asset cap, the Cantillon effect, and
+// labour vouchers. Every claim is an `assert`; the agent models are
+// deterministic (hash-seeded), so every number reproduces bit for bit.
+import "../lib/econophysics.pal"
+import "../lib/report.pal"
+
+// ---- §4.1 macrostates ----
+rule me8 : (me8) => (max-entropy 8 16)
+rule me12 : (me12) => (max-entropy 12 24)
+rule me-occ : (me-occ (maxent ?o ?w ?t)) => ?o
+rule me-w : (me-w (maxent ?o ?w ?t)) => ?w
+rule me-ties : (me-ties (maxent ?o ?w ?t)) => ?t
+rule s1 : (s1 !a !b) => (lines (list
+  "§4.1 MACROSTATES: N agents, M units; W = N!/prod n_k! (exact integers)"
+  (cat "  N=8,  M=16: macrostates " (cat (sh (length (macrostates 8 16))) (cat "   max W " (cat (sh (me-w ?a)) (cat " (unique: " (cat (tf (= (me-ties ?a) 1)) (cat ")  at n_k = " (sh (take 8 (me-occ ?a))))))))))
+  (cat "  N=12, M=24: macrostates " (cat (sh (length (macrostates 12 24))) (cat "  max W " (cat (sh (me-w ?b)) (cat " (unique: " (cat (tf (= (me-ties ?b) 1)) (cat ")  at n_k = " (sh (take 8 (me-occ ?b))))))))))
+  (cat "  W of the equal split (everyone holds T): " (cat (sh (multiplicity (equal-split 8 16))) (cat " and " (sh (multiplicity (equal-split 12 24))))))))
+
+// ---- §4.2 the exact microcanonical marginal ----
+rule app-mp-610 : (app mp-610 ?k) => (micro-p 6 10 ?k)
+rule app-mp-1020 : (app mp-1020 ?k) => (micro-p 10 20 ?k)
+rule tvs : (tvs) => (list (tv-micro-geo 10 100 60) (tv-micro-geo 100 1000 60) (tv-micro-geo 1000 10000 60))
+rule s2 : (s2) => (lines (list
+  "§4.2 THE EXACT MICROCANONICAL MARGINAL  P(m=k) = C(M-k+N-2,N-2)/C(M+N-1,N-1)"
+  (cat "  recurrence = binomial formula, N=6 M=10 and N=10 M=20 (all k): " (tf (and (same? (micro-seq 6 10 10) (smap mp-610 (srange 0 10))) (same? (micro-seq 10 20 20) (smap mp-1020 (srange 0 20))))))
+  (cat "  N=100, M=1000: P(0..5) = " (drow (take 6 (micro-seq 100 1000 60)) 5 9))
+  (cat "  geometric T=10:   g(0..5) = " (drow (smap g10 (srange 0 5)) 5 9))
+  (cat "  strictly decreasing in k (N=100, M=1000, k = 0..60): " (tf (strictly-decreasing? (micro-seq 100 1000 60))))
+  (cat "  total-variation distance to the geometric law, T = 10, N = 10 / 100 / 1000: " (drow (tvs) 5 9))
+  (cat "  Gini of the geometric law at T = 10: " (cat (sh (geo-gini 10)) (cat " = " (decimal (geo-gini 10) 4))))))
+rule app-g10 : (app g10 ?k) => (geo-p 10 ?k)
+rule same? : (same? !x !y) => (equal? ?x ?y)
+rule strictly-decreasing?-0 : (strictly-decreasing? (list ?x)) => true
+rule strictly-decreasing?-n : (strictly-decreasing? (list ?x ?y ?zs...)) => (if (< ?y ?x) (strictly-decreasing? (list ?y ?zs...)) false)
+rule strictly-increasing?-0 : (strictly-increasing? (list ?x)) => true
+rule strictly-increasing?-n : (strictly-increasing? (list ?x ?y ?zs...)) => (if (> ?y ?x) (strictly-increasing? (list ?y ?zs...)) false)
+
+// ---- §4.3 random exchange ----
+// 100 agents with 10 units each; 20,000 events of burn-in, then 40 snapshots
+// 2,000 events apart, pooled (4,000 holdings). Bins 0..119 (tail must be empty).
+rule xp : (xp) => (xpool (agents 100 10) 100 1 20000 2000 40 120)
+rule xp-h : (xp-h (pooled ?h ?s ?ok)) => (hist-list ?h)
+rule xp-ok : (xp-ok (pooled ?h ?s ?ok)) => ?ok
+rule tail-empty? : (tail-empty? !hs) => (= (last ?hs) 0)
+// histogram with a tail bin at 30 for the TV comparison
+rule fold30 : (fold30 !hs) => (snoc (take 30 ?hs) (vsum (drop 30 ?hs)))
+rule s3 : (s3 !p) => (lines (list
+  "§4.3 RANDOM CONSERVATIVE EXCHANGE (N = 100, T = 10, pooled 40 snapshots)"
+  (cat "  money conserved at every snapshot: " (tf (xp-ok ?p)))
+  (cat "  Gini after 1,000 / 5,000 / 20,000 events: " (drow (list (gini (holdings (xrun (agents 100 10) 0 100 1 1000))) (gini (holdings (xrun (agents 100 10) 0 100 1 5000))) (gini (holdings (xrun (agents 100 10) 0 100 1 20000)))) 4 8))
+  (cat "  pooled histogram n_0..n_11: " (srow (take 12 (xp-h ?p)) 5))
+  (cat "  expected (geometric x 4000): " (drow (smap g4000 (srange 0 11)) 0 5))
+  (cat "  share holding nothing: " (cat (decimal (q/ (nth 0 (xp-h ?p)) 4000) 4) (cat "   (geometric: 1/(T+1) = " (cat (decimal 1/11 4) ")"))))
+  (cat "  total-variation distance to the geometric law: " (decimal (tv-emp-geo (fold30 (xp-h ?p)) 4000 10) 4))
+  (cat "  pooled Gini: " (cat (decimal (gini-hist (xp-h ?p)) 4) (cat "   (geometric: " (cat (decimal (geo-gini 10) 4) ")"))))))
+rule app-g4000 : (app g4000 ?k) => (* 4000 (geo-p 10 ?k))
+
+// ---- §4.4 two classes and the asset cap ----
+// 100 agents: 5 owners with 100 units, 95 workers with 5 units (M = 975).
+// 60,000 events, checkpoints every 20,000; caps none / 60 / 30.
+rule soc : (soc) => (society 100 5 100 5)
+rule runs : (runs) => (list (pair none (crun-chk (soc) 100 5 none 20000 3)) (pair 60 (crun-chk (soc) 100 5 60 20000 3)) (pair 30 (crun-chk (soc) 100 5 30 20000 3)))
+rule app-chk-line : (app chk-line (chk ?t ?os ?g ?owners ?pub ?tot ?ok)) => (cats (list (padl (sh ?t) 9) (dpad ?os 4 9) (dpad ?g 4 9) (padl (sh ?owners) 26) (spad ?pub 5) (spad ?tot 6) (spad ?ok 7)))
+rule app-run-block : (app run-block (pair ?theta ?rows)) => (lines (prepend (cat "  cap " (sh ?theta)) (map chk-line ?rows)))
+rule s4 : (s4 !rs) => (lines (list
+  "§4.4 TWO CLASSES: additive wages vs multiplicative capital income; the asset cap"
+  "       events  owners%   wGini      owners (sorted)          pub total  cap-ok"
+  (lines (map run-block ?rs))))
+rule app-run-ok : (app run-ok (pair ?theta ?rows)) => (all-of chk-ok ?rows)
+rule app-chk-ok : (app chk-ok (chk ?t ?os ?g ?owners ?pub ?tot ?ok)) => (and ?ok (= ?tot 975))
+rule share-bound? : (share-bound? (pair ?theta ?rows)) => (all-of (os-le (q/ (* 5 ?theta) 975)) ?rows)
+rule app-os-le : (app (os-le ?b) (chk ?t ?os ?g ?owners ?pub ?tot ?ok)) => (<= ?os ?b)
+rule final-share : (final-share (pair ?theta ?rows)) => (fs-of (last ?rows))
+rule fs-of : (fs-of (chk ?t ?os ?g ?owners ?pub ?tot ?ok)) => ?os
+rule final-gini : (final-gini (pair ?theta ?rows)) => (fg-of (last ?rows))
+rule fg-of : (fg-of (chk ?t ?os ?g ?owners ?pub ?tot ?ok)) => ?g
+
+// ---- §4.5 the Cantillon effect ----
+// Three groups: asset holders (money 600), middle (300), poor (100); real
+// output Q = 1000; new money D = 100 credited to the asset holders.
+rule s5 : (s5) => (lines (list
+  "§4.5 THE CANTILLON EFFECT (Q = 1000 goods, money 600/300/100, D = 100 new money)"
+  (cat "  injected at the asset holders, spent first at the old price: real gains " (sh (cantillon (list 600 300 100) 1000 100)))
+  (cat "  injected in proportion, spent after prices adjust:           real gains " (sh (neutral-injection (list 600 300 100) 1000 100)))
+  (cat "  real gains sum to zero in both (output is fixed): " (tf (and (= (vsum (cantillon (list 600 300 100) 1000 100)) 0) (= (vsum (neutral-injection (list 600 300 100) 1000 100)) 0))))
+  (cat "  first recipients' real gain = Q.D/M exactly: " (tf (= (nth 0 (cantillon (list 600 300 100) 1000 100)) (q/ (* 1000 100) 1000))))))
+
+// ---- §4.6 labour vouchers ----
+// 20 agents; agent i works 6 + (i mod 5) hours a period; 30 periods.
+rule hours : (hours) => (smap hrs (srange 0 19))
+rule app-hrs : (app hrs ?i) => (+ 6 (mod ?i 5))
+rule hours2 : (hours2) => (lreplace (hours) 0 40)
+rule vs1 : (vs1) => (vrun (vsociety 20) 20 (hours) 0 30)
+rule vs2 : (vs2) => (vrun (vsociety 20) 20 (hours2) 0 30)
+// non-interference: changing agent 0's work changes nobody else's holdings
+rule others : (others !xs) => (drop 1 ?xs)
+// the exchange economy, by contrast: give agent 0 one more unit at the start
+rule xa : (xa) => (holdings (xrun (agents 20 10) 0 20 1 3000))
+rule xb : (xb) => (holdings (xrun (hadd (agents 20 10) 0 1) 0 20 1 3000))
+rule s6 : (s6 !v1 !v2 !a !b) => (lines (list
+  "§4.6 LABOUR VOUCHERS (20 agents, 30 periods; issue on work, cancel on purchase, no transfers)"
+  (cat "  identity v = issued - redeemed, 0 <= v <= issued, every agent: " (tf (voucher-identity? ?v1 20)))
+  (cat "  agent 0 works 40 h instead of 6: other agents' holdings unchanged: " (tf (same? (others (vholdings ?v1 20)) (others (vholdings ?v2 20)))))
+  (cat "  exchange economy: agent 0 starts with 1 more unit: others changed: " (tf (not (same? (others ?a) (others ?b)))))
+  (cat "  vouchers outstanding / issued in total: " (cat (decimal (vsum (vholdings ?v1 20)) 2) (cat " / " (sh (* 30 (vsum (hours)))))))))
+
+main = 0
+let $me8 = (me8) with normalize
+let $me12 = (me12) with normalize
+let $xp = (xp) with normalize
+let $runs = (runs) with normalize
+let $vs1 = (vs1) with normalize
+let $vs2 = (vs2) with normalize
+let $xa = (xa) with normalize
+let $xb = (xb) with normalize
+display (s1 $me8 $me12) with normalize
+display (s2) with normalize
+display (s3 $xp) with normalize
+display (s4 $runs) with normalize
+display (s5) with normalize
+display (s6 $vs1 $vs2 $xa $xb) with normalize
+// ---- theorems ----
+assert (and (= (me-w $me8) 10080) (= (me-w $me12) 4989600)) with normalize
+assert (and (= (multiplicity (equal-split 8 16)) 1) (= (multiplicity (equal-split 12 24)) 1)) with normalize
+assert (same? (micro-seq 6 10 10) (smap mp-610 (srange 0 10))) with normalize
+assert (strictly-decreasing? (micro-seq 100 1000 60)) with normalize
+assert (strictly-decreasing? (tvs)) with normalize
+assert (= (geo-gini 10) 11/21) with normalize
+assert (xp-ok $xp) with normalize
+assert (tail-empty? (xp-h $xp)) with normalize
+assert (< (tv-emp-geo (fold30 (xp-h $xp)) 4000 10) 1/20) with normalize
+assert (all-of run-ok $runs) with normalize
+assert (and (share-bound? (nth 1 $runs)) (share-bound? (nth 2 $runs))) with normalize
+assert (and (> (final-share (nth 0 $runs)) 9/10) (< (final-share (nth 1 $runs)) 1/4)) with normalize
+assert (and (> (final-gini (nth 0 $runs)) 7/10) (< (final-gini (nth 1 $runs)) 1/2)) with normalize
+assert (and (= (vsum (cantillon (list 600 300 100) 1000 100)) 0) (same? (neutral-injection (list 600 300 100) 1000 100) (list 0 0 0))) with normalize
+assert (= (nth 0 (cantillon (list 600 300 100) 1000 100)) 100) with normalize
+assert (voucher-identity? $vs1 20) with normalize
+assert (same? (others (vholdings $vs1 20)) (others (vholdings $vs2 20))) with normalize
+assert (not (same? (others $xa) (others $xb))) with normalize

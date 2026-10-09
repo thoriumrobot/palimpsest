@@ -1,0 +1,200 @@
+#lang palimpsest
+// linalg.pal -- exact linear algebra over the rationals, written as rewrite
+// rules. Numbers are Palimpsest's exact numbers (integers of any size and
+// rationals n/d), so every result below is exact: no rounding, no epsilon.
+//
+//   vector  : (list x1 ... xn)
+//   matrix  : (list row1 ... rowm), each row a vector
+//
+// Every function forces its results through `where` bindings, so each call
+// returns a fully evaluated value (no pending redexes are copied around).
+// That is the idiom that keeps normal-order rewriting fast on numeric data.
+import "prelude.pal"
+
+// ------------------------------------------------- strict list combinators ---
+// list.pal's map/filter/count-if build a lazy chain of `prepend`s that
+// normal-order evaluation must rescan from the root at every step (quadratic
+// in the list length, with a large constant). These accumulate forced values
+// left to right: each step is one root rewrite plus a small `where`
+// evaluation, so long lists (thousands of elements) stay linear in steps.
+rule smap : (smap ?f !xs) => (smap-go ?f ?xs (list))
+rule smap-0 : (smap-go ?f (list) ?acc) => ?acc
+rule smap-n : (smap-go ?f (list ?x ?xs...) (list ?as...)) => (smap-go ?f (list ?xs...) (list ?as... ?y)) where ?y <- (app ?f ?x)
+rule sfilter : (sfilter ?p !xs) => (sfilter-go ?p ?xs (list))
+rule sfilter-0 : (sfilter-go ?p (list) ?acc) => ?acc
+rule sfilter-n : (sfilter-go ?p (list ?x ?xs...) (list ?as...)) => (sfilter-go ?p (list ?xs...) ?acc2)
+  where ?b <- (app ?p ?x), ?acc2 <- (if ?b (list ?as... ?x) (list ?as...))
+rule scount : (scount ?p !xs) => (scount-go ?p ?xs 0)
+rule scount-0 : (scount-go ?p (list) ?n) => ?n
+rule scount-n : (scount-go ?p (list ?x ?xs...) ?n) => (scount-go ?p (list ?xs...) ?n2) where ?b <- (app ?p ?x), ?n2 <- (if ?b (+ ?n 1) ?n)
+rule sall : (sall ?p !xs) => (sall-go ?p ?xs)
+rule sall-0 : (sall-go ?p (list)) => true
+rule sall-n : (sall-go ?p (list ?x ?xs...)) => (sall-pick ?b ?p (list ?xs...)) where ?b <- (app ?p ?x)
+rule sall-t : (sall-pick true ?p ?rest) => (sall-go ?p ?rest)
+rule sall-f : (sall-pick false ?p ?rest) => false
+rule sany : (sany ?p !xs) => (not (sall (negp ?p) ?xs))
+rule app-negp : (app (negp ?p) ?x) => (not (app ?p ?x))
+// concatenation of a list of lists, and an eager integer range
+rule sconcat : (sconcat !xss) => (sconcat-go ?xss (list))
+rule sconcat-0 : (sconcat-go (list) ?acc) => ?acc
+rule sconcat-n : (sconcat-go (list (list ?ys...) ?xss...) (list ?as...)) => (sconcat-go (list ?xss...) (list ?as... ?ys...))
+rule srange : (srange !a !b) => (srange-go ?a ?b (list))
+rule srange-go : (srange-go ?a ?b (list ?as...)) => (if (> ?a ?b) (list ?as...) (srange-go (+ ?a 1) ?b (list ?as... ?a)))
+rule srange-go-s : (srange-go !a !b (list ?as...)) => (list ?as...) where (> ?a ?b)
+
+// ---------------------------------------------------------------- vectors ---
+rule vdot-0 : (vdot (list) (list)) => 0
+rule vdot-n : (vdot (list ?x ?xs...) (list ?y ?ys...)) => (+ ?p ?r) where ?p <- (* ?x ?y), ?r <- (vdot (list ?xs...) (list ?ys...))
+rule vadd-0 : (vadd (list) (list)) => (list)
+rule vadd-n : (vadd (list ?x ?xs...) (list ?y ?ys...)) => (prepend ?z ?r) where ?z <- (+ ?x ?y), ?r <- (vadd (list ?xs...) (list ?ys...))
+rule vsub-0 : (vsub (list) (list)) => (list)
+rule vsub-n : (vsub (list ?x ?xs...) (list ?y ?ys...)) => (prepend ?z ?r) where ?z <- (- ?x ?y), ?r <- (vsub (list ?xs...) (list ?ys...))
+rule vmul-0 : (vmul (list) (list)) => (list)
+rule vmul-n : (vmul (list ?x ?xs...) (list ?y ?ys...)) => (prepend ?z ?r) where ?z <- (* ?x ?y), ?r <- (vmul (list ?xs...) (list ?ys...))
+rule vscale-0 : (vscale !c (list)) => (list)
+rule vscale-n : (vscale !c (list ?x ?xs...)) => (prepend ?z ?r) where ?z <- (* ?c ?x), ?r <- (vscale ?c (list ?xs...))
+rule vsum-0 : (vsum (list)) => 0
+rule vsum-n : (vsum (list ?x ?xs...)) => (+ ?x ?r) where ?r <- (vsum (list ?xs...))
+rule vzero : (vzero !n) => (replicate ?n 0)
+rule vunit : (vunit !n !i) => (vunit-go 0 ?n ?i)
+rule vunit-go : (vunit-go ?k ?n ?i) => (if (>= ?k ?n) (list) (prepend (if (= ?k ?i) 1 0) (vunit-go (+ ?k 1) ?n ?i)))
+// max-norm |x|_inf and the all-nonnegative / all-positive tests
+rule vnorm-0 : (vnorm (list)) => 0
+rule vnorm-n : (vnorm (list ?x ?xs...)) => (max ?a ?r) where ?a <- (abs ?x), ?r <- (vnorm (list ?xs...))
+rule vnonneg-0 : (vnonneg? (list)) => true
+rule vnonneg-n : (vnonneg? (list ?x ?xs...)) => (if (>= ?x 0) (vnonneg? (list ?xs...)) false)
+rule vpos-0 : (vpos? (list)) => true
+rule vpos-n : (vpos? (list ?x ?xs...)) => (if (> ?x 0) (vpos? (list ?xs...)) false)
+rule vge-0 : (vge? (list) (list)) => true
+rule vge-n : (vge? (list ?x ?xs...) (list ?y ?ys...)) => (if (>= ?x ?y) (vge? (list ?xs...) (list ?ys...)) false)
+// elementwise rounding to a multiple of 1/K, and decimal rendering
+rule vround-0 : (vround (list) !k) => (list)
+rule vround-n : (vround (list ?x ?xs...) !k) => (prepend ?z ?r) where ?z <- (round-to ?x ?k), ?r <- (vround (list ?xs...) ?k)
+rule vdec-0 : (vdec (list) !d) => (list)
+rule vdec-n : (vdec (list ?x ?xs...) !d) => (prepend ?z ?r) where ?z <- (decimal ?x ?d), ?r <- (vdec (list ?xs...) ?d)
+// replace the element at 0-based index k
+rule lreplace-0 : (lreplace (list ?x ?xs...) 0 ?new) => (list ?new ?xs...)
+rule lreplace-n : (lreplace (list ?x ?xs...) !i ?new) => (prepend ?x (lreplace (list ?xs...) ?m ?new)) where (> ?i 0), ?m <- (- ?i 1)
+// strict folds. NOTE: list.pal's maximum/minimum fold through arith.pal's
+// lazy `(max ?a ?b) => (if (>= ?a ?b) ?a ?b)`, which copies both UNEVALUATED
+// arguments and is exponential on long folds; these force every partial result.
+rule lmax-1 : (lmax (list ?x)) => ?x
+rule lmax-n : (lmax (list ?x ?y ?ys...)) => (lmax (list ?m ?ys...)) where ?m <- (max ?x ?y)
+rule lmin-1 : (lmin (list ?x)) => ?x
+rule lmin-n : (lmin (list ?x ?y ?ys...)) => (lmin (list ?m ?ys...)) where ?m <- (min ?x ?y)
+// component k (0-based) and replacement
+rule vget : (vget (list ?xs...) !k) => (nth ?k (list ?xs...))
+rule vset : (vset (list ?xs...) !k !v) => (lreplace (list ?xs...) ?k ?v)
+
+// --------------------------------------------------------------- matrices ---
+rule mrows : (mrows (list ?rs...)) => (length (list ?rs...))
+rule mcols : (mcols (list ?r ?rs...)) => (length ?r)
+// M x  (column vector)
+rule mv-0 : (mv (list) ?x) => (list)
+rule mv-n : (mv (list ?r ?rs...) (list ?xs...)) => (prepend ?z ?t) where ?z <- (vdot ?r (list ?xs...)), ?t <- (mv (list ?rs...) (list ?xs...))
+// y M  (row vector): sum_i y_i * row_i
+rule vm : (vm (list ?ys...) (list ?r ?rs...)) => (vm-go (list ?ys...) (list ?r ?rs...) ?z) where ?z <- (vzero (length ?r))
+rule vm-go-0 : (vm-go (list) (list) ?acc) => ?acc
+rule vm-go-n : (vm-go (list ?y ?ys...) (list ?r ?rs...) ?acc) => (vm-go (list ?ys...) (list ?rs...) ?a2) where ?a2 <- (vadd ?acc (vscale ?y ?r))
+rule mtrans : (mtrans (list ?r ?rs...)) => (mtrans-go (list ?r ?rs...) 0 ?n) where ?n <- (length ?r)
+rule mtrans-go : (mtrans-go ?m ?j ?n) => (if (>= ?j ?n) (list) (prepend (mcol ?m ?j) (mtrans-go ?m (+ ?j 1) ?n)))
+rule mcol-0 : (mcol (list) !j) => (list)
+rule mcol-n : (mcol (list ?r ?rs...) !j) => (prepend ?z ?t) where ?z <- (nth ?j ?r), ?t <- (mcol (list ?rs...) ?j)
+// A B : rows of A times B
+rule mm-0 : (mm (list) ?b) => (list)
+rule mm-n : (mm (list ?r ?rs...) ?b) => (prepend ?z ?t) where ?z <- (vm ?r ?b), ?t <- (mm (list ?rs...) ?b)
+rule madd-0 : (madd (list) (list)) => (list)
+rule madd-n : (madd (list ?r ?rs...) (list ?s ?ss...)) => (prepend ?z ?t) where ?z <- (vadd ?r ?s), ?t <- (madd (list ?rs...) (list ?ss...))
+rule msub-0 : (msub (list) (list)) => (list)
+rule msub-n : (msub (list ?r ?rs...) (list ?s ?ss...)) => (prepend ?z ?t) where ?z <- (vsub ?r ?s), ?t <- (msub (list ?rs...) (list ?ss...))
+rule mscale-0 : (mscale !c (list)) => (list)
+rule mscale-n : (mscale !c (list ?r ?rs...)) => (prepend ?z ?t) where ?z <- (vscale ?c ?r), ?t <- (mscale ?c (list ?rs...))
+rule mident : (mident !n) => (mident-go 0 ?n)
+rule mident-go : (mident-go ?i ?n) => (if (>= ?i ?n) (list) (prepend (vunit ?n ?i) (mident-go (+ ?i 1) ?n)))
+// outer product: column vector b times row vector l  (b l)_{ij} = b_i l_j
+rule mouter-0 : (mouter (list) ?l) => (list)
+rule mouter-n : (mouter (list ?b ?bs...) ?l) => (prepend ?z ?t) where ?z <- (vscale ?b ?l), ?t <- (mouter (list ?bs...) ?l)
+// I - A
+rule leontief : (leontief !a) => (msub ?i ?a) where ?i <- (mident (mrows ?a))
+rule mnonneg-0 : (mnonneg? (list)) => true
+rule mnonneg-n : (mnonneg? (list ?r ?rs...)) => (if (vnonneg? ?r) (mnonneg? (list ?rs...)) false)
+rule mnorm-inf : (mnorm (list ?rs...)) => (lmax (map row-abs-sum (list ?rs...)))
+rule app-row-abs-sum : (app row-abs-sum ?r) => (vsum (map absf ?r))
+rule app-absf : (app absf ?x) => (abs ?x)
+// column sums (the max column sum bounds the spectral radius of a nonneg matrix)
+rule mcolsums : (mcolsums !m) => (map vsum-of (mtrans ?m))
+rule app-vsum-of : (app vsum-of ?v) => (vsum ?v)
+rule mrowsums : (mrowsums !m) => (map vsum-of ?m)
+// top-left k x k block
+rule mblock : (mblock (list ?rs...) !k) => (map (take-k ?k) (take ?k (list ?rs...)))
+rule app-take-k : (app (take-k ?k) ?r) => (take ?k ?r)
+
+// ------------------------------------------------- Gauss-Jordan elimination ---
+// (minv M)   the exact inverse, or `singular`
+// (mdet M)   the exact determinant (fraction-free is unnecessary: exact rationals)
+// (msolve M b) the solution x of M x = b, or `singular`
+// The pivot in each column is the first nonzero entry at or below the diagonal;
+// with exact arithmetic any nonzero pivot is correct.
+rule minv : (minv !m) => (gj-result ?r) where ?n <- (mrows ?m), ?aug <- (augment ?m (mident ?n)), ?r <- (gj ?aug 0 ?n)
+rule augment-0 : (augment (list) (list)) => (list)
+rule augment-n : (augment (list ?r ?rs...) (list ?s ?ss...)) => (prepend ?z ?t) where ?z <- (append ?r ?s), ?t <- (augment (list ?rs...) (list ?ss...))
+rule gj-result-s : (gj-result singular) => singular
+rule gj-result : (gj-result (list ?rs...)) => (map (drop-k ?n) (list ?rs...)) where ?n <- (length (list ?rs...))
+rule app-drop-k : (app (drop-k ?k) ?r) => (drop ?k ?r)
+// gj M j n : columns < j are reduced; reduce column j
+rule gj-done : (gj ?m ?j ?n) => ?m where (>= ?j ?n)
+rule gj-step : (gj ?m ?j ?n) => (gj-pivot ?p ?m ?j ?n) where (< ?j ?n), ?p <- (find-pivot ?m ?j ?j ?n)
+rule gj-pivot-none : (gj-pivot none ?m ?j ?n) => singular
+rule gj-pivot : (gj-pivot (some ?p) ?m ?j ?n) => (gj ?m4 ?j1 ?n)
+  where ?m1 <- (mswap ?m ?j ?p), ?row <- (nth ?j ?m1), ?piv <- (nth ?j ?row), ?inv <- (q/ 1 ?piv),
+        ?nrow <- (vscale ?inv ?row), ?m2 <- (lreplace ?m1 ?j ?nrow), ?m4 <- (elim-col ?m2 ?j ?nrow 0), ?j1 <- (+ ?j 1)
+rule find-pivot : (find-pivot ?m ?i ?j ?n) => (if (>= ?i ?n) none (if (<> (nth ?j (nth ?i ?m)) 0) (some ?i) (find-pivot ?m (+ ?i 1) ?j ?n)))
+rule mswap : (mswap ?m ?i ?k) => (if (= ?i ?k) ?m (lreplace (lreplace ?m ?i (nth ?k ?m)) ?k (nth ?i ?m)))
+// subtract multiples of the (normalized) pivot row from every other row
+rule elim-col-0 : (elim-col (list) ?j ?prow ?i) => (list)
+rule elim-col-n : (elim-col (list ?r ?rs...) ?j ?prow ?i) => (prepend ?z ?t)
+  where ?z <- (elim-row ?r ?j ?prow ?i), ?i1 <- (+ ?i 1), ?t <- (elim-col (list ?rs...) ?j ?prow ?i1)
+rule elim-row : (elim-row ?r ?j ?prow ?i) => (if (= ?i ?j) ?r (vsub ?r (vscale (nth ?j ?r) ?prow)))
+// determinant by elimination: product of pivots, sign-flipped per row swap
+rule mdet : (mdet !m) => (det-go ?m 0 ?n 1) where ?n <- (mrows ?m)
+rule det-go-done : (det-go ?m ?j ?n ?acc) => ?acc where (>= ?j ?n)
+rule det-go : (det-go ?m ?j ?n ?acc) => (det-pivot ?p ?m ?j ?n ?acc) where (< ?j ?n), ?p <- (find-pivot ?m ?j ?j ?n)
+rule det-pivot-none : (det-pivot none ?m ?j ?n ?acc) => 0
+rule det-pivot : (det-pivot (some ?p) ?m ?j ?n ?acc) => (det-go ?m3 ?j1 ?n ?acc2)
+  where ?m1 <- (mswap ?m ?j ?p), ?row <- (nth ?j ?m1), ?piv <- (nth ?j ?row),
+        ?sg <- (if (= ?p ?j) 1 -1), ?acc2 <- (* ?acc (* ?sg ?piv)),
+        ?nrow <- (vscale (q/ 1 ?piv) ?row), ?m2 <- (lreplace ?m1 ?j ?nrow),
+        ?m3 <- (elim-col ?m2 ?j ?nrow 0), ?j1 <- (+ ?j 1)
+rule msolve : (msolve !m !b) => (msolve-go ?inv ?b) where ?inv <- (minv ?m)
+rule msolve-go-s : (msolve-go singular ?b) => singular
+rule msolve-go : (msolve-go (list ?rs...) ?b) => (mv (list ?rs...) ?b)
+// leading principal minors det(M_k), k = 1..n
+rule lpm : (lpm !m) => (map (lpm-k ?m) (range 1 (mrows ?m)))
+rule app-lpm-k : (app (lpm-k ?m) ?k) => (mdet (mblock ?m ?k))
+
+// ------------------------------------------- Hawkins-Simon and productivity ---
+// For a nonnegative matrix A, the following are equivalent (Hawkins-Simon):
+//   (i)   every leading principal minor of I - A is positive;
+//   (ii)  (I - A)^-1 exists and is nonnegative;
+//   (iii) the spectral radius of A is < 1 (A is PRODUCTIVE);
+//   (iv)  the Neumann series I + A + A^2 + ... converges to (I - A)^-1.
+// (hawkins-simon? A) decides (i) exactly; (productive? A) checks (i) AND (ii)
+// so that the equivalence itself is tested on every matrix the models use.
+rule hawkins-simon? : (hawkins-simon? !a) => (all-of positivef (lpm (leontief ?a)))
+rule app-positivef : (app positivef ?x) => (> ?x 0)
+rule productive? : (productive? !a) => (prod-check ?hs ?inv) where ?hs <- (hawkins-simon? ?a), ?inv <- (minv (leontief ?a))
+rule prod-check-s : (prod-check ?hs singular) => false
+rule prod-check : (prod-check ?hs (list ?rs...)) => (and ?hs (mnonneg? (list ?rs...)))
+
+// ------------------------------------- contractive iteration (the feedback) ---
+// The fixed point of x -> A x + d is the gross output (I - A)^-1 d when A is
+// productive. Each application is one pass of the planning bureau's loop:
+// "feed the estimate back through the production table". (iter-mv A d K)
+// returns the K-th iterate from x0 = d; (iter-vm A l K) is the row-vector
+// version lambda -> lambda A + l whose fixed point is the labor-value vector.
+rule iter-mv : (iter-mv !a !d !k) => (iter-mv-go ?a ?d ?d ?k)
+rule iter-mv-done : (iter-mv-go ?a ?d ?x ?k) => ?x where (<= ?k 0)
+rule iter-mv-go : (iter-mv-go ?a ?d ?x ?k) => (iter-mv-go ?a ?d ?x2 ?k1) where (> ?k 0), ?x2 <- (vadd (mv ?a ?x) ?d), ?k1 <- (- ?k 1)
+rule iter-vm : (iter-vm !a !l !k) => (iter-vm-go ?a ?l ?l ?k)
+rule iter-vm-done : (iter-vm-go ?a ?l ?x ?k) => ?x where (<= ?k 0)
+rule iter-vm-go : (iter-vm-go ?a ?l ?x ?k) => (iter-vm-go ?a ?l ?x2 ?k1) where (> ?k 0), ?x2 <- (vadd (vm ?x ?a) ?l), ?k1 <- (- ?k 1)

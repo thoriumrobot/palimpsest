@@ -1,0 +1,277 @@
+#lang palimpsest
+// econophysics.pal -- the statistical mechanics of money (Dragulescu &
+// Yakovenko 2000; Yakovenko & Rosser 2009), exactly where possible, as
+// rewrite rules.
+//
+//   1. Microstates and macrostates: N agents share M indivisible units of
+//      money. A macrostate is an occupation vector (n_0, n_1, ...): n_k agents
+//      hold k units. Its multiplicity W = N! / prod n_k! is an exact big
+//      integer, so "maximum entropy" (maximum ln W) is decided exactly by
+//      comparing integers -- no logarithms, no floating point.
+//   2. The exact microcanonical marginal: with every microstate equally
+//      likely, P(m_i = k) = C(M-k+N-2, N-2) / C(M+N-1, N-1). It is strictly
+//      decreasing in k and tends to the geometric (discrete Boltzmann-Gibbs)
+//      law (1-q) q^k, q = T/(1+T), T = M/N the "temperature".
+//   3. A random-exchange agent model: conservative pairwise transfers. Money
+//      is conserved exactly by construction; the distribution relaxes toward
+//      the law in 2.
+//   4. Capital income: a minority whose receipts scale with its holdings
+//      (multiplicative), against additive wage income -- the two-class
+//      structure -- and an asset cap that bounds it.
+//   5. The Cantillon effect: money injected at one point of the economy buys
+//      real goods at old prices; with real output fixed, every real gain of
+//      the first recipients is a real loss of the later ones.
+//   6. Labour vouchers: issued for hours worked, cancelled on purchase, never
+//      transferred. Holdings are a function of one's own work only.
+import "linalg.pal"
+
+// ============================================================================
+// 1. MACROSTATES AND MULTIPLICITY
+// ============================================================================
+rule fact : (fact !n) => (fact-go ?n 1)
+rule fact-done : (fact-go ?n ?acc) => ?acc where (<= ?n 1)
+rule fact-go : (fact-go ?n ?acc) => (fact-go ?n1 ?acc2) where (> ?n 1), ?acc2 <- (* ?acc ?n), ?n1 <- (- ?n 1)
+rule binom : (binom !n !k) => (binom-go ?n ?k) where (>= ?k 0), (>= ?n ?k)
+rule binom-zero : (binom !n !k) => 0 where (or (< ?k 0) (< ?n ?k))
+rule binom-go : (binom-go !n !k) => (bg ?n (min ?k (- ?n ?k)) 1 1)
+rule bg-done : (bg !n !k !i !acc) => ?acc where (> ?i ?k)
+rule bg-step : (bg !n !k !i !acc) => (bg ?n ?k ?i1 ?acc2) where (<= ?i ?k), ?acc2 <- (q/ (* ?acc (+ (- ?n ?k) ?i)) ?i), ?i1 <- (+ ?i 1)
+// partitions of M into at most C parts, each <= P (non-increasing lists)
+rule parts : (parts !m !p !c) => (parts-go ?m ?p ?c)
+rule parts-0 : (parts-go 0 ?p ?c) => (list (list))
+rule parts-n : (parts-go !m !p !c) => (parts-try ?m (min ?p ?m) ?c) where (> ?m 0), (> ?c 0)
+rule parts-none : (parts-go ?m ?p 0) => (list) where (> ?m 0)
+rule parts-try : (parts-try !m !q !c) => (sconcat (smap (parts-with ?m ?c) (srange 1 ?q)))
+rule app-parts-with : (app (parts-with ?m ?c) ?q) => (smap (cons-part ?q) (parts-go (- ?m ?q) ?q (- ?c 1)))
+rule app-cons-part : (app (cons-part ?q) ?rest) => (prepend ?q ?rest)
+// occupation vector (n_0 ... n_M) of a partition among N agents
+rule occupation : (occupation !part !n !m) => (occ-go ?part ?z)
+  where ?z <- (lreplace (replicate (+ ?m 1) 0) 0 (- ?n (length ?part)))
+rule occ-go-0 : (occ-go (list) ?o) => ?o
+rule occ-go-n : (occ-go (list ?p ?ps...) !o) => (occ-go (list ?ps...) ?o2) where ?o2 <- (lreplace ?o ?p (+ (nth ?p ?o) 1))
+// W = N! / prod n_k!
+rule multiplicity : (multiplicity !o) => (q/ (fact (vsum ?o)) (prod-fact ?o))
+rule prod-fact-0 : (prod-fact (list)) => 1
+rule prod-fact-n : (prod-fact (list ?x ?xs...)) => (* ?f ?r) where ?f <- (fact ?x), ?r <- (prod-fact (list ?xs...))
+// all macrostates, their count, the one of maximum multiplicity
+rule macrostates : (macrostates !n !m) => (smap (occ-of ?n ?m) (parts ?m ?m ?n))
+rule app-occ-of : (app (occ-of ?n ?m) ?p) => (occupation ?p ?n ?m)
+rule max-entropy : (max-entropy !n !m) => (me-go (macrostates ?n ?m) none 0 0)
+rule me-go-0 : (me-go (list) ?best ?w ?ties) => (maxent ?best ?w ?ties)
+rule me-go-n : (me-go (list ?o ?os...) ?best ?w ?ties) => (me-pick ?o ?wo (list ?os...) ?best ?w ?ties) where ?wo <- (multiplicity ?o)
+rule me-pick-gt : (me-pick ?o ?wo ?os ?best ?w ?ties) => (me-go ?os ?o ?wo 1) where (> ?wo ?w)
+rule me-pick-eq : (me-pick ?o ?wo ?os ?best ?w ?ties) => (me-go ?os ?best ?w ?t1) where (= ?wo ?w), ?t1 <- (+ ?ties 1)
+rule me-pick-lt : (me-pick ?o ?wo ?os ?best ?w ?ties) => (me-go ?os ?best ?w ?ties) where (< ?wo ?w)
+// the equal split (every agent holds T = M/N, N | M)
+rule equal-split : (equal-split !n !m) => (lreplace (replicate (+ ?m 1) 0) (/ ?m ?n) ?n)
+
+// ============================================================================
+// 2. THE EXACT MICROCANONICAL MARGINAL AND ITS GEOMETRIC LIMIT
+// ============================================================================
+// Number of microstates with M units among N agents: C(M+N-1, N-1).
+// P(m_i = k) = C(M-k+N-2, N-2) / C(M+N-1, N-1)   for 0 <= k <= M.
+rule micro-p : (micro-p !n !m !k) => (q/ (binom (+ (- ?m ?k) (- ?n 2)) (- ?n 2)) (binom (+ ?m (- ?n 1)) (- ?n 1)))
+// the whole marginal P(0..K) by the exact recurrence
+//   P(0) = (N-1)/(M+N-1),   P(k+1) = P(k) (M-k)/(M-k+N-2)
+rule micro-seq : (micro-seq !n !m !kmax) => (ms-go ?n ?m 0 ?kmax ?p0 (list)) where ?p0 <- (q/ (- ?n 1) (+ ?m (- ?n 1)))
+rule ms-done : (ms-go !n !m !k !kmax !p !acc) => ?acc where (> ?k ?kmax)
+rule ms-go : (ms-go !n !m !k !kmax !p !acc) => (ms-go ?n ?m ?k1 ?kmax ?p2 ?acc2)
+  where (<= ?k ?kmax), ?acc2 <- (snoc ?acc ?p), ?p2 <- (* ?p (q/ (- ?m ?k) (+ (- ?m ?k) (- ?n 2)))), ?k1 <- (+ ?k 1)
+// ratio P(k+1)/P(k) = (M-k)/(M-k+N-2): computed directly, it is < 1 for N > 2
+rule micro-ratio : (micro-ratio !n !m !k) => (q/ (- ?m ?k) (+ (- ?m ?k) (- ?n 2)))
+rule geo-p : (geo-p !t !k) => (* (- 1 ?q) (expt ?q ?k)) where ?q <- (q/ ?t (+ 1 ?t))
+// total variation distance between the marginal and the geometric law on 0..K
+// (plus the tail mass beyond K of both): (1/2) sum |p_k - g_k|
+rule tv-micro-geo : (tv-micro-geo !n !m !kmax) => (q/ (+ ?body ?tail) 2)
+  where ?t <- (q/ ?m ?n), ?ks <- (range 0 ?kmax), ?ps <- (micro-seq ?n ?m ?kmax), ?gs <- (map (gp-at ?t) ?ks),
+        ?body <- (vsum (map absf (vsub ?ps ?gs))), ?tail <- (abs (- (vsum ?ps) (vsum ?gs)))
+rule app-mp-at : (app (mp-at ?n ?m) ?k) => (micro-p ?n ?m ?k)
+rule app-gp-at : (app (gp-at ?t) ?k) => (geo-p ?t ?k)
+// Gini coefficient of the geometric law: 1/(1+q)  (-> 1/2, the exponential's, as T -> infinity)
+rule geo-gini : (geo-gini !t) => (q/ 1 (+ 1 (q/ ?t (+ 1 ?t))))
+
+// ============================================================================
+// 3. AGENTS AND RANDOM CONSERVATIVE EXCHANGE
+// ============================================================================
+// Holdings are a record (rec (a0 m0) (a1 m1) ...): O(1) rewrite steps per
+// update through the native record primitives.
+rule akey : (akey !i) => (sym (cat "a" (str ?i)))
+rule agents : (agents !n !m) => (agents-go 0 ?n ?m (rec))
+rule agents-go : (agents-go !i !n !m !acc) => (agents-go ?i1 ?n ?m ?acc2) where (< ?i ?n), ?acc2 <- (put@ ?acc (akey ?i) ?m), ?i1 <- (+ ?i 1)
+rule agents-done : (agents-go !i !n !m !acc) => ?acc where (>= ?i ?n)
+rule holdings : (holdings !s) => (map (val-of ?s) (keys@ ?s))
+rule app-val-of : (app (val-of ?s) ?k) => (@ ?s ?k)
+rule hget : (hget !s !i) => (@ ?s (akey ?i))
+rule hadd : (hadd !s !i !d) => (add@ ?s (akey ?i) ?d)
+// One exchange event at clock t: payer i and payee j drawn by the hash rng;
+// if i != j and i holds at least DM units, DM units move from i to j.
+rule xstep : (xstep !s !t !n !dm) => (xpay ?s ?i ?j ?dm) where ?i <- (mod (rng ?t) ?n), ?j <- (mod (rng (+ (* 2 ?t) 1000003)) ?n)
+rule xpay : (xpay !s !i !j !dm) => (hadd (hadd ?s ?i ?neg) ?j ?dm) where (<> ?i ?j), (>= (hget ?s ?i) ?dm), ?neg <- (- 0 ?dm)
+rule xpay-skip : (xpay !s !i !j !dm) => ?s where (or (= ?i ?j) (< (hget ?s ?i) ?dm))
+// K events starting at clock t
+rule xrun : (xrun !s !t !n !dm !k) => (xr-go ?s ?t ?n ?dm ?k)
+rule xr-done : (xr-go !s !t !n !dm !k) => ?s where (<= ?k 0)
+rule xr-go : (xr-go !s !t !n !dm !k) => (xr-go ?s2 ?t1 ?n ?dm ?k1) where (> ?k 0), ?s2 <- (xstep ?s ?t ?n ?dm), ?t1 <- (+ ?t 1), ?k1 <- (- ?k 1)
+
+// ---- distributional statistics (exact) ----
+rule total : (total !s) => (sum@ ?s)
+// histogram of holdings: counts of agents holding exactly k, k = 0..K-1, and a
+// last bin for >= K
+rule histo : (histo !xs !kmax) => (map (count-at ?xs ?kmax) (range 0 ?kmax))
+rule app-count-at : (app (count-at ?xs ?kmax) ?k) => (count-if (bin-is ?k ?kmax) ?xs)
+rule app-bin-is : (app (bin-is ?k ?kmax) ?x) => (if (< ?k ?kmax) (= ?x ?k) (>= ?x ?kmax))
+// occupation vector of a holdings list (n_0 .. n_max)
+rule occ-of-list : (occ-of-list !xs) => (histo-exact ?xs (lmax ?xs))
+rule histo-exact : (histo-exact !xs !mx) => (map (count-eq ?xs) (range 0 ?mx))
+rule app-count-eq : (app (count-eq ?xs) ?k) => (count-if (is-val ?k) ?xs)
+rule app-is-val : (app (is-val ?k) ?x) => (= ?x ?k)
+// Gini = sum_i sum_j |x_i - x_j| / (2 n^2 mean) = sum_i sum_j |x_i-x_j| / (2 n S)
+// computed on the sorted list as  sum_i (2i - n - 1) x_(i) / (n S)  (1-based)
+rule gini : (gini !xs) => (gini-sorted (sort ?xs))
+rule gini-sorted : (gini-sorted !ys) => (if (= ?s 0) 0 (q/ ?num (* ?n ?s)))
+  where ?n <- (length ?ys), ?s <- (vsum ?ys), ?num <- (gini-num ?ys 1 ?n 0)
+rule gini-num-0 : (gini-num (list) ?i ?n ?acc) => ?acc
+rule gini-num-n : (gini-num (list ?y ?ys...) ?i ?n ?acc) => (gini-num (list ?ys...) ?i1 ?n ?acc2)
+  where ?acc2 <- (+ ?acc (* (- (- (* 2 ?i) ?n) 1) ?y)), ?i1 <- (+ ?i 1)
+// share of the top K holdings in the total
+rule top-share : (top-share !xs !k) => (q/ (vsum (take ?k (reverse (sort ?xs)))) (vsum ?xs))
+// how many of the N agents hold nothing
+rule zeros : (zeros !xs) => (count-if (is-val 0) ?xs)
+// total variation distance of an empirical histogram (counts over n agents,
+// bins 0..K-1 plus a tail bin) from the geometric law with temperature T
+rule tv-emp-geo : (tv-emp-geo !hist !n !t) => (q/ (vsum (map absf (vsub ?emp ?geo))) 2)
+  where ?kmax <- (- (length ?hist) 1), ?emp <- (vscale (q/ 1 ?n) ?hist), ?gs <- (map (gp-at ?t) (range 0 (- ?kmax 1))),
+        ?geo <- (snoc ?gs (- 1 (vsum ?gs)))
+
+// ---- histograms as records (O(1) rewrite steps per increment) ----
+// bins b0 .. bK; a value >= K lands in bK (the tail bin)
+rule bkey : (bkey !k) => (sym (cat "b" (str ?k)))
+rule hist-new : (hist-new !k) => (hn-go 0 ?k (rec))
+rule hn-go : (hn-go !i !k !acc) => (if (> ?i ?k) ?acc (hn-go (+ ?i 1) ?k (put@ ?acc (bkey ?i) 0)))
+rule hist-add : (hist-add !h !xs !k) => (ha-go ?h ?xs ?k)
+rule ha-go-0 : (ha-go ?h (list) ?k) => ?h
+rule ha-go-n : (ha-go ?h (list ?x ?xs...) ?k) => (ha-go ?h2 (list ?xs...) ?k) where ?h2 <- (add@ ?h (bkey (min ?x ?k)) 1)
+rule hist-list : (hist-list !h) => (map (val-of ?h) (keys@ ?h))
+// Gini from occupation counts n_0..n_K of the values 0..K (exact when the
+// tail bin is empty): blocks of equal values in sorted order
+rule gini-hist : (gini-hist !ns) => (gh-go ?ns 0 0 ?n ?s 0)
+  where ?n <- (vsum ?ns), ?s <- (vdot ?ns (range 0 (- (length ?ns) 1)))
+rule gh-go-0 : (gh-go (list) ?k ?p ?n ?s ?acc) => (if (= ?s 0) 0 (q/ ?acc (* ?n ?s)))
+rule gh-go-n : (gh-go (list ?c ?cs...) ?k ?p ?n ?s ?acc) => (gh-go (list ?cs...) ?k1 ?p2 ?n ?s ?acc2)
+  where ?sumi <- (+ (* ?c ?p) (q/ (* ?c (+ ?c 1)) 2)), ?acc2 <- (+ ?acc (* ?k (- (* 2 ?sumi) (* ?c (+ ?n 1))))),
+        ?k1 <- (+ ?k 1), ?p2 <- (+ ?p ?c)
+// The pooled exchange experiment: BURN events from s, then SNAPS snapshots
+// EVERY events apart; returns (pooled HIST-RECORD FINAL-STATE CONSERVED?)
+rule xpool : (xpool !s !n !dm !burn !every !snaps !kmax) => (xp-go ?s1 ?burn ?n ?dm ?every ?snaps ?kmax (hist-new ?kmax) true ?m)
+  where ?m <- (sum@ ?s), ?s1 <- (xrun ?s 0 ?n ?dm ?burn)
+rule xp-done : (xp-go !s !t !n !dm !every !snaps !kmax !h !ok !m) => (pooled ?h ?s ?ok) where (<= ?snaps 0)
+rule xp-go : (xp-go !s !t !n !dm !every !snaps !kmax !h !ok !m) => (xp-go ?s2 ?t2 ?n ?dm ?every ?k1 ?kmax ?h2 ?ok2 ?m)
+  where (> ?snaps 0), ?s2 <- (xrun ?s ?t ?n ?dm ?every), ?t2 <- (+ ?t ?every), ?h2 <- (hist-add ?h (holdings ?s2) ?kmax),
+        ?ok2 <- (and ?ok (= (sum@ ?s2) ?m)), ?k1 <- (- ?snaps 1)
+
+// ============================================================================
+// 4. TWO CLASSES: ADDITIVE WAGES AGAINST MULTIPLICATIVE CAPITAL INCOME
+// ============================================================================
+// Agents 0..C-1 are OWNERS, the rest WORKERS. Each event at clock t:
+//   * a wage event (prob. 1/2): a random owner pays one unit to a random worker
+//     (additive income; the owner must have the unit);
+//   * a sale event (prob. 1/2): a random worker buys one unit of goods; the
+//     seller is an owner drawn with probability PROPORTIONAL TO HER HOLDINGS
+//     (bigger capital, bigger market share): multiplicative income.
+// Money is conserved by every event. With an asset cap THETA (`none` = no cap),
+// any owner holding above THETA has the excess confiscated into the public
+// fund `pub` (the accountable-planning post's second expropriation trigger),
+// which pays it out as wages to workers.
+rule cstep : (cstep !s !t !n !c !theta) => (cap-apply ?s2 ?c ?theta)
+  where ?coin <- (mod (rng ?t) 2), ?s2 <- (cevent ?coin ?s ?t ?n ?c)
+rule cevent-wage : (cevent 0 !s !t !n !c) => (wage-pay ?s ?o ?w)
+  where ?o <- (mod (rng (+ ?t 17)) ?c), ?w <- (+ ?c (mod (rng (+ ?t 29)) (- ?n ?c)))
+// the public fund pays first, if it has money: public employment as a wage source
+rule wage-pub : (wage-pay !s !o !w) => (hadd (add@ ?s pub -1) ?w 1) where (> (@ ?s pub) 0)
+rule wage-own : (wage-pay !s !o !w) => (hadd (hadd ?s ?o -1) ?w 1) where (= (@ ?s pub) 0), (> (hget ?s ?o) 0)
+rule wage-none : (wage-pay !s !o !w) => ?s where (= (@ ?s pub) 0), (= (hget ?s ?o) 0)
+rule cevent-sale : (cevent 1 !s !t !n !c) => (sale ?s ?w ?o)
+  where ?w <- (+ ?c (mod (rng (+ ?t 41)) (- ?n ?c))), ?o <- (pick-owner ?s ?c (rng (+ ?t 53)))
+rule sale : (sale !s !w !o) => (hadd (hadd ?s ?w -1) ?o 1) where (> (hget ?s ?w) 0)
+rule sale-none : (sale !s !w !o) => ?s where (= (hget ?s ?w) 0)
+// owner drawn proportionally to holdings (+1 each, so a broke owner can recover)
+rule pick-owner : (pick-owner !s !c !r) => (po-go ?s 0 ?c ?x) where ?tot <- (+ (owners-total ?s ?c) ?c), ?x <- (mod ?r ?tot)
+rule owners-total : (owners-total !s !c) => (ot-go ?s 0 ?c 0)
+rule ot-go : (ot-go !s !i !c !acc) => (if (>= ?i ?c) ?acc (ot-go ?s (+ ?i 1) ?c (+ ?acc (hget ?s ?i))))
+rule po-go : (po-go !s !i !c !x) => (if (or (>= ?i (- ?c 1)) (< ?x ?wi)) ?i (po-go ?s (+ ?i 1) ?c (- ?x ?wi))) where ?wi <- (+ 1 (hget ?s ?i))
+// the asset cap
+rule cap-none : (cap-apply ?s ?c none) => ?s
+rule cap-apply : (cap-apply !s !c !theta) => (cap-go ?s 0 ?c ?theta) where (number? ?theta)
+rule cap-go : (cap-go !s !i !c !theta) => (if (>= ?i ?c) ?s (cap-go (cap-one ?s ?i ?theta) (+ ?i 1) ?c ?theta))
+rule cap-one : (cap-one !s !i !theta) => (if (> ?h ?theta) (add@ (hadd ?s ?i (- ?theta ?h)) pub (- ?h ?theta)) ?s) where ?h <- (hget ?s ?i)
+rule crun : (crun !s !t !n !c !theta !k) => (cr-go ?s ?t ?n ?c ?theta ?k)
+rule cr-done : (cr-go !s !t !n !c !theta !k) => ?s where (<= ?k 0)
+rule cr-go : (cr-go !s !t !n !c !theta !k) => (cr-go ?s2 ?t1 ?n ?c ?theta ?k1) where (> ?k 0), ?s2 <- (cstep ?s ?t ?n ?c ?theta), ?t1 <- (+ ?t 1), ?k1 <- (- ?k 1)
+// a two-class society: C owners with K0 each, N-C workers with W0 each, empty fund
+rule society : (society !n !c !k0 !w0) => (put@ ?s2 pub 0)
+  where ?s <- (agents ?n ?w0), ?s2 <- (set-owners ?s 0 ?c ?k0)
+rule set-owners : (set-owners !s !i !c !k0) => (if (>= ?i ?c) ?s (set-owners (set@ ?s (akey ?i) ?k0) (+ ?i 1) ?c ?k0))
+rule crun-chk : (crun-chk !s !n !c !theta !every !chks) => (cc-go ?s 0 ?n ?c ?theta ?every ?chks (list))
+rule cc-done : (cc-go !s !t !n !c !theta !every !chks !acc) => ?acc where (<= ?chks 0)
+rule cc-go : (cc-go !s !t !n !c !theta !every !chks !acc) => (cc-go ?s2 ?t2 ?n ?c ?theta ?every ?k1 ?acc2)
+  where (> ?chks 0), ?s2 <- (crun ?s ?t ?n ?c ?theta ?every), ?t2 <- (+ ?t ?every), ?k1 <- (- ?chks 1),
+        ?row <- (chk ?t2 (owner-share ?s2 ?c) (gini (worker-holdings ?s2 ?n ?c)) (sort (owner-holdings ?s2 ?c)) (@ ?s2 pub) (sum@ ?s2) (cap-ok? ?s2 ?c ?theta)),
+        ?acc2 <- (snoc ?acc ?row)
+rule owner-holdings : (owner-holdings !s !c) => (map (val-at ?s) (range 0 (- ?c 1)))
+rule cap-ok?-none : (cap-ok? ?s ?c none) => true
+rule cap-ok? : (cap-ok? !s !c !theta) => (all-of (le-than ?theta) (owner-holdings ?s ?c)) where (number? ?theta)
+rule app-le-than : (app (le-than ?t) ?x) => (<= ?x ?t)
+rule owner-share : (owner-share !s !c) => (q/ (owners-total ?s ?c) (sum@ ?s))
+rule worker-holdings : (worker-holdings !s !n !c) => (map (val-at ?s) (range ?c (- ?n 1)))
+rule app-val-at : (app (val-at ?s) ?i) => (hget ?s ?i)
+
+// ============================================================================
+// 5. THE CANTILLON EFFECT (diffusion of new money through a fixed real output)
+// ============================================================================
+// Groups g_1 .. g_k hold money m_1 .. m_k; real output Q is fixed. New money
+// D is credited to g_1. Spending happens in sequence: g_1 spends first at the
+// old price P_0 = M/Q; each later group faces the price that clears the goods
+// still unsold against the money still unspent. Without the injection every
+// group would buy Q m_j / M. Returns the list of each group's REAL gain.
+rule cantillon : (cantillon !ms !q !d) => (vsub ?with ?without)
+  where ?m <- (vsum ?ms), ?ms2 <- (lreplace ?ms 0 (+ (nth 0 ?ms) ?d)), ?with <- (diffuse ?ms2 ?q ?m), ?without <- (vscale (q/ ?q ?m) ?ms)
+// group 1 at the old price; the rest at clearing prices, in sequence
+rule diffuse : (diffuse (list ?m1 ?ms...) ?q ?m) => (prepend ?b1 (clear-seq (list ?ms...) ?left))
+  where ?p0 <- (q/ ?m ?q), ?b1 <- (min ?q (q/ ?m1 ?p0)), ?left <- (- ?q ?b1)
+// the remaining groups share the remaining goods in proportion to money: the
+// clearing price for the rest is (their money)/(goods left)
+rule clear-seq : (clear-seq ?ms ?left) => (vscale (q/ ?left (vsum ?ms)) ?ms) where (> (vsum ?ms) 0)
+rule clear-seq-0 : (clear-seq ?ms ?left) => ?ms where (= (vsum ?ms) 0)
+// Benchmark: the same D injected IN PROPORTION to holdings and spent after
+// prices have adjusted, P = (M + D)/Q: group j buys Q (m_j + D m_j/M)/(M + D)
+// = Q m_j / M. Neutral: no real redistribution at all.
+rule neutral-injection : (neutral-injection !ms !q !d) => (vsub ?with ?without)
+  where ?m <- (vsum ?ms), ?ms2 <- (vadd ?ms (vscale (q/ ?d ?m) ?ms)), ?with <- (vscale (q/ ?q (+ ?m ?d)) ?ms2), ?without <- (vscale (q/ ?q ?m) ?ms)
+
+// ============================================================================
+// 6. LABOUR VOUCHERS (Marx, Critique of the Gotha Programme)
+// ============================================================================
+// State per agent i: (rec (v ...) (issued ...) (redeemed ...)) under key ai.
+// The ONLY two transitions are `issue` (hours worked) and `redeem` (goods
+// taken at their labour value; the voucher is cancelled). There is no
+// transfer between agents, so no circulation and no M-C-M' circuit.
+rule vagent : (vagent) => (rec (v 0) (issued 0) (redeemed 0))
+rule vsociety : (vsociety !n) => (vs-go 0 ?n (rec))
+rule vs-go : (vs-go !i !n !acc) => (if (>= ?i ?n) ?acc (vs-go (+ ?i 1) ?n (put@ ?acc (akey ?i) (vagent))))
+rule issue : (issue !s !i !h) => (add@ (add@ ?s ?k v ?h) ?k issued ?h) where ?k <- (akey ?i)
+rule redeem : (redeem !s !i !c) => (add@ (add@ ?s ?k v ?neg) ?k redeemed ?c)
+  where ?k <- (akey ?i), (<= ?c (@ ?s ?k v)), ?neg <- (- 0 ?c)
+rule redeem-short : (redeem !s !i !c) => ?s where (> ?c (@ ?s (akey ?i) v))
+// a period: every agent works h_i hours (h_i from a schedule) and then spends a
+// random fraction of its holding on goods
+rule vperiod : (vperiod !s !n !hours !t) => (vp-go ?s 0 ?n ?hours ?t)
+rule vp-go : (vp-go !s !i !n !hours !t) => (if (>= ?i ?n) ?s (vp-go ?s3 (+ ?i 1) ?n ?hours ?t))
+  where ?s2 <- (issue ?s ?i (nth ?i ?hours)), ?have <- (@ ?s2 (akey ?i) v),
+        ?c <- (q/ (* ?have (+ 1 (mod (rng (+ (* 1000 ?t) ?i)) 4))) 4), ?s3 <- (redeem ?s2 ?i ?c)
+rule vrun : (vrun !s !n !hours !t !k) => (if (<= ?k 0) ?s (vrun (vperiod ?s ?n ?hours ?t) ?n ?hours (+ ?t 1) (- ?k 1)))
+rule vholdings : (vholdings !s !n) => (map (vh-at ?s) (range 0 (- ?n 1)))
+rule app-vh-at : (app (vh-at ?s) ?i) => (@ ?s (akey ?i) v)
+// the per-agent identity  v = issued - redeemed  and  0 <= v <= issued
+rule voucher-identity? : (voucher-identity? !s !n) => (all-of (vid-ok ?s) (range 0 (- ?n 1)))
+rule app-vid-ok : (app (vid-ok ?s) ?i) => (and (= ?v (- (@ ?s ?k issued) (@ ?s ?k redeemed))) (and (>= ?v 0) (<= ?v (@ ?s ?k issued))))
+  where ?k <- (akey ?i), ?v <- (@ ?s ?k v)

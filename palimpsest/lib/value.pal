@@ -1,0 +1,280 @@
+#lang palimpsest
+// value.pal -- the classical/Marxian theory of value and distribution on a
+// Leontief economy, exactly, as rewrite rules over exact rationals.
+//
+// An ECONOMY is a record
+//   (rec (goods (list g1 ... gn))   names of the produced goods
+//        (a A)                      n x n input matrix: A[i][j] = units of good i
+//                                   used up per unit of good j
+//        (l (list l1 ... ln)))      direct labour hours per unit of good j
+//
+// Column vectors (gross output x, final demand d) live on the right of A,
+// row vectors (labour values, prices) on the left:
+//   x = A x + d                    (material balance)
+//   lambda = lambda A + l          (labour values: direct + indirect labour)
+// Both are fixed points of contractive maps when A is productive, and the
+// iteration of those maps IS the planning computation the accountable-planning
+// proposal describes ("feed the estimate back through the production table").
+//
+// Sections: 1 values and plans; 2 conservation; 3 exchange as an equivalence
+// relation; 4 exploitation, prices of production and the Fundamental Marxian
+// Theorem; 5 the generalized commodity exploitation theorem; 6 the
+// wage-profit frontier; 7 price-value deviations; 8 technical change:
+// Okishio versus the falling rate of profit; 9 skilled labour.
+import "linalg.pal"
+
+rule e-a : (e-a !e) => (@ ?e a)
+rule e-l : (e-l !e) => (@ ?e l)
+rule e-n : (e-n !e) => (length (@ ?e l))
+
+// ============================================================================
+// 1. LABOUR VALUES AND THE PLAN
+// ============================================================================
+// exact: lambda = l (I - A)^-1 ;  x = (I - A)^-1 d
+rule lvalues : (lvalues !e) => (vm (e-l ?e) ?li) where ?li <- (minv (leontief (e-a ?e)))
+rule gross : (gross !e !d) => (mv ?li ?d) where ?li <- (minv (leontief (e-a ?e)))
+// iterative (the contractive feedback loop), K passes from the first estimate
+rule lvalues-iter : (lvalues-iter !e !k) => (iter-vm (e-a ?e) (e-l ?e) ?k)
+rule gross-iter : (gross-iter !e !d !k) => (iter-mv (e-a ?e) ?d ?k)
+// Is lambda a fixed point of lambda -> lambda A + l ? (exact check)
+rule lvalues-fixed? : (lvalues-fixed? !e !lam) => (same? ?lam ?nxt) where ?nxt <- (vadd (vm ?lam (e-a ?e)) (e-l ?e))
+rule same? : (same? !x !y) => (equal? ?x ?y)
+// The planner's loop, run to a stopping rule: iterate x -> A x + d until two
+// successive estimates differ by at most TOL in every component; return
+// (plan PASSES X). The planner never needs the exact answer to stop.
+rule plan-loop : (plan-loop !e !d !tol) => (plan-go (e-a ?e) ?d ?d 0 ?tol)
+rule plan-go : (plan-go ?a ?d ?x ?k ?tol) => (plan-next ?a ?d ?x ?x2 ?k ?tol) where ?x2 <- (vadd (mv ?a ?x) ?d)
+rule plan-next : (plan-next ?a ?d ?x ?x2 ?k ?tol) => (plan ?k1 ?x2) where (<= (vnorm (vsub ?x2 ?x)) ?tol), ?k1 <- (+ ?k 1)
+rule plan-next-go : (plan-next ?a ?d ?x ?x2 ?k ?tol) => (plan-go ?a ?d ?x2 ?k1 ?tol) where (> (vnorm (vsub ?x2 ?x)) ?tol), ?k1 <- (+ ?k 1)
+// error of the K-th iterate against the exact solution:  x - x_K = A^(K+1) x
+rule iter-error : (iter-error !e !d !k) => (vnorm (vsub ?x (gross-iter ?e ?d ?k))) where ?x <- (gross ?e ?d)
+// the monotone-convergence and contraction certificates (Theorem V1):
+//   x_0 <= x_1 <= ... <= x  and  |x - x_{k+1}| <= c |x - x_k|  with
+//   c = max column sum of A (< 1 certifies the contraction in the 1-norm sense
+//   used by the planner; here we check the sup-norm ratio directly).
+rule iterates : (iterates !e !d !k) => (map (iterate-at ?e ?d) (range 0 ?k))
+rule app-iterate-at : (app (iterate-at ?e ?d) ?j) => (gross-iter ?e ?d ?j)
+rule monotone-chain-0 : (monotone? (list ?x)) => true
+rule monotone-chain-n : (monotone? (list ?x ?y ?zs...)) => (if (vge? ?y ?x) (monotone? (list ?y ?zs...)) false)
+
+// ============================================================================
+// 2. CONSERVATION: the value of the net product equals living labour
+// ============================================================================
+// For every final demand d with x = (I-A)^-1 d:   lambda . d  =  l . x
+// (lambda d = lambda (I-A) x = l x). Value is neither created nor destroyed by
+// the circulation of intermediate goods; it is the labour performed.
+rule net-value : (net-value !e !d) => (vdot (lvalues ?e) ?d)
+rule living-labour : (living-labour !e !d) => (vdot (e-l ?e) (gross ?e ?d))
+rule conserved? : (conserved? !e !d) => (= (net-value ?e ?d) (living-labour ?e ?d))
+
+// ============================================================================
+// 3. EXCHANGE AS AN EQUIVALENCE RELATION (Marx, Capital I ch.1; Cockshott)
+// ============================================================================
+// An exchange table T: T[i][j] = units of good j obtained for one unit of i.
+//   reflexive   T[i][i] = 1
+//   symmetric   T[j][i] = 1 / T[i][j]
+//   transitive  T[i][j] T[j][k] = T[i][k]
+// Theorem X1 (the "third thing"): T is an equivalence of exchange (all three
+// hold) iff there is a value vector v > 0 with T[i][j] = v_i / v_j.
+// Theorem X2 (no profit from exchange): T is transitive iff no chain of
+// exchanges i -> j -> k -> i returns more than it started with; an
+// intransitive table admits a pure-exchange M-C-M' circuit (arbitrage).
+rule xtable : (xtable !v) => (map (xrow ?v) ?v)
+rule app-xrow : (app (xrow ?v) ?vi) => (map (xdiv ?vi) ?v)
+rule app-xdiv : (app (xdiv ?vi) ?vj) => (q/ ?vi ?vj)
+rule tget : (tget !t !i !j) => (nth ?j (nth ?i ?t))
+rule idx3 : (idx3 !n) => (cartesian3 (range 0 (- ?n 1)))
+rule cartesian3 : (cartesian3 ?r) => (concat (map (c3a ?r) ?r))
+rule app-c3a : (app (c3a ?r) ?i) => (concat (map (c3b ?r ?i) ?r))
+rule app-c3b : (app (c3b ?r ?i) ?j) => (map (c3c ?i ?j) ?r)
+rule app-c3c : (app (c3c ?i ?j) ?k) => (ijk ?i ?j ?k)
+rule reflexive? : (reflexive? !t) => (all-of (diag-one ?t) (range 0 (- (length ?t) 1)))
+rule app-diag-one : (app (diag-one ?t) ?i) => (= (tget ?t ?i ?i) 1)
+rule symmetric? : (symmetric? !t) => (all-of (sym-ok ?t) (idx3 (length ?t)))
+rule app-sym-ok : (app (sym-ok ?t) (ijk ?i ?j ?k)) => (= (* (tget ?t ?i ?j) (tget ?t ?j ?i)) 1)
+rule transitive? : (transitive? !t) => (all-of (trans-ok ?t) (idx3 (length ?t)))
+rule app-trans-ok : (app (trans-ok ?t) (ijk ?i ?j ?k)) => (= (* (tget ?t ?i ?j) (tget ?t ?j ?k)) (tget ?t ?i ?k))
+rule equivalence? : (equivalence? !t) => (and (reflexive? ?t) (and (symmetric? ?t) (transitive? ?t)))
+// reconstruct the "third thing": v_i = T[i][0] (good 0 as unit), then test
+rule third-thing : (third-thing !t) => (map (col0 ?t) (range 0 (- (length ?t) 1)))
+rule app-col0 : (app (col0 ?t) ?i) => (tget ?t ?i 0)
+rule represents? : (represents? !v !t) => (same? (xtable ?v) ?t)
+// the best 3-cycle of trades: max over i,j,k of T[i][j] T[j][k] T[k][i]
+rule best-cycle : (best-cycle !t) => (lmax (map (cyc-gain ?t) (idx3 (length ?t))))
+rule app-cyc-gain : (app (cyc-gain ?t) (ijk ?i ?j ?k)) => (* (tget ?t ?i ?j) (* (tget ?t ?j ?k) (tget ?t ?k ?i)))
+// perturb one entry (and its mirror, keeping symmetry) by factor F
+rule perturb : (perturb !t !i !j !f) => (mset ?t2 ?j ?i (q/ 1 ?x)) where ?x <- (* ?f (tget ?t ?i ?j)), ?t2 <- (mset ?t ?i ?j ?x)
+rule mset : (mset ?t !i !j !x) => (lreplace ?t ?i (lreplace (nth ?i ?t) ?j ?x))
+
+// ============================================================================
+// 4. EXPLOITATION, PRICES OF PRODUCTION, AND THE FUNDAMENTAL MARXIAN THEOREM
+// ============================================================================
+// Workers receive a wage bundle b (goods per hour). The value of labour power
+// is lambda.b; one hour of labour adds one hour of value, so the rate of
+// exploitation (surplus value / variable capital) is e = (1 - lambda.b)/lambda.b.
+rule vlp : (vlp !e !b) => (vdot (lvalues ?e) ?b)
+rule exploitation : (exploitation !e !b) => (q/ (- 1 ?v) ?v) where ?v <- (vlp ?e ?b)
+// The augmented ("socio-technical") input matrix M = A + b l: producing a unit
+// of j uses A[.][j] directly and, through the l_j hours it employs, b l_j of
+// wage goods. With a uniform profit rate r, prices of production satisfy
+//   p = (1 + r) p M ,
+// so 1/(1+r*) is the Perron-Frobenius root of M and r* > 0 iff rho(M) < 1.
+rule augmented : (augmented !e !b) => (madd (e-a ?e) (mouter ?b (e-l ?e)))
+// rho(sM) < 1  <=>  Hawkins-Simon(sM)  (exact, for nonnegative M)
+rule below-one? : (below-one? !m !s) => (hawkins-simon? (mscale ?s ?m))
+// Exact bisection for the maximal uniform profit rate of a nonnegative matrix:
+// (r-bracket M K) => (bracket LO HI) with  rho((1+LO)M) < 1 <= rho((1+HI)M),
+// i.e. r* in [LO, HI), after K halvings of the starting interval [-1/2, 8].
+// Every bracket is a certificate: two exact Hawkins-Simon decisions.
+rule r-bracket : (r-bracket !m !k) => (rb-go ?m -1/2 8 ?k)
+rule rb-done : (rb-go ?m ?lo ?hi ?k) => (bracket ?lo ?hi) where (<= ?k 0)
+rule rb-step : (rb-go ?m ?lo ?hi ?k) => (rb-pick ?ok ?m ?lo ?hi ?mid ?k)
+  where (> ?k 0), ?mid <- (q/ (+ ?lo ?hi) 2), ?ok <- (below-one? ?m (+ 1 ?mid))
+rule rb-pick-t : (rb-pick true ?m ?lo ?hi ?mid ?k) => (rb-go ?m ?mid ?hi ?k1) where ?k1 <- (- ?k 1)
+rule rb-pick-f : (rb-pick false ?m ?lo ?hi ?mid ?k) => (rb-go ?m ?lo ?mid ?k1) where ?k1 <- (- ?k 1)
+rule b-lo : (b-lo (bracket ?lo ?hi)) => ?lo
+rule b-hi : (b-hi (bracket ?lo ?hi)) => ?hi
+rule profit-rate : (profit-rate !e !b !k) => (r-bracket (augmented ?e ?b) ?k)
+// R: the maximal profit rate (wages zero): rho(A) = 1/(1+R)
+rule rmax : (rmax !e !k) => (r-bracket (e-a ?e) ?k)
+// FMT, exactly: r* > 0  <=>  rho(M) < 1  <=>  lambda.b < 1  <=>  e > 0
+rule positive-profit? : (positive-profit? !e !b) => (below-one? (augmented ?e ?b) 1)
+rule fmt-holds? : (fmt-holds? !e !b) => (equal? ?pp ?ex) where ?pp <- (positive-profit? ?e ?b), ?ex <- (< (vlp ?e ?b) 1)
+
+// ============================================================================
+// 5. THE GENERALIZED COMMODITY EXPLOITATION THEOREM (Roemer; Bowles-Gintis)
+// ============================================================================
+// Treat labour as commodity n (the last), produced by consuming b, and build
+// the (n+1)x(n+1) matrix  G = [[A, b], [l, 0]]. For any commodity k, its
+// "k-value" mu^k_j = G[k][j] + sum_{i != k} mu^k_i G[i][j] (direct plus
+// indirect requirement of k, not counting k as an intermediate). Commodity k
+// is EXPLOITED iff mu^k_k < 1 (producing a unit of k takes less than a unit
+// of k). For labour, mu^lab_lab = lambda.b, so this is the FMT condition.
+// GCET: r* > 0 iff EVERY basic commodity is exploited. Labour is not
+// singled out by this theorem; the case for labour as the value base is the
+// empirical one (Part 1 of the source material), not a deduction.
+rule gmatrix : (gmatrix !e !b) => (append ?top (list (snoc ?l 0)))
+  where ?a <- (e-a ?e), ?l <- (e-l ?e), ?top <- (zip-snoc ?a ?b)
+rule zip-snoc-0 : (zip-snoc (list) (list)) => (list)
+rule zip-snoc-n : (zip-snoc (list ?r ?rs...) (list ?x ?xs...)) => (prepend (snoc ?r ?x) (zip-snoc (list ?rs...) (list ?xs...)))
+// mu^k_k for matrix G and index k
+// If the subsystem without k is itself unproductive (it cannot reproduce its
+// own inputs), k is needed in unbounded amount: its own k-value is `inf`.
+rule kvalue-own : (kvalue-own !g !k) => (kv-go ?ok ?g ?k ?others ?sub)
+  where ?n <- (length ?g), ?others <- (del-idx-range ?k ?n), ?sub <- (submatrix ?g ?others ?others),
+        ?ok <- (hawkins-simon? ?sub)
+rule kv-go-inf : (kv-go false ?g ?k ?others ?sub) => inf
+rule kv-go : (kv-go true ?g ?k ?others ?sub) => (+ (nth ?k (nth ?k ?g)) (vdot ?mu ?colk))
+  where ?rowk <- (pick-idx (nth ?k ?g) ?others), ?mu <- (vm ?rowk (minv (leontief ?sub))),
+        ?colk <- (pick-idx (mcol ?g ?k) ?others)
+rule del-idx-range : (del-idx-range ?k ?n) => (filter (neq-to ?k) (range 0 (- ?n 1)))
+rule app-neq-to : (app (neq-to ?k) ?i) => (<> ?i ?k)
+rule pick-idx : (pick-idx ?v ?is) => (map (nth-of ?v) ?is)
+rule app-nth-of : (app (nth-of ?v) ?i) => (nth ?i ?v)
+rule submatrix : (submatrix ?g ?rs ?cs) => (map (sub-row ?cs) (pick-idx ?g ?rs))
+rule app-sub-row : (app (sub-row ?cs) ?r) => (pick-idx ?r ?cs)
+// exploitation status of every commodity in ?ks (indices into G)
+rule kvalues-own : (kvalues-own !e !b !ks) => (map (kv-of ?g) ?ks) where ?g <- (gmatrix ?e ?b)
+rule app-kv-of : (app (kv-of ?g) ?k) => (kvalue-own ?g ?k)
+rule all-below-one? : (all-below-one? ?xs) => (all-of lt-one ?xs)
+rule app-lt-one-inf : (app lt-one inf) => false
+rule app-lt-one : (app lt-one ?x) => (< ?x 1)
+rule all-ge-one? : (all-ge-one? ?xs) => (all-of ge-one ?xs)
+rule app-ge-one-inf : (app ge-one inf) => true
+rule app-ge-one : (app ge-one ?x) => (>= ?x 1)
+// GCET at one wage bundle: (r* > 0) <=> every basic commodity exploited,
+// and (r* <= 0) <=> none is.
+rule gcet-holds? : (gcet-holds? !e !b !basics) => (gcet-check ?pp ?ks)
+  where ?pp <- (positive-profit? ?e ?b), ?ks <- (kvalues-own ?e ?b ?basics)
+rule gcet-check-t : (gcet-check true ?ks) => (all-below-one? ?ks)
+rule gcet-check-f : (gcet-check false ?ks) => (all-ge-one? ?ks)
+
+// ============================================================================
+// 6. THE WAGE-PROFIT FRONTIER: the real opposition of the two classes
+// ============================================================================
+// Wages paid at the end of the period, a uniform profit rate r on the
+// advanced means of production:  p = (1+r) p A + w l,  so
+//   p(r) = w l (I - (1+r) A)^-1 .
+// Numeraire: the net product d is worth its labour value at every r
+// (p.d = lambda.d: the MELT is 1), which fixes w(r). w(0) = 1 (labour gets the
+// whole net product), w(R) = 0, and w is strictly decreasing on [0, R):
+// what one class gains on the net product the other loses (Sraffa 1960).
+rule leontief-r : (leontief-r !a !r) => (msub ?i (mscale (+ 1 ?r) ?a)) where ?i <- (mident (mrows ?a))
+rule fwage : (fwage !e !d !r) => (q/ (vdot (lvalues ?e) ?d) (vdot ?u ?d))
+  where ?u <- (vm (e-l ?e) (minv (leontief-r (e-a ?e) ?r)))
+rule prices-at : (prices-at !e !d !r) => (vscale ?w ?u)
+  where ?w <- (fwage ?e ?d ?r), ?u <- (vm (e-l ?e) (minv (leontief-r (e-a ?e) ?r)))
+// profit share of the net product at rate r: 1 - w(r) l.x / p.d  (= 1 - w(r) since l.x = lambda.d)
+rule profit-share : (profit-share !e !d !r) => (- 1 (fwage ?e ?d ?r))
+rule strictly-decreasing?-0 : (strictly-decreasing? (list ?x)) => true
+rule strictly-decreasing?-n : (strictly-decreasing? (list ?x ?y ?zs...)) => (if (< ?y ?x) (strictly-decreasing? (list ?y ?zs...)) false)
+rule strictly-increasing?-0 : (strictly-increasing? (list ?x)) => true
+rule strictly-increasing?-n : (strictly-increasing? (list ?x ?y ?zs...)) => (if (> ?y ?x) (strictly-increasing? (list ?y ?zs...)) false)
+rule weakly-increasing?-0 : (weakly-increasing? (list ?x)) => true
+rule weakly-increasing?-n : (weakly-increasing? (list ?x ?y ?zs...)) => (if (>= ?y ?x) (weakly-increasing? (list ?y ?zs...)) false)
+rule frontier : (frontier !e !d !rs) => (map (wage-of ?e ?d) ?rs)
+rule app-wage-of : (app (wage-of ?e ?d) ?r) => (fwage ?e ?d ?r)
+
+// ============================================================================
+// 7. PRICE-VALUE DEVIATIONS
+// ============================================================================
+// Mean absolute weighted deviation of p(r) from lambda over the net product:
+//   MAWD(r) = sum_j |p_j - lambda_j| d_j / sum_j lambda_j d_j .
+// MAWD(0) = 0 always (at r = 0, p = lambda). The deviation is identically zero
+// for all r iff lambda is proportional to lambda A (uniform value composition);
+// otherwise it grows with r. Labour values are the r -> 0 limit of prices.
+rule mawd : (mawd !e !d !r) => (q/ (vdot (map absf (vsub ?p ?lam)) ?d) (vdot ?lam ?d))
+  where ?p <- (prices-at ?e ?d ?r), ?lam <- (lvalues ?e)
+// value composition c/v per sector at wage bundle b: (lambda A_j) / (lambda.b * l_j)
+rule compositions : (compositions !e !b) => (map (comp-j ?c ?l ?v) (range 0 (- (length ?l) 1)))
+  where ?lam <- (lvalues ?e), ?c <- (vm ?lam (e-a ?e)), ?l <- (e-l ?e), ?v <- (vlp ?e ?b)
+rule app-comp-j : (app (comp-j ?c ?l ?v) ?j) => (q/ (nth ?j ?c) (* ?v (nth ?j ?l)))
+// aggregate value rate of profit s/(c+v) on gross output x
+rule value-profit-rate : (value-profit-rate !e !b !d) => (q/ ?s (+ ?c ?v))
+  where ?lam <- (lvalues ?e), ?x <- (gross ?e ?d), ?c <- (vdot (vm ?lam (e-a ?e)) ?x),
+        ?h <- (vdot (e-l ?e) ?x), ?v <- (* ?h (vlp ?e ?b)), ?s <- (- ?h ?v)
+
+// ============================================================================
+// 8. TECHNICAL CHANGE: OKISHIO VERSUS THE FALLING RATE OF PROFIT
+// ============================================================================
+// A mechanizing change in sector j: labour per unit falls by factor (1-s)
+// while the means-of-production input of sector j rises by m:
+//   l'_j = (1 - s) l_j ,   A'[0][j] = A[0][j] + m .
+rule mechanize : (mechanize !e !j !s !m) => (set@ (set@ ?e a ?a2) l ?l2)
+  where ?l <- (e-l ?e), ?l2 <- (lreplace ?l ?j (* (- 1 ?s) (nth ?j ?l))),
+        ?a <- (e-a ?e), ?a2 <- (mset ?a 0 ?j (+ (tget ?a 0 ?j) ?m))
+// Okishio's criterion: capitalists adopt a technique iff it lowers unit cost
+// at CURRENT prices. With prices p of the old system (p = (1+r) p M), the
+// change is cost-reducing in sector j iff  (p M'_j) < (p M_j). For the FMT
+// matrix M = A + b l this reads  p.(A'_j - A_j) + (p.b)(l'_j - l_j) < 0.
+// The comparison needs the old price vector; prices of production are a
+// Perron-Frobenius eigenvector, approximated here by K rounds of the exact
+// power iteration p <- p M / (p M . 1), which converges for primitive M.
+rule pf-prices : (pf-prices !m !k) => (pf-go ?m ?p0 ?k) where ?p0 <- (replicate (mrows ?m) 1)
+rule pf-go-done : (pf-go ?m ?p ?k) => ?p where (<= ?k 0)
+rule pf-go : (pf-go ?m ?p ?k) => (pf-go ?m ?p3 ?k1)
+  where (> ?k 0), ?p2 <- (vm ?p ?m), ?p3 <- (vround (vscale (q/ 1 (vsum ?p2)) ?p2) 1000000000000), ?k1 <- (- ?k 1)
+rule cost-change : (cost-change !e !e2 !b !j !k) => (- (vdot ?p ?c2) (vdot ?p ?c1))
+  where ?m <- (augmented ?e ?b), ?m2 <- (augmented ?e2 ?b), ?p <- (pf-prices ?m ?k),
+        ?c1 <- (mcol ?m ?j), ?c2 <- (mcol ?m2 ?j)
+// TRPF variant: the real wage rises with productivity so that the value of
+// labour power (hence the rate of exploitation) stays constant:
+//   b' = b * (lambda.b / lambda'.b)
+rule constant-e-wage : (constant-e-wage !e !e2 !b) => (vscale (q/ (vlp ?e ?b) (vlp ?e2 ?b)) ?b)
+
+// ============================================================================
+// 9. SKILLED LABOUR AS A PRODUCED INPUT (Cockshott & Cottrell 1993, ch.2)
+// ============================================================================
+// An hour of labour whose training took T hours of social labour, spread over
+// a working life of C hours, counts as 1 + T/C hours of simple labour.
+rule skill-coeff : (skill-coeff ?t ?c) => (+ 1 (q/ ?t ?c))
+// With teachers who are themselves skilled: a trainee's T hours split into
+// own study S and teaching H delivered by teachers of coefficient h_t:
+//   h = 1 + (S + H h_t)/C ;  for teachers  h_t = 1 + (S_t + H_t h_t)/C_t .
+// The teacher equation is the fixed point of a contraction (H_t < C_t):
+// h_t = (1 + S_t/C_t) / (1 - H_t/C_t), reached by iteration like the plan.
+rule teacher-coeff : (teacher-coeff ?st ?ht ?ct) => (q/ (+ 1 (q/ ?st ?ct)) (- 1 (q/ ?ht ?ct)))
+rule teacher-iter : (teacher-iter ?st ?ht ?ct ?k) => (ti-go ?st ?ht ?ct 1 ?k)
+rule ti-done : (ti-go ?st ?ht ?ct ?h ?k) => ?h where (<= ?k 0)
+rule ti-go : (ti-go ?st ?ht ?ct ?h ?k) => (ti-go ?st ?ht ?ct ?h2 ?k1) where (> ?k 0), ?h2 <- (+ 1 (q/ (+ ?st (* ?ht ?h)) ?ct)), ?k1 <- (- ?k 1)
+rule trainee-coeff : (trainee-coeff ?s ?h ?c ?htch) => (+ 1 (q/ (+ ?s (* ?h ?htch)) ?c))

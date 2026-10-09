@@ -1,0 +1,110 @@
+#lang palimpsest
+// selectorate.pal -- the selectorate model of Bueno de Mesquita, Smith,
+// Siverson and Morrow, *The Logic of Political Survival* (2003), ch. 3 and its
+// appendix, solved as rewrite rules.
+//
+// A polity has N residents, a selectorate of S of them and a winning
+// coalition of W <= (S+1)/2.  Public goods cost p a unit; a unit of private
+// goods for every coalition member costs W.  Residents choose leisure l and
+// keep (1-r)(1-l) of their product at tax rate r.  Utility is the book's
+// numerical form V(x,g,y,l) = sqrt x + sqrt g + sqrt y + sqrt l; the discount
+// factor is d.
+//
+// CLOSED FORMS (derived in MATERIALIST-ECONOMY-PAPER §7.4; all exact):
+//   leisure          l(r) = 1/(2-r)                       (book, p.181)
+//   revenue          R(r) = N h(r),  h(r) = r(1-l) = r + 1 - 2/(2-r)
+//   best mix for spending M:  g = pM/(W(p+W)),  x = WM/(p(p+W))
+//                    so the private share W g / M = p/(p+W) exactly
+//   value to a coalition member   V(r,M) = sqrt(k M) + sqrt(2-r),
+//                    k = (p+W)/(pW);  to an outsider sqrt x + sqrt(2-r)
+//   challenger's best offer       Vc = max_r sqrt(k N h(r)) + sqrt(2-r)
+//   loyalty term (incumbency condition I1)
+//      V_L = Vc - D c s,   D = d (1 - W/S)/(1-d),  c = p/(p+W),
+//      s = sqrt(k M_L) the incumbent's own steady-state spending index
+//   incumbent: max_r R(r) - M  s.t.  sqrt(kM) + sqrt(2-r) >= T,  T = Vc - D c s
+//      => M(r) = max(0, T - sqrt(2-r))^2 / k
+//   equilibrium: s = T(s) - sqrt(2 - r*(T(s)))   (a fixed point, by bisection)
+//
+// Square roots are irrational, so this module is the one place in the study
+// that approximates: every square root is the exact floor of sqrt(x) to 1/K
+// (K = 10^9, via isqrt), and maxima are found by ternary search on functions
+// proved concave (h is concave, max(0,u)^2 is convex in r, sqrt of a concave
+// function is concave). Every intermediate is rounded to 1/K.
+import "linalg.pal"
+
+rule sel-K : (sel-K) => 1000000000
+rule sqrtk : (sqrtk !x) => (q/ (isqrt (floor (* ?x 1000000000000000000))) 1000000000) where (>= ?x 0)
+rule rk : (rk !x) => (round-to ?x 1000000000)
+rule pos0 : (pos0 !x) => (max ?x 0)
+
+// ---- the economy of a polity -------------------------------------------------
+rule sel-l : (sel-l !r) => (q/ 1 (- 2 ?r))
+rule sel-h : (sel-h !r) => (- (+ ?r 1) (q/ 2 (- 2 ?r)))
+rule sel-rev : (sel-rev !n !r) => (* ?n (sel-h ?r))
+rule sel-k : (sel-k !w !p) => (q/ (+ ?p ?w) (* ?p ?w))
+rule sel-mix : (sel-mix !w !p !m) => (mix (q/ (* ?w ?m) (* ?p (+ ?p ?w))) (q/ (* ?p ?m) (* ?w (+ ?p ?w))))
+
+// ---- ternary search for the maximum of a concave function on [lo, hi] -------
+// F is a function term applied with app; N halvings of the bracket by 1/3.
+rule tmax : (tmax ?f !lo !hi !n) => (tmax-go ?f ?lo ?hi ?n)
+rule tmax-done : (tmax-go ?f ?lo ?hi ?n) => (rk (q/ (+ ?lo ?hi) 2)) where (<= ?n 0)
+rule tmax-go : (tmax-go ?f ?lo ?hi ?n) => (tmax-pick ?f ?lo ?hi ?m1 ?m2 ?b ?n1)
+  where (> ?n 0), ?m1 <- (rk (+ ?lo (q/ (- ?hi ?lo) 3))), ?m2 <- (rk (- ?hi (q/ (- ?hi ?lo) 3))), ?b <- (< (app ?f ?m1) (app ?f ?m2)), ?n1 <- (- ?n 1)
+rule tmax-up : (tmax-pick ?f ?lo ?hi ?m1 ?m2 true ?n) => (tmax-go ?f ?m1 ?hi ?n)
+rule tmax-dn : (tmax-pick ?f ?lo ?hi ?m1 ?m2 false ?n) => (tmax-go ?f ?lo ?m2 ?n)
+rule sel-iters : (sel-iters) => 45
+
+// ---- challenger: the best possible offer ----------------------------------
+rule app-chal-f : (app (chal-f ?kn) ?r) => (+ (sqrtk (* ?kn (sel-h ?r))) (sqrtk (- 2 ?r)))
+rule sel-challenger : (sel-challenger !n !w !p) => (chal ?rc (rk (app (chal-f ?kn) ?rc)))
+  where ?kn <- (* (sel-k ?w ?p) ?n), ?rc <- (tmax (chal-f ?kn) 0 1 (sel-iters))
+
+// ---- incumbent: given the target T, the surplus-maximizing tax --------------
+rule app-inc-phi : (app (inc-phi ?n ?k ?tt) ?r) => (- (sel-rev ?n ?r) (q/ (expt (pos0 (- ?tt (sqrtk (- 2 ?r)))) 2) ?k))
+rule sel-inc-r : (sel-inc-r !n !k !tt) => (tmax (inc-phi ?n ?k ?tt) 0 1 (sel-iters))
+// residual of the steady-state condition at spending index s
+rule sel-H : (sel-H !n !k !vc !dc !s) => (+ (- (* ?s (+ 1 ?dc)) ?vc) (sqrtk (- 2 (sel-inc-r ?n ?k (- ?vc (* ?dc ?s))))))
+rule sel-bisect : (sel-bisect !n !k !vc !dc !lo !hi !i) => (rk (q/ (+ ?lo ?hi) 2)) where (<= ?i 0)
+rule sel-bisect-go : (sel-bisect !n !k !vc !dc !lo !hi !i) => (if (< (sel-H ?n ?k ?vc ?dc ?m) 0) (sel-bisect ?n ?k ?vc ?dc ?m ?hi ?i1) (sel-bisect ?n ?k ?vc ?dc ?lo ?m ?i1))
+  where (> ?i 0), ?m <- (rk (q/ (+ ?lo ?hi) 2)), ?i1 <- (- ?i 1)
+
+// ---- the equilibrium --------------------------------------------------------
+// (sel-eq N S W P D) =>
+//   (seq (N S W) RC VC RL M G X SURPLUS PRIV WIN WOUT RESID)
+//   RC, VC  challenger's tax and best offer;  RL incumbent's tax;
+//   M spending, G private goods per member, X public goods;  SURPLUS = R - M
+//   (the leader's discretionary resources: "kleptocracy");  PRIV = W G / M;
+//   WIN, WOUT utility of a coalition member / an outsider;  RESID the
+//   residual of the steady-state condition at the solution.
+rule sel-eq : (sel-eq !n !s !w !p !d) => (sel-eq2 ?n ?s ?w ?p ?k ?vc ?rc ?dc ?sx)
+  where ?k <- (sel-k ?w ?p), ?ch <- (sel-challenger ?n ?w ?p), ?rc <- (chal-r ?ch), ?vc <- (chal-v ?ch),
+        ?dc <- (* (q/ (* ?d (- 1 (q/ ?w ?s))) (- 1 ?d)) (q/ ?p (+ ?p ?w))),
+        ?sx <- (sel-bisect ?n ?k ?vc ?dc 0 (q/ ?vc (+ 1 ?dc)) 40)
+rule chal-r : (chal-r (chal ?r ?v)) => ?r
+rule chal-v : (chal-v (chal ?r ?v)) => ?v
+rule sel-eq2 : (sel-eq2 !n !s !w !p !k !vc !rc !dc !sx) => (seq (pol ?n ?s ?w) ?rc ?vc ?rl ?m (mix-g ?mx) (mix-x ?mx) (rk (- (sel-rev ?n ?rl) ?m)) (q/ ?p (+ ?p ?w)) ?win ?wout (rk (sel-H ?n ?k ?vc ?dc ?sx)))
+  where ?rl <- (sel-inc-r ?n ?k (- ?vc (* ?dc ?sx))), ?m <- (rk (q/ (* ?sx ?sx) ?k)), ?mx <- (sel-mix ?w ?p ?m),
+        ?wout <- (rk (+ (sqrtk (mix-x ?mx)) (sqrtk (- 2 ?rl)))), ?win <- (rk (+ ?wout (sqrtk (mix-g ?mx))))
+rule mix-x : (mix-x (mix ?x ?g)) => (rk ?x)
+rule mix-g : (mix-g (mix ?x ?g)) => (rk ?g)
+rule seq-w : (seq-w (seq (pol ?n ?s ?w) ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?w
+rule seq-s : (seq-s (seq (pol ?n ?s ?w) ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?s
+rule seq-rc : (seq-rc (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?rc
+rule seq-vc : (seq-vc (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?vc
+rule seq-rl : (seq-rl (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?rl
+rule seq-m : (seq-m (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?m
+rule seq-g : (seq-g (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?g
+rule seq-x : (seq-x (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?x
+rule seq-sur : (seq-sur (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?sur
+rule seq-priv : (seq-priv (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?pr
+rule seq-win : (seq-win (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?wi
+rule seq-wout : (seq-wout (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?wo
+rule seq-resid : (seq-resid (seq ?pol ?rc ?vc ?rl ?m ?g ?x ?sur ?pr ?wi ?wo ?re)) => ?re
+
+// ---- the book's limiting cases (appendix to ch. 3, p.194) -------------------
+// revenue maximization: r = 2 - sqrt 2;  utilitarian welfare maximization:
+// a coalition of everyone (W = N), the challenger's programme with W = N.
+rule sel-revmax : (sel-revmax) => (tmax (rev-f) 0 1 (sel-iters))
+rule app-rev-f : (app (rev-f) ?r) => (sel-h ?r)
+rule sel-utilitarian : (sel-utilitarian !n !p) => (util ?r (mix-x ?mx) (mix-g ?mx) ?v)
+  where ?ch <- (sel-challenger ?n ?n ?p), ?r <- (chal-r ?ch), ?v <- (chal-v ?ch), ?mx <- (sel-mix ?n ?p (sel-rev ?n ?r))

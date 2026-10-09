@@ -1,0 +1,192 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VII(a) -- EXTREMES, THRESHOLDS AND INFLECTION POINTS OF THE MODEL (MATERIALIST-ECONOMY.md §10)
+// (1) the wage curve: limits, elasticity, and where it matches the empirical
+//     -0.1; (2) the class-struggle game's regimes as unemployment varies;
+// (3) switch-point wages at which a rejected technique becomes profitable;
+// (4) the radical threshold as loss aversion and curvature vary (on the quarter
+//     grid, exactly by bisection, and in closed form 11/2 - K in the all-loss region); (5) the floor of the
+//     long-run profit rate; (6) the mechanization rate at which the integrated
+//     capitalism stops shedding jobs; (7) the aspiration level at which a crisis
+//     becomes a lock-in; (8) the selectorate leader's surplus as patience varies;
+// (9) the collusion threshold in closed form; (10) the price-value deviation
+//     of Classical Econophysics Table 10.1.
+import "../lib/value.pal"
+import "../lib/longrun.pal"
+import "../lib/classgames.pal"
+import "../lib/polecon.pal"
+import "../lib/selectorate.pal"
+import "../lib/report.pal"
+
+// ---- (1) the wage curve w_cap(beta,u,s) at beta = 1/5, s = 2/5 --------------
+//   elasticity e(u) = u w'(u)/w(u) = u (1-b) b (s-1) / ((b + u(1-b)) (b + (1-b) u s))
+//   |e| is largest at u* = b / ((1-b) sqrt s)   (d/du of u/((b+ua)(b+uas)) = 0)
+rule wc-b : (wc-b) => 1/5
+rule wc-s : (wc-s) => 2/5
+rule elast : (elast !u) => (q/ (* ?u (* (* (- 1 (wc-b)) (wc-b)) (- (wc-s) 1))) (* (+ (wc-b) (* ?u (- 1 (wc-b)))) (+ (wc-b) (* (* (- 1 (wc-b)) ?u) (wc-s)))))
+rule app-el-line : (app el-line ?u) => (cats (list (dpad ?u 3 8) (dpad (w-cap (wc-b) ?u (wc-s)) 4 9) (dpad (elast ?u) 4 9)))
+// the unemployment rate at which the elasticity equals -1/10 (bisection on (0, u*))
+rule u-at-el : (u-at-el !target !lo !hi !k) => (rk (q/ (+ ?lo ?hi) 2)) where (<= ?k 0)
+rule u-at-el-go : (u-at-el !target !lo !hi !k) => (if (> (elast ?m) ?target) (u-at-el ?target ?m ?hi ?k1) (u-at-el ?target ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+rule u-star : (u-star) => (q/ (wc-b) (* (- 1 (wc-b)) (sqrtk (wc-s))))
+
+// ---- (2) the class-struggle game's regimes along u ----------------------
+rule gpar-u : (gpar-u !u) => (put@ (pe-par) u ?u)
+rule app-cs-line : (app cs-line ?u) => (cats (list (dpad ?u 3 8) (padl (sh (length ?ne)) 5) "   " (padr (ne-str ?ne) 22) (dpad (pe-beta cap ?gp) 4 9)))
+  where ?gp <- (gpar-u ?u), ?ne <- (pure-nash (cs-game cap ?gp))
+rule ne-str-0 : (ne-str (list)) => "none (cycle; mixed)"
+rule ne-str-n : (ne-str (list ?p ?ps...)) => (cats (smap prof-str (list ?p ?ps...)))
+rule app-prof-str : (app prof-str (prof ?w ?c)) => (cat (cat (str ?w) (cat "/" (str ?c))) " ")
+rule cs-us : (cs-us) => (list 0 1/100 1/50 3/100 1/25 1/20 3/50 1/10 1/5 3/10 1/2)
+rule beta-at : (beta-at !u) => (pe-beta cap (gpar-u ?u))
+rule flight-at? : (flight-at? !u) => (= (pe-flight (pure-nash (cs-game cap (gpar-u ?u)))) 1)
+// the largest u at which the game's equilibrium is capital flight (bisection on [0, 1/10])
+rule flight-edge : (flight-edge !lo !hi !k) => (rk (q/ (+ ?lo ?hi) 2)) where (<= ?k 0)
+rule flight-edge-go : (flight-edge !lo !hi !k) => (if (flight-at? ?m) (flight-edge ?m ?hi ?k1) (flight-edge ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+
+// ---- (3) switch-point wages for the rejected techniques of E3 -------------
+rule dc-at : (dc-at !beta !j !s !m) => (cost-change (e3x) (mechanize (e3x) ?j ?s ?m) (list 0 ?beta 0) ?j 60)
+rule e3x : (e3x) => (rec (goods (list mp nec lux)) (a (list (list 1/5 1/5 1/10) (list 1/10 1/5 0) (list 0 0 0))) (l (list 1 2 1)))
+// bisection for dc = 0 on [1/4, 31/90]; none when still cost-raising at r* = 0
+rule switch-beta : (switch-beta !j !s !m) => (if (> (dc-at 31/90 ?j ?s ?m) 0) none (sb-go ?j ?s ?m 1/4 31/90 24))
+rule sb-go : (sb-go !j !s !m !lo !hi !k) => (round-to (q/ (+ ?lo ?hi) 2) 100000) where (<= ?k 0)
+rule sb-go-n : (sb-go !j !s !m !lo !hi !k) => (if (> (dc-at ?mid ?j ?s ?m) 0) (sb-go ?j ?s ?m ?mid ?hi ?k1) (sb-go ?j ?s ?m ?lo ?mid ?k1))
+  where (> ?k 0), ?mid <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+rule rejected : (rejected) => (list (chg 0 1/10 1/20) (chg 0 1/10 1/10) (chg 0 1/5 1/10) (chg 1 1/10 1/10))
+rule app-sw-line : (app sw-line (chg ?j ?s ?m)) => (cats (list (padl (str ?j) 4) (dpad ?s 2 7) (dpad ?m 3 8) (padl (sw-str ?b) 12) (padl (sw-pct ?b) 10)))
+  where ?b <- (switch-beta ?j ?s ?m)
+rule sw-str-none : (sw-str none) => "never"
+rule sw-str : (sw-str ?b) => (decimal ?b 4) where (number? ?b)
+rule sw-pct-none : (sw-pct none) => "-"
+rule sw-pct : (sw-pct ?b) => (cat "+" (cat (decimal (* 100 (- (* 4 ?b) 1)) 1) "%")) where (number? ?b)
+
+// ---- (4) the radical threshold as loss aversion varies --------------------
+rule pt-mod : (pt-mod) => (lot (o 1 1))
+rule pt-rad : (pt-rad) => (lot (o 1/4 6) (o 3/4 -2))
+// largest D (on the grid -8, -31/4, ..., 3) at which the gamble is chosen; none if never
+rule rad-threshold : (rad-threshold !lam) => (rad-threshold-k ?lam 10)
+rule rad-threshold-k : (rad-threshold-k !lam !kk) => (rt-go -8 ?lam ?kk none)
+rule rt-go : (rt-go !d !lam !kk !best) => ?best where (> ?d 3)
+rule rt-go-n : (rt-go !d !lam !kk !best) => (rt-go (+ ?d 1/4) ?lam ?kk (if (= (pt-choice (pt-mod) (pt-rad) ?d ?kk ?lam) radical) ?d ?best)) where (<= ?d 3)
+rule app-k-line : (app k-line ?kk) => (cats (list (padl (sh ?kk) 7) (dpad (rad-exact-k 9/4 ?kk) 4 10) (dpad (rad-exact-k 1 ?kk) 4 10) (dpad (- 11/2 ?kk) 4 10)))
+rule app-lam-line : (app lam-line ?lam) => (cats (list (dpad ?lam 2 7) (padl (sh (rad-threshold ?lam)) 10) (dpad (rad-exact ?lam) 4 10) (dpad (rshare ?lam) 3 10)))
+// the exact threshold (K = 10): bisection on D between -8 (radical) and 0 (moderate);
+// choices are single-crossing in D, so 30 halvings bound it to 8/2^30
+// The value function is increasing only for x >= -K, so the search starts at
+// D = 2 - K, where the gamble's worst outcome D - 2 reaches -K.
+rule rad-exact : (rad-exact !lam) => (rad-exact-k ?lam 10)
+rule rad-exact-k : (rad-exact-k !lam !kk) => (re-go (- 2 ?kk) 0 ?lam ?kk 30)
+rule re-go-0 : (re-go !lo !hi !lam !kk !k) => (round-to (q/ (+ ?lo ?hi) 2) 100000) where (<= ?k 0)
+rule re-go-n : (re-go !lo !hi !lam !kk !k) => (if (= (pt-choice (pt-mod) (pt-rad) ?m ?kk ?lam) radical) (re-go ?m ?hi ?lam ?kk ?k1) (re-go ?lo ?m ?lam ?kk ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+// When every outcome is a loss (D < -6), lambda cancels and the gamble wins iff
+//   -1 + (11 - 2D)/(2K) > 0,  i.e.  D < 11/2 - K   (valid when 11/2 - K < -6, K > 23/2)
+// share of the fascism essay's strata (-6, -3, +1, +2; equal weights) choosing the gamble
+rule rshare : (rshare !lam) => (q/ (scount (picks ?lam) (list -6 -3 1 2)) 4)
+rule app-picks : (app (picks ?lam) ?d) => (= (pt-choice (pt-mod) (pt-rad) ?d 10 ?lam) radical)
+
+// ---- (5) the floor of the long-run profit rate -----------------------------
+// R* = floor  <=>  n* = -(g + dl)(1 + lam (1 - w))
+rule n-star : (n-star !w !lam !g !dl) => (- 0 (* (+ ?g ?dl) (+ 1 (* ?lam (- 1 ?w)))))
+rule app-fl-line : (app fl-line ?n) => (cats (list (dpad ?n 4 9) (dpad (lr-star ?p) 5 10) (dpad (lr-floor ?p) 5 10) (dpad (last (lr-path ?p (lk 100 300) 600)) 5 10)))
+  where ?p <- (lr-par 3/5 3/5 ?n 0 1/50)
+
+// ---- (6) mechanization and unemployment in the integrated capitalism -------
+rule mu-run : (mu-run !mu) => (traj-rows (pe-run (pe-init cap) (set@ (pe-par) mu ?mu) 60))
+rule app-mu-line : (app mu-line ?mu) => (cats (list (dpad ?mu 4 8) (dpad (row-u (nth 0 ?rows)) 3 8) (dpad (row-u (nth 59 ?rows)) 3 8) (dpad (row-r (nth 59 ?rows)) 4 8) (dpad (row-w (nth 59 ?rows)) 3 8) (padl (sh (scount is-crisis ?rows)) 6) (dpad (mu-steady (row-r (nth 59 ?rows))) 4 9)))
+  where ?rows <- (mu-run ?mu)
+rule app-is-crisis : (app is-crisis ?r) => (= (row-cr ?r) 1)
+// the mechanization rate that would hold employment constant at profit rate r
+rule mu-steady : (mu-steady !r) => (- (* 3/5 ?r) 3/100)
+
+// ---- (7) when does a crisis become a lock-in? -------------------------------
+rule asp-run : (asp-run !asp) => (traj-rows (pe-run (pe-init cap) (set@ (set@ (pe-par) scale 30) asp ?asp) 60))
+rule app-asp-line : (app asp-line ?asp) => (cats (list (dpad ?asp 3 7) (padl (sh (scount is-radgov ?rows)) 6) (padl (sh (first-gov ?rows)) 7) (dpad (row-sr (nth 59 ?rows)) 3 8)))
+  where ?rows <- (asp-run ?asp)
+rule app-is-radgov : (app is-radgov ?r) => (= (row-gov ?r) 1)
+rule first-gov : (first-gov !rows) => (fg-go ?rows)
+rule fg-go-0 : (fg-go (list)) => none
+rule fg-go-n : (fg-go (list ?r ?rs...)) => (if (= (row-gov ?r) 1) (row-t ?r) (fg-go (list ?rs...)))
+
+// ---- (8) the selectorate leader's surplus as patience varies ---------------
+rule app-d-line : (app d-line ?d) => (cats (list (dpad ?d 2 6) (dpad (seq-rl ?e) 4 8) (dpad (seq-m ?e) 1 9) (dpad (seq-sur ?e) 1 10) (dpad (seq-win ?e) 3 7)))
+  where ?e <- (sel-eq 100000 100000 1000 10000 ?d)
+
+// ---- (9) collusion: K-bar = ceil(1/P) when B = R ----------------------------
+rule app-kb-line : (app kb-line ?p) => (cats (list (dpad ?p 3 7) (padl (sh (k-bar 1 1 ?p)) 7) (padl (sh (ceil (q/ 1 ?p))) 8)))
+rule app-kb-ok : (app kb-ok ?p) => (= (k-bar 1 1 ?p) (ceil (q/ 1 ?p)))
+
+// ---- (10) price-value deviation of CE Table 10.1 ----------------------------
+// output measured in dollars (price 1 per unit); value of each industry's
+// output lambda_i x_i rescaled by the MELT m = sum x / sum lambda x
+rule ce-mawd : (ce-mawd) => (q/ (vsum (smap (absdev ?m) (zip ?lam (ce-sales)))) (vsum (ce-sales)))
+  where ?lam <- (lvalues (ce-table)), ?m <- (q/ (vsum (ce-sales)) (vdot ?lam (ce-sales)))
+rule app-absdev : (app (absdev ?m) (pair ?l ?x)) => (abs (- ?x (* ?m (* ?l ?x))))
+
+// ---- report ---------------------------------------------------------------------
+rule s1 : (s1) => (lines (list
+  "§X1 THE WAGE CURVE w_cap(beta = 1/5, u, s = 2/5): LIMITS AND ELASTICITY"
+  "       u        w   e(u)=dlnw/dlnu"
+  (lines (smap el-line (list 1/100 1/50 1/20 1/10 1/5 2/5 3/5 1)))
+  (cat "  limits: w(0) = " (cat (sh (w-cap (wc-b) 0 (wc-s))) (cat ";  w(1) = beta + (1-beta)s = " (sh (w-cap (wc-b) 1 (wc-s))))))
+  (cat "  elasticity = -1/10 (Blanchflower-Oswald) at u = " (decimal (u-at-el -1/10 0 (u-star) 40) 4))
+  (cat "  |elasticity| is largest at u* = beta/((1-beta) sqrt s) = " (cat (decimal (u-star) 4) (cat ", where e = " (decimal (elast (u-star)) 4))))))
+rule s2 : (s2) => (lines (list
+  "§X2 THE CLASS-STRUGGLE GAME ALONG UNEMPLOYMENT (capitalism, parameters of the integrated model)"
+  "       u  #NE   pure equilibria         beta*"
+  (lines (smap cs-line (cs-us)))
+  (cat "  capital flight is the equilibrium for u up to " (cat (decimal (flight-edge 0 1/10 30) 5) (cat ";  beta* at u = 0, 1/20, 1/10: " (drow (list (beta-at 0) (beta-at 1/20) (beta-at 1/10)) 4 8))))))
+rule s3 : (s3) => (lines (list
+  "§X3 SWITCH-POINT WAGES: THE RATE beta* AT WHICH A REJECTED TECHNIQUE BECOMES COST-REDUCING (current beta = 1/4)"
+  "   j   cut  +mach     beta*  wage rise"
+  (lines (smap sw-line (rejected)))))
+rule s4 : (s4) => (lines (list
+  "§X4 THE RADICAL THRESHOLD AS LOSS AVERSION VARIES (K = 10; sure +1 vs +6 w.p. 1/4, -2 w.p. 3/4)"
+  "  lambda    D_max     exact  share of strata (-6,-3,+1,+2)"
+  (lines (smap lam-line (list 1 3/2 2 9/4 5/2 3 4 10 100)))
+  "  curvature K (smaller = more curved): exact threshold at lambda 9/4, at lambda 1;  11/2 - K"
+  (lines (smap k-line (list 10 20 40 80)))))
+rule s5 : (s5) => (lines (list
+  "§X5 THE FLOOR OF THE LONG-RUN PROFIT RATE (w = 3/5, lam = 3/5, g = 0, dl = 0.02)"
+  (cat "  R* reaches the floor -(1-w)(g+dl) at n* = -(g+dl)(1+lam(1-w)) = " (decimal (n-star 3/5 3/5 0 1/50) 4))
+  "        n        R*     floor     R_599"
+  (lines (smap fl-line (list -1/100 -1/50 -31/1250 -3/100 -1/20)))))
+rule s6 : (s6) => (lines (list
+  "§X6 MECHANIZATION AND THE RESERVE ARMY IN THE INTEGRATED CAPITALISM (60 periods)"
+  "      mu     u_0    u_59    r_59    w_59 crises  mu at which E is constant"
+  (lines (smap mu-line (list 0 1/200 1/100 3/200 1/50)))))
+rule s7 : (s7) => (lines (list
+  "§X7 FROM EPISODE TO LOCK-IN: ASPIRATION MESSAGING (loss sensitivity 30, shock 10% at t = 40-41)"
+  "    asp  radgov  first   sR_59"
+  (lines (smap asp-line (list 1/10 3/20 1/5 1/4 13/50 27/100 7/25 29/100 3/10 7/20 2/5)))))
+rule s8 : (s8) => (lines (list
+  "§X8 THE SELECTORATE LEADER AND PATIENCE (N = S = 100,000, W = 1,000, p = 10,000)"
+  "  delta     rL        M   surplus    Vin"
+  (lines (smap d-line (list 0 1/2 9/10 99/100)))))
+rule s9 : (s9) => (lines (list
+  "§X9 COLLUSION: SMALLEST NUMBER OF SECRETARIES THAT CANNOT SUSTAIN COLLUSION (B = R)"
+  "  audit  K-bar  ceil(1/P)"
+  (lines (smap kb-line (list 1/20 1/10 1/5 1/3 1/2)))
+  (cat "  K-bar = ceil(1/P) for every audit rate tested: " (tf (sall kb-ok (list 1/20 1/10 1/5 1/3 1/2))))))
+rule s10 : (s10) => (cat "§X10 CE TABLE 10.1: MEAN ABSOLUTE WEIGHTED DEVIATION OF PRICES FROM MELT-SCALED VALUES = " (decimal (ce-mawd) 4))
+
+main = 0
+display (s1) with eval
+display (s2) with eval
+display (s3) with eval
+display (s4) with eval
+display (s5) with eval
+display (s6) with eval
+display (s7) with eval
+display (s8) with eval
+display (s9) with eval
+display (s10) with eval
+assert (< (abs (- (elast (u-star)) (elast (+ (u-star) 1/1000)))) 1/100000) with eval
+assert (and (> (elast 1/20) -1/10) (< (elast 3/50) -1/10)) with eval
+assert (sall kb-ok (list 1/20 1/10 1/5 1/3 1/2)) with eval
+assert (= (switch-beta 0 1/10 1/10) none) with eval
+assert (and (< (abs (- (rad-exact-k 9/4 40) -69/2)) 1/10000) (< (abs (- (rad-exact-k 1 40) -69/2)) 1/10000)) with eval
+assert (< (- (rad-exact 1) (rad-exact 100)) 1) with eval

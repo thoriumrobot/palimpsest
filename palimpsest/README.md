@@ -12,7 +12,7 @@ This tree contains the interpreter, a **standard library written in Palimpsest**
 abstract-rewriting-systems toolkit for unification and confluence checking, and
 a finite-games library), runnable examples — among them ten **mind↔body loop**
 simulations that rewrite themselves into their own classified trajectory and
-graph it — a graded puzzle book (`puzzles/PUZZLES.md`), and two groups of
+graph it — a graded puzzle book (`puzzles/PUZZLES.md`), and three groups of
 documents.
 
 *Guides:* a general walkthrough (`TUTORIAL.md`), a tour of self-rewriting
@@ -30,11 +30,18 @@ the containment model (`CTMU.md`) and its non-subsumption proof
 and of the CTMU's global stage (`TELIC-GAMES.md`); and a comparison of SCSPL
 with the internal processing of large language models (`LOGOS-SCSPL.md`).
 
+*Studies in political economy* (see "Economics studies" below): the economy of
+the board game *Hegemony* as a self-rewriting program (`HEGEMONY-ECONOMY.md`),
+and an exact model of a materialist political economy — value, money, class
+games, political survival and three regimes, with every feedback loop checked
+edge by edge — set against published data (`MATERIALIST-ECONOMY.md`, written up
+as the paper `MATERIALIST-ECONOMY-PAPER.md`).
+
 ## Build & run
 
 ```sh
 cargo build --release
-cargo test --release          # unit tests (see src/*.rs for current count)
+cargo test --release          # 44 unit tests
 ./run_demo.sh                 # full tour: core, quines, refactor, safety, stdlib,
                               #   the N-Queens chess board, and rendered outputs
 ./puzzles/check.sh            # 22 permutation & self-reference puzzles
@@ -46,8 +53,15 @@ cargo test --release          # unit tests (see src/*.rs for current count)
 ./verify-semilattice.sh       # semilattice characterization of convergent merges
 ./verify-games.sh             # game theory of independent telors (~50 s)
 python3 crosscheck/games_crosscheck.py  # independent Python re-derivation of TELIC-GAMES.md
-./verify-logos.sh             # SCSPL versus language-model processing (~60 s)
+./verify-logos.sh             # SCSPL versus language-model processing (~7 s)
 python3 crosscheck/logos_crosscheck.py  # independent Python re-derivation of LOGOS-SCSPL.md
+./verify-hegemony.sh          # the economy of the board game Hegemony (~3 min)
+python3 crosscheck/hegemony_crosscheck.py  # independent Python re-derivation of HEGEMONY-ECONOMY.md
+./verify-materialist.sh       # the materialist economy: value, distribution, class games,
+                              #   political survival, three regimes, feedback loops, dialectics,
+                              #   checks against the reference works and empirical data,
+                              #   thresholds and inflection points (~4 min; includes
+                              #   crosscheck/materialist_crosscheck.py)
 ```
 
 Run a program:
@@ -59,8 +73,40 @@ Run a program:
 ./target/release/palimpsest examples/quine.pal
 ./target/release/palimpsest examples/mind-homeostasis.pal   # a mind<->body loop, graphed
 ./target/release/palimpsest examples/telor-games-join.pal   # equilibria of telor overlap games
+./target/release/palimpsest examples/me-tour.pal --trace 22 # one economic feedback loop, step by step
 ./target/release/palimpsest undo examples/refactor.pal      # roll back last write
 ```
+
+Or run any of them in the browser: see "Run it in the browser" below.
+
+## Run it in the browser
+
+`index.html` at the repository root is a complete Palimpsest playground that
+runs in the browser with [Pyodide](https://pyodide.org/): pick any example,
+puzzle solution or library file, edit it, and run it with the same options as
+the command line (`--dry-run`, `--memo`, `--stats`, `--trace N`, `--fuel N`).
+Self-rewriting programs rewrite their file in a virtual file system, and
+**Undo** restores the previous version from the ledger.
+
+- **Publish it with GitHub Pages:** Settings → Pages → *Deploy from a branch*,
+  branch `main` (or the branch holding this tree), folder `/ (root)`. The page
+  is then at `https://<user>.github.io/<repo>/`. `.nojekyll` makes Pages serve
+  every file unchanged.
+- **Locally:** `python3 -m http.server` in the repository root, then open
+  `http://localhost:8000/`. (Opened straight from disk, the page cannot fetch
+  the `.pal` files.)
+- **The engine** is `web/palimpsest.py`, a line-by-line Python port of the Rust
+  interpreter (`src/*.rs`). It prints the same output as the native binary,
+  fuel counts included; `python3 web/test_parity.py` checks this program by
+  program (all 88 examples and puzzle solutions are identical). It is also a
+  command-line interpreter in its own right:
+  `python3 web/palimpsest.py examples/quine.pal --dry-run`.
+- **Speed:** about 8× slower than the Rust binary under CPython and about 15×
+  in the browser. Small programs run instantly; the large studies take minutes,
+  and the page shows each program's native run time as a guide.
+- **Rebuild** after changing the engine or adding programs:
+  `python3 web/build.py` embeds `web/palimpsest.py` and a manifest of the
+  programs into `web/index.template.html` and writes `index.html`.
 
 ## What's new since the bare interpreter
 
@@ -73,7 +119,8 @@ practical programming possible:
    root program can run commands or grant filesystem access, so a library can
    never widen a program's authority.
 2. **Native primitives** — evaluated by the `prim` strategy: arithmetic and
-   comparison on real integers (`+ - * / mod   < <= > >=   = <>`), the numeric
+   comparison on exact numbers — integers of any size and rationals, see
+   "Exact numbers" below (`+ - * / mod   < <= > >=   = <>`), the numeric
    helpers `abs min max`, and `rng` (a pure, deterministic hash for reproducible
    pseudo-randomness); plus string and symbol handling — `cat str< str sym explode
    implode`, and `padl`/`padr` for aligning text output. (Peano numerals still work
@@ -133,6 +180,61 @@ purely additive: no existing program's behavior changes.
    simply fails to match anything: a clean "this rule doesn't apply", never a
    crash.
 
+## Records, transitions, assertions, shared terms
+
+Added to model the economy of the board game *Hegemony* (`HEGEMONY-ECONOMY.md`),
+whose state is one ~1,500-node term rewritten for thousands of steps per round.
+All are additive or semantics-preserving: every earlier suite passes with its
+exact fuel fingerprints.
+
+1. **Shared terms.** Lists are reference-counted (`Rc`), so cloning a term is
+   O(1). Large-state programs became practical, and the existing heavy suites
+   run about 10x faster.
+2. **True head index.** `rules` dispatches only to rules pinned to the
+   subject's head (plus wildcard-headed rules), merged in source order.
+3. **Records** `(rec (k v) ...)` with native primitives `@` (get, with paths),
+   `set@`, `add@` (integer increment), `has@`, `put@`, `del@`, `keys@`, `sum@`.
+   Closed world: a missing key never fires. Inside a record, keys are labels,
+   not calls: only values are evaluation positions.
+4. **`transition NAME : LHS => RHS`** — a rule reachable only by name from a
+   strategy, never through `rules` or `where` evaluation: rewriting logic's
+   equations-versus-transitions split. `rewrite self with try(oncetd(crank))`
+   advances a self-rewriting simulation by exactly one step per run.
+5. **`assert TERM with S`** — PASS iff the normal form is `true`; any FAIL
+   makes the run exit non-zero.
+6. **`--stats`** — prints a rewrite profile (firings per rule).
+7. **`#rebind main`** — after `rewrite self`, later commands see the rewritten
+   subject.
+
+### Exact numbers, `let`, the normal-form memo, and `--trace`
+
+Added for the materialist-economy study (`MATERIALIST-ECONOMY.md` §2):
+
+- **Exact numbers.** Integers of any size and exact rationals (`3/4`,
+  `123456789012345678901234567890`). A value that fits an i64 integer is always
+  stored as a plain integer, so equality stays structural and printing
+  canonical. `+ - * < <= > >= = <> min max abs add@ sum@` accept any number;
+  integer overflow gives the exact result instead of a stuck term. `/` and
+  `mod` remain integer operations. New primitives: `q/` (exact division),
+  `num`, `den`, `floor`, `ceil`, `round-to` (`(round-to X K)` rounds to the
+  nearest 1/K, half up), `expt`, `isqrt`, `number?`, and `decimal`
+  (`(decimal X D)` is a string with D decimal places).
+- **`let $NAME = TERM with S`** normalizes TERM once and substitutes it for
+  `$NAME` in every later `show`, `display` and `assert`. Names must begin
+  with `$`.
+- **`#memo` / `--memo`** remembers terms already proven normal, so the
+  outermost redex search skips them. Normal forms and reduction order are
+  unchanged (unit-tested); fuel counts drop, so it is opt-in. `--stats`
+  reports memo hits.
+- Under the memo, a **normalization cache** also remembers the normal form of
+  each argument forced at a strict (`!x`) position, so trying the next rule
+  of the same head does not force it again (me-regimes: 115 s -> 84 s).
+- **`--trace N`** prints the first N rewrite steps as `rule: redex =>
+  contractum`, indented by the depth of guard / `where` / strict-argument
+  evaluation; observation only (`examples/me-tour.pal` is a good first trace).
+- Internal hash maps (rule index, bindings) use a fast non-cryptographic
+  hasher. All 76 earlier example programs print byte-identical output.
+
 ## Standard library (`lib/`)
 
 Written entirely in Palimpsest. Import `lib/prelude.pal` to get everything plus
@@ -156,6 +258,18 @@ the evaluation strategies.
 | `ctmu.pal` | a formal model of the CTMU's dual containment relation: `subterm?`/`topcontains?`/`size` (topological, bounded), `desccontains?`/`desc-witness` (descriptive, unbounded — wraps `matches?`/`match-witness`), `dual-contains?` (the paradox-resolving combination), and a `ctrace`/`cverify` conspansion engine. See `CTMU.md` |
 | `ars.pal` | abstract rewriting systems: `unify` (occurs-checked unification), `subterms`/`plug` (one-hole contexts), `critical-pairs`/`all-critical-pairs` (the Knuth-Bendix construction), `locally-confluent?`/`unjoinable-pairs` (the Critical Pair Lemma), `normalize` (rewriting under a ruleset given as data). See `TELIC-CONFLUENCE.md` |
 | `games.pal` | finite normal-form games (imports `ars.pal`): `profiles`, `pure-nash`, `weakly-dominant?`/`dominance-witnesses`, `pareto-dominators`, `mixed-2x2` (exact fractions); better-response dynamics as a rewriting system — `improvements`, `improvement-rules` (feeds `ars.pal`'s critical-pair checker), `terminating?` (finite improvement property), `reachable-nash`/`schedule-dependent-starts` (confluence), `run-schedule` (explicit scheduler); potentials — `is-exact-potential?`, `ms-violations` (Monderer–Shapley 4-cycle test); join games `(join-game OP E UTIL SETS)`, `schedule-outcomes`, `all-weak-orders`, `count-cyclic-2`; Howard metagames — `meta21`, `swap`, `meta21-outcomes`/`meta12-outcomes`/`symmetric-meta-outcomes`. See `TELIC-GAMES.md` |
+| `hegemony.pal` | the 2-player economy of *Hegemony* as a rewriting system: rulebook tables, a double-entry ledger (`pay`, flow matrix), goods and labor bookkeeping, the five phases, behavioural rules, elections, the IMF, `play-round`/`play-game`, invariants (`invariants?`), and renderers (`dashboard`, `ledger-view`, `goods-view`). See `HEGEMONY-ECONOMY.md` |
+| `hegemony-loops.pal` | the causal-loop diagram of that economy as data; elementary-cycle enumeration and polarity; probes that verify every edge sign by finite differences of the model; exact election odds (`p-pass`) |
+| `linalg.pal` | exact vectors and matrices over the rationals: `vdot mv vm mm mtrans mident leontief`, Gauss–Jordan `minv`/`mdet`/`msolve`, `hawkins-simon?`, contractive `iter-mv`/`iter-vm`; strict list combinators `smap sfilter scount sall sany sconcat srange` and strict folds `lmax`/`lmin` |
+| `value.pal` | Marxian value theory: labour values, the contractive plan, conservation, exchange tables as equivalence relations, exploitation, the FMT and GCET, the profit rate by exact bisection, the wage–profit frontier, MAWD, Okishio tests, skilled-labour coefficients |
+| `econophysics.pal` | exact multiplicities and the microcanonical marginal, random-exchange agents, two-class models with an asset cap, Gini/histograms, the Cantillon effect, labour vouchers |
+| `classgames.pal` | games with class analysis as input: Nash bargaining against the reserve army or a job guarantee, the class-struggle game, Roemer's withdrawal test, collusion thresholds, quadratic voting, prospect theory, patronage dynamics |
+| `polecon.pal` | the integrated political economy as an equation chain in three regimes (capitalism, Cold War, accountable planning), its causal-loop diagram, edge probes, regime conversion |
+| `cld.pal` | generic causal-loop diagrams: elementary cycles, polarity, restriction |
+| `dialectics.pal` | Structural Dialectics: viability, counterfactual, possibility, necessity, Phase Inversion, Bayesian warrant, synthesis, diagnoses |
+| `report.pal` | strict text-report helpers (padded decimal rows, sparklines) |
+| `longrun.pal` | the long-run profit rate as a demographic attractor R* = (n+g+dl)/lam (Cockshott et al.) and its floor -(1-w)(g+dl); the input-output iteration of *Classical Econophysics* Table 10.1 |
+| `selectorate.pal` | the selectorate model of Bueno de Mesquita et al. (2003, ch. 3): closed forms, certified floor square roots, concave maximization, the Markov-perfect equilibrium, the book's limiting cases |
 | `logos.pal` | a toy autoregressive language model and an SCSPL-style variant (imports `games.pal`): pooling algebra — `pool`, `pool-outcomes`, `positional-outcomes` (attention as an online-softmax monoid, max-pooling as a semilattice); the model — `generate`, `actualize` (`sample`/`greedy`), `step` in `frozen` or `telic` mode, `run-world`, `run-log`; measurements — `utility`, `syntax-changes`, `last-change`, `window-repeats`, `context-function?`, `replay-syntax`, `distinct-transitions`; `greedy-path`/`best-path`; `episode-update` for the self-configuring fixed point. See `LOGOS-SCSPL.md` |
 
 `normalize` / `eval` are normal-order (`outermost(prim + rules)`) — the default
@@ -411,7 +525,16 @@ display TERM with STRATEGY        // normalize, then print for a human: a string
                                  //   so `display (chess main) with solve` renders it.
 rewrite self with STRATEGY       // transactional self-modification (quine)
 rewrite file "p" with STRATEGY   // transactional cross-file rewrite
+assert TERM with STRATEGY        // PASS iff the result is `true` (else exit non-zero)
+transition NAME : LHS => RHS     // a rule usable only by name from a strategy
+#rebind main                     // later commands see the rewritten `main`
+#memo                            // normal-form memo + strict-argument cache (opt-in; changes fuel only)
+let $NAME = TERM with STRATEGY   // normalize once; later commands may use $NAME
 ```
+
+Command-line flags: `--dry-run` (compute and diff, never write), `--fuel N`,
+`--stats` (rewrite profile; memo and cache hits), `--memo` (as `#memo`),
+`--trace N` (print the first N rewrite steps); subcommand `palimpsest undo FILE`.
 
 Strategies: `id`, `fail`, `prim`, `rules`, a rule/strategy name, `NAME(args...)`
 (call a user strategy), `s1 ; s2`, `s1 + s2`, `try(s)`, `repeat(s)`,
@@ -419,8 +542,12 @@ Strategies: `id`, `fail`, `prim`, `rules`, a rule/strategy name, `NAME(args...)`
 `outermost(s)`, `fixpoint(s)`, `all(s)`.
 
 Built-in primitives (fire under `prim` when operands are literals):
-`+ - * / mod` (int→int), `abs` (int→int), `min max` (int,int→int),
-`< <= > >=` (int→bool), `= <>` (int/str/sym→bool),
+`+ - *` (exact, on integers of any size and rationals), `/ mod` (integer
+division), `abs min max` and `< <= > >=` (any numbers), `= <>`
+(number/str/sym→bool), `q/` (exact division), `num den floor ceil`,
+`round-to` (`(round-to X K)`: nearest multiple of 1/K), `expt`, `isqrt`,
+`number?`, `decimal` (`(decimal X D)`: display string with D places), the record
+operations `@ set@ put@ add@ has@ del@ keys@ sum@`,
 `cat` (str→str), `str<` (str,str→bool, lexicographic), `str` (sym/int/str→str,
 e.g. `(str 42)` → `"42"`), `sym` (str→sym, the inverse of `str`, for computed
 names), `explode` (str→list of one-char strings), `implode` (list of
@@ -446,11 +573,15 @@ unsubstituted, for authoring fresh pattern-shaped data.
 | Concept | File |
 |---|---|
 | Terms, reader, canonical printer (round-trips) | `src/term.rs` |
+| Exact numbers: canonical integer/rational representation, numeric primitives | `src/num.rs` |
+| Fast non-cryptographic hasher for the rule index and bindings | `src/fxhash.rs` |
 | Matching (`?x`, `?xs...`, non-linear), substitution, `verbatim` | `src/matcher.rs` |
-| Strategy combinators, primitives (incl. `matches?`/`match-witness`), strict variables (`!x`), fuel, once/outermost, head-indexed dispatch | `src/strategy.rs` |
+| Strategy combinators, primitives (incl. `matches?`/`match-witness`, records), strict variables (`!x`), transitions, fuel, once/outermost, head-indexed dispatch, rewrite profile, normal-form memo and normalization cache, `--trace` | `src/strategy.rs` |
 | Capabilities, atomic writes, snapshot ledger, dry-run, undo | `src/safety.rs` |
-| Program loader with imports | `src/program.rs` |
-| CLI driver, `display` rendering, `undo` | `src/main.rs` |
+| Program loader with imports, `let`, `#memo` | `src/program.rs` |
+| CLI driver, `display` rendering, `assert`, `--stats`, `--memo`, `--trace`, `#rebind main`, `undo` | `src/main.rs` |
+| Python port of all of the above (Pyodide engine), parity test, page builder | `web/palimpsest.py`, `web/test_parity.py`, `web/build.py` |
+| Browser playground (generated) | `index.html` |
 
 ## Safety properties (all demonstrated by `run_demo.sh`)
 
@@ -503,7 +634,18 @@ Five studies use Palimpsest as a laboratory for single mechanisms of the CTMU. N
 
 The studies build on one another's code: `TELIC-GAMES.md` hands game dynamics to the critical-pair checker written for `TELIC-CONFLUENCE.md` (`lib/ars.pal`), and computes merges with the `fold-op` used in `SEMILATTICE-GRAMMAR.md`; `LOGOS-SCSPL.md` builds on `lib/games.pal` and the logit rule of `TELIC-GAMES.md` §6.3. `TELIC-GAMES.md` §9 documents the execution model, a traced run, how to read the output, and the full reproduction protocol, with exact fuel fingerprints. Quotations of Langan in the telic studies were checked word for word against *The Portable Chris Langan*.
 
+## Economics studies
+
+Two further studies apply the same method to economics rather than the CTMU:
+
+| document | question | result | check |
+|---|---|---|---|
+| `HEGEMONY-ECONOMY.md` | Can the economy of the board game *Hegemony* be modelled rigorously as term rewriting, with its feedback loops made explicit and checked? | Yes. One round is the normal form of a set of equations over a single state term; the game is a self-rewriting program that becomes a quine at game end. Four conservation laws hold at every round. The causal-loop diagram has 17 elementary cycles (8 reinforcing, 9 balancing), and all 30 edge signs are confirmed on the model by finite differences. Exact results: a Malthusian bound on the Working Class at every policy, labor-market dominance with an exact tax claw-back, a growth imperative, path-independent borrowing, a debt-spiral threshold, monotone election odds, and an idempotent IMF | `verify-hegemony.sh`, `crosscheck/hegemony_crosscheck.py` |
+| `MATERIALIST-ECONOMY.md` | Can a mathematically rigorous model of the economy be built from Marxist class analysis, econophysics and game theory, with its feedback loops as term rewriting? | Yes, with exact rationals throughout. Values, the plan and conservation are exact; the FMT holds but so does it for every basic commodity (GCET); the falling rate of profit is determinate only given a wage rule (Okishio 18/18). Conservation yields the exponential distribution; capital income condenses unless capped. The class-struggle game has no rest point under capitalism (187/243 settings) and a stable concession under a job guarantee (243/243). Three regimes run as one self-rewriting program: capitalism's unemployment rises every period; radical governments appear in 15 of 27 sensitivity settings, never under planning. 14 feedback loops; 23 of 24 edge signs confirmed (unemployment raises labour's bargaining power near full employment, via capital flight). Structural Dialectics: a crisis opens a one-period Phase-Inversion window before foreclosure. Thresholds: capital flight below u = 1/12; a job guarantee bites only above u = 1/11; machinery pays at a wage 12.9% higher; the reserve army grows without limit when mechanization exceeds s_c·r − δ; the radical threshold is 11/2 − K in deep losses (curvature, not loss aversion); a crisis becomes a lock-in between aspiration 0.26 and 0.27; collusion fails at ⌈1/P⌉ offices. Against data (no fitting): wage-curve elasticity −0.1 at 5.5% unemployment, labour-share decline 19.9% vs 20.2% (US 1960–2026), lower-class Gini 0.524 vs 0.5, NREGA's +5% at 12.5% unemployment; misses: price–value deviations too small, capital condensation too extreme, unemployment trending | `verify-materialist.sh`, `crosscheck/materialist_crosscheck.py`; written up as a paper in `MATERIALIST-ECONOMY-PAPER.md` (with the selectorate model, checks against *Classical Econophysics* and *How the World Works*, a comparison with empirical data in `me-evidence.pal`, and the model's thresholds and inflection points in `me-extremes.pal`) |
+
+The materialist study reuses the finite-games library (`lib/games.pal`) and the edge-probe method of the Hegemony study, and adds exact rationals, `let`, the normal-form memo and `--trace` to the interpreter. `MATERIALIST-ECONOMY.md` is its technical companion; `MATERIALIST-ECONOMY-PAPER.md` presents it as an academic paper organized by theme (value, money, the labour market, politics, the integrated economy), each section running mechanism, thresholds, evidence and verdict.
+
 ## Further reading
 
-See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, and the CTMU studies listed above.
+See `TUTORIAL.md` for a guided walkthrough, `SELF-REWRITING.md` for a tutorial on self-rewriting programs (from the basics through Hanoi and the N-Queens chess-board solver; verify with `verify-self-rewriting.sh`), `SELF-REFERENCE.md` for a tutorial on self-referential coding (quines, autograms, fixpoint combinators; verify with `verify-self-reference.sh`), `puzzles/PUZZLES.md` for graded puzzles to solve in the language (run `puzzles/check.sh` to verify solutions), `MIND-BODY.md` for a reference on the self-rewriting environments that explore the reciprocal mind↔body loop (`verify-mindbody.sh`), `MINDBODY-TUTORIAL.md` for a step-by-step tutorial on those environments, from the simplest fixed point to two-agent models, with runnable code, the CTMU studies listed above, and the economics studies (`HEGEMONY-ECONOMY.md`, `MATERIALIST-ECONOMY.md` and the paper `MATERIALIST-ECONOMY-PAPER.md`).
 

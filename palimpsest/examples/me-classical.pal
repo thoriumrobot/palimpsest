@@ -1,0 +1,89 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VI(a) -- CHECKS AGAINST THE CLASSICAL-ECONOPHYSICS LITERATURE (MATERIALIST-ECONOMY.md §9)
+// (1) the long-run rate of profit as a demographic attractor, R* = (n+g+dl)/lam
+//     (Classical Econophysics §14.3; How the World Works §5.9), run exactly in
+//     discrete time; (2) the integrated model's capitalism obeys the same
+//     accumulation identity, with n read as employment growth -- which is why
+//     its unemployment rises in every period; (3) HWW's falling-profit
+//     illustration; (4) the labour-value iteration on Classical Econophysics
+//     Table 10.1.
+import "../lib/longrun.pal"
+import "../lib/value.pal"
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+// ---- (1) the attractor -----------------------------------------------------
+rule base-lr : (base-lr !w) => (lr-par ?w 3/5 1/100 1/50 1/20)
+rule app-path-w : (app path-w ?w) => (lr-path (base-lr ?w) (lk 100 300) 200)
+rule app-final-near : (app final-near ?w) => (< (abs (- (last (app path-w ?w)) (lr-star (base-lr ?w)))) 1/1000)
+rule app-dist-mono : (app dist-mono ?w) => (lr-noninc? (lr-dists (base-lr ?w) (app path-w ?w)))
+rule app-lr-line : (app lr-line ?w) => (cats (list "  w = " (padl (decimal ?w 1) 3) "   " (drow (list (nth 0 ?ps) (nth 10 ?ps) (nth 50 ?ps) (nth 100 ?ps) (nth 199 ?ps)) 5 9)))
+  where ?ps <- (app path-w ?w)
+// demographic scenarios: (scen NAME n g dl lam)
+rule scenarios : (scenarios) => (list (scen "fast population growth" 1/20 1/50 1/20 3/5) (scen "slow growth" 1/100 1/50 1/20 3/5)
+  (scen "stationary population (Japan)" 0 1/50 1/20 3/5) (scen "stationary, consume more profit" 0 1/50 1/20 3/10)
+  (scen "shrinking slowly" (- 0 1/100) 0 1/50 3/5) (scen "shrinking fast, no productivity growth" (- 0 1/20) 0 1/50 3/5))
+rule app-scen-line : (app scen-line (scen ?nm ?n ?g ?dl ?lam)) => (cats (list "  " (padr ?nm 36) (dpad ?n 3 7) (dpad ?g 3 7) (dpad ?dl 3 7) (dpad ?lam 2 6) (dpad ?rs 5 10) (dpad (lr-limit ?p) 5 10) (dpad (last ?ps) 5 10)))
+  where ?p <- (lr-par 3/5 ?lam ?n ?g ?dl), ?rs <- (lr-star ?p), ?ps <- (lr-path ?p (lk 100 300) 300)
+rule app-scen-ok : (app scen-ok (scen ?nm ?n ?g ?dl ?lam)) => (< (abs (- (last (lr-path ?p (lk 100 300) 300)) (lr-limit ?p))) 1/1000) where ?p <- (lr-par 3/5 ?lam ?n ?g ?dl)
+
+// ---- (2) the integrated model's capitalism ----------------------------------
+// with no crisis and E < N:  K' = (1-dl)K + sc Pi,  E = K/kap,  kap' = (1+mu) kap
+//   =>  sc r_t = (E_{t+1}/E_t)(1+mu) - (1-dl)       exactly (up to the 1e-6
+// rounding of the state), i.e. Cockshott's R* = (n+g+dl)/lam with n = growth
+// of employment, g = mu and lam = sc.
+rule cap-rows : (cap-rows) => (traj-rows (pe-run (pe-init cap) (pe-par) 60))
+rule emp : (emp !row) => (* 100 (- 1 (row-u ?row)))
+rule app-ident-gap : (app (ident-gap ?rows) ?t) => (abs (- (* 3/5 (row-r ?r0)) (- (* (q/ (emp ?r1) (emp ?r0)) 101/100) 97/100)))
+  where ?r0 <- (nth ?t ?rows), ?r1 <- (nth (+ ?t 1) ?rows)
+rule app-below-star : (app below-star ?row) => (< (row-r ?row) 1/15)
+
+// ---- report ------------------------------------------------------------------
+rule s1 : (s1) => (lines (list
+  "§C1 THE LONG-RUN RATE OF PROFIT IS A DEMOGRAPHIC ATTRACTOR (CE §14.3)"
+  "  lam = 3/5, n = 0.01, g = 0.02, dl = 0.05;  R* = (n+g+dl)/lam = 2/15 = 0.13333 for every wage share"
+  "  profit rate R_t at          t=0      t=10      t=50     t=100     t=199"
+  (lines (smap lr-line (list 1/5 2/5 3/5 4/5)))
+  (cat "  |R_199 - R*| < 1/1000 for every w: " (cat (tf (sall final-near (list 1/5 2/5 3/5 4/5))) (cat ";  |R_t - R*| never increases: " (tf (sall dist-mono (list 1/5 2/5 3/5 4/5))))))
+  ""
+  "  w = 3/5; limit = max(R*, -(1-w)(g+dl)): capital cannot shrink faster than it depreciates"
+  "  scenario                                  n      g     dl   lam        R*     limit     R_299"
+  (lines (smap scen-line (scenarios)))
+  (cat "  R_299 within 1/1000 of the limit in every scenario: " (tf (sall scen-ok (scenarios))))))
+rule s2 : (s2 !rows) => (lines (list
+  "§C2 THE INTEGRATED MODEL'S CAPITALISM OBEYS THE SAME ACCUMULATION IDENTITY"
+  "  sc r_t = (E_{t+1}/E_t)(1+mu) - (1-dl), t = 0..58:  largest gap "
+  (cat "    " (decimal (lmax (smap (ident-gap ?rows) (srange 0 58))) 9))
+  (cat "  steady state with constant employment: r* = (mu + dl)/sc = 1/15 = " (decimal 1/15 5))
+  (cat "  r_t < 1/15 in every period (so employment must shrink, and unemployment rise): " (tf (sall below-star ?rows)))
+  (cat "  r_t at t = 0, 15, 30, 45, 59: " (drow (list (row-r (nth 0 ?rows)) (row-r (nth 15 ?rows)) (row-r (nth 30 ?rows)) (row-r (nth 45 ?rows)) (row-r (nth 59 ?rows))) 5 8))))
+rule s3 : (s3) => (lines (list
+  "§C3 HWW §5.9: profit 50% of income, capital 200%, half of profit reinvested, income constant"
+  (cat "  r_t = 50/(200 + 25 t), t = 0..5: " (sh (smap hww-rate (srange 0 5))))))
+rule s4 : (s4) => (lines (list
+  "§C4 CLASSICAL ECONOPHYSICS TABLE 10.1: LABOUR (WAGE $) PER DOLLAR OF OUTPUT"
+  (cat "  exact, industries A B C D:   " (drow (lvalues (ce-table)) 5 9))
+  (cat "  iterations to agree within 1/1000: " (cat (sh (iters-k (ce-iterate (ce-table) 1/1000))) (cat ";  within 1/10^6: " (sh (iters-k (ce-iterate (ce-table) 1/1000000))))))
+  (cat "  largest relative deviation from the mean: " (decimal (ce-spread) 4))
+  (cat "  value of final output (hours) = total wages (244): " (tf (= (vdot (lvalues (ce-table)) (ce-final)) 244)))))
+rule app-hww : (app hww-rate ?t) => (hww-rate ?t)
+rule iters-k : (iters-k (iters ?k ?v)) => ?k
+rule ce-spread : (ce-spread) => (lmax (smap (rel-dev ?m) ?v)) where ?v <- (lvalues (ce-table)), ?m <- (q/ (vsum ?v) 4)
+rule app-rel-dev : (app (rel-dev ?m) ?x) => (abs (q/ (- ?x ?m) ?m))
+
+main = 0
+let $rows = (cap-rows) with eval
+display (s1) with eval
+display (s2 $rows) with eval
+display (s3) with eval
+display (s4) with eval
+assert (sall final-near (list 1/5 2/5 3/5 4/5)) with eval
+assert (sall dist-mono (list 1/5 2/5 3/5 4/5)) with eval
+assert (sall scen-ok (scenarios)) with eval
+assert (< (lr-star (lr-par 3/5 3/5 (- 0 1/20) 0 1/50)) (lr-floor (lr-par 3/5 3/5 (- 0 1/20) 0 1/50))) with eval
+assert (< (lmax (smap (ident-gap $rows) (srange 0 58))) 1/100000) with eval
+assert (sall below-star $rows) with eval
+assert (same? (smap hww-rate (srange 0 3)) (list 1/4 2/9 1/5 2/11)) with eval
+assert (= (vdot (lvalues (ce-table)) (ce-final)) 244) with eval

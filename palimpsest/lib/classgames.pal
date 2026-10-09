@@ -1,0 +1,267 @@
+#lang palimpsest
+// classgames.pal -- game theory with Marxist class analysis as its INPUT.
+//
+// Class, in the sense used here, is a relation to the means of production,
+// and it enters a game through two channels: the OUTSIDE OPTION each party
+// has if no agreement is reached (the propertyless worker's subsistence, or a
+// guaranteed public job; the owner's ability to move capital), and the
+// SURPLUS to be divided, which is the net product of an hour of labour on the
+// wage-profit frontier of value.pal. Every payoff below is computed from those
+// two things; no payoff is typed in by hand.
+//
+//   1. Wage bargaining with outside options: the reserve army of labour
+//      (Nash bargaining against a disagreement point that depends on the
+//      unemployment rate) versus a job guarantee.
+//   2. The class-struggle game: Workers {acc, org} x Capitalists {con, rep,
+//      flt}, under capitalism and under accountable planning (repression
+//      illegal, capital flight answered by expropriation). Equilibria and
+//      better-response dynamics are computed with lib/games.pal.
+//   3. Roemer's property-relations test of exploitation, as a coalitional
+//      game: a coalition is capitalistically exploited iff it would be better
+//      off withdrawing with its per-capita share of the means of production.
+//   4. Collusion among the secretaries of a divided government: the critical
+//      discount factor for a repeated conspiracy, against a whistleblower
+//      bounty and random audits.
+//   5. Quadratic voting: optimal integer ballots of class-typed voters, the
+//      final demand they vote for, and the plan and jobs it implies; against
+//      demand weighted by purchasing power.
+//   6. Prospect theory and the radical coalition: falling living standards put
+//      voters in the loss domain, where a lower-expected-value radical gamble
+//      can be preferred to a sure moderate gain.
+//   7. Patronage competition between ideological networks: jobs, membership
+//      and resources as a reinforcing loop, and the game of how much to spend
+//      on jobs.
+import "value.pal"
+import "games.pal"
+
+// ============================================================================
+// 1. WAGE BARGAINING WITH OUTSIDE OPTIONS
+// ============================================================================
+// Units: one hour of labour adds y = 1 hour of value (value.pal §2). The wage
+// w is the worker's share of it; the capitalist keeps 1 - w.
+// Nash bargaining with bargaining power beta against disagreement point d:
+//   w = d + beta (1 - d).
+// CAPITALISM: a worker who walks away finds another job at the going wage
+// with probability 1-u, else lives on s:  d = (1-u) w + u s.  The fixed point:
+//   w_cap(beta, u, s) = (beta + (1-beta) u s) / (beta + u (1-beta)).
+// ACCOUNTABLE PLANNING: a public job paying g is always available:  d = g,
+//   w_ap(beta, g) = g + beta (1 - g).
+rule w-cap : (w-cap !beta !u !s) => (q/ (+ ?beta (* (- 1 ?beta) (* ?u ?s))) (+ ?beta (* ?u (- 1 ?beta))))
+rule w-ap : (w-ap !beta !g) => (+ ?g (* ?beta (- 1 ?g)))
+// a private firm of productivity y employs at all iff y > g (it must beat the
+// public job); its profit per hour is then (1 - beta)(y - g)
+rule private-viable? : (private-viable? !y !g) => (> ?y ?g)
+rule private-profit : (private-profit !beta !y !g) => (if (> ?y ?g) (* (- 1 ?beta) (- ?y ?g)) 0)
+
+// ============================================================================
+// 2. THE CLASS-STRUGGLE GAME
+// ============================================================================
+// (cs-game REGIME P), REGIME = cap | ap, P a parameter record:
+//   s   subsistence of the unemployed          u    unemployment rate
+//   bl  bargaining power, unorganized         bh   ... organized
+//   k   cost of organizing to workers          rho  cost of repression to capital
+//   rext return capital earns if it leaves    g    public job (voucher) wage (ap)
+//   pen legal penalty for repression (ap: rights are entrenched, it fails)
+// Player 0 = Workers {acc, org}; player 1 = Capitalists {con, rep, flt}.
+rule cs-sets : (strategy-sets (cs-game ?r ?p)) => (list (list acc org) (list con rep flt))
+rule cs-pay-0 : (payoff (cs-game ?r ?p) 0 (prof ?w ?c)) => (cs-w ?r ?p ?w ?c)
+rule cs-pay-1 : (payoff (cs-game ?r ?p) 1 (prof ?w ?c)) => (cs-c ?r ?p ?w ?c)
+rule cs-wage : (cs-wage cap !p !beta) => (w-cap ?beta (@ ?p u) (@ ?p s))
+rule cs-wage-ap : (cs-wage ap !p !beta) => (w-ap ?beta (@ ?p g))
+// bargaining power reached: org raises it; under capitalism repression puts it back
+rule cs-beta : (cs-beta ?r ?p acc ?c) => (@ ?p bl)
+rule cs-beta-org : (cs-beta cap ?p org rep) => (@ ?p bl)
+rule cs-beta-org2 : (cs-beta ?r ?p org ?c) => (@ ?p bh) where (or (= ?r ap) (<> ?c rep))
+rule cs-org-cost : (cs-org-cost ?p acc) => 0
+rule cs-org-cost-o : (cs-org-cost ?p org) => (@ ?p k)
+// capital flight: under capitalism capital earns rext abroad and the workers
+// fall back on s; under accountable planning obstructing production triggers
+// expropriation (capital gets 0) and the workers move to public jobs at g
+rule cs-w-flt-cap : (cs-w cap !p ?w flt) => (@ ?p s)
+rule cs-w-flt-ap : (cs-w ap !p ?w flt) => (@ ?p g)
+rule cs-c-flt-cap : (cs-c cap !p ?w flt) => (@ ?p rext)
+rule cs-c-flt-ap : (cs-c ap !p ?w flt) => 0
+rule cs-w : (cs-w !r !p !w !c) => (- (cs-wage ?r ?p ?b) (cs-org-cost ?p ?w)) where (<> ?c flt), ?b <- (cs-beta ?r ?p ?w ?c)
+rule cs-c : (cs-c !r !p !w !c) => (- (- 1 (cs-wage ?r ?p ?b)) ?pen) where (<> ?c flt), ?b <- (cs-beta ?r ?p ?w ?c), ?pen <- (cs-pen ?r ?p ?c)
+rule cs-pen-con : (cs-pen ?r ?p con) => 0
+rule cs-pen-rep-cap : (cs-pen cap ?p rep) => (@ ?p rho)
+rule cs-pen-rep-ap : (cs-pen ap ?p rep) => (@ ?p pen)
+// The characterization of the capitalist game, derived by hand from the best
+// responses (and checked by machine on every parameter setting):
+//   vs acc, capital prefers con to rep (rho > 0); vs rep, workers prefer acc
+//   (k > 0); vs flt, workers are indifferent (both get s). Hence the only
+//   candidate pure equilibria are (acc,con), (org,con), (acc,flt), (org,flt),
+//   and NONE exists iff, with wl = w(bl), wh = w(bh), gap = wh - wl:
+//     gap > k                                  (organizing pays against con)
+//     rext < 1 - wl                            (capital stays against acc)
+//     gap > rho  or  1 - wh < rext             (capital will not concede to org)
+//     rext < max(1 - wh, 1 - wl - rho)         (... nor flee from org)
+rule cap-cycle-predicted? : (cap-cycle-predicted? !p) =>
+  (and (> ?gap ?k) (and (< ?rx (- 1 ?wl)) (and (or (> ?gap ?rho) (< (- 1 ?wh) ?rx)) (< ?rx (max (- 1 ?wh) (- (- 1 ?wl) ?rho))))))
+  where ?wl <- (cs-wage cap ?p (@ ?p bl)), ?wh <- (cs-wage cap ?p (@ ?p bh)), ?gap <- (- ?wh ?wl),
+        ?k <- (@ ?p k), ?rho <- (@ ?p rho), ?rx <- (@ ?p rext)
+// exact mixed equilibrium of a 2x2 game with RATIONAL payoffs (games.pal's
+// mixed-2x2 assumes integers): (mixed2 P Q), P = Pr[row 0], Q = Pr[col 0]
+rule mixed2 : (mixed2 !g !r0 !r1 !c0 !c1) => (mixed2 ?p ?q)
+  where ?a00 <- (payoff ?g 0 (prof ?r0 ?c0)), ?a01 <- (payoff ?g 0 (prof ?r0 ?c1)),
+        ?a10 <- (payoff ?g 0 (prof ?r1 ?c0)), ?a11 <- (payoff ?g 0 (prof ?r1 ?c1)),
+        ?b00 <- (payoff ?g 1 (prof ?r0 ?c0)), ?b01 <- (payoff ?g 1 (prof ?r0 ?c1)),
+        ?b10 <- (payoff ?g 1 (prof ?r1 ?c0)), ?b11 <- (payoff ?g 1 (prof ?r1 ?c1)),
+        ?q <- (q/ (- ?a11 ?a01) (- (- ?a00 ?a10) (- ?a01 ?a11))),
+        ?p <- (q/ (- ?b11 ?b10) (- (- ?b00 ?b01) (- ?b10 ?b11)))
+// the 2x2 core of the capitalist game: {acc, org} x {con, rep}
+rule cs-sets-core : (strategy-sets (cs-core ?p)) => (list (list acc org) (list con rep))
+rule cs-core-pay : (payoff (cs-core ?p) ?i ?prof) => (payoff (cs-game cap ?p) ?i ?prof)
+
+// ============================================================================
+// 3. ROEMER: EXPLOITATION AS A PROPERTY RELATION (a coalitional game)
+// ============================================================================
+// N agents, one unit of labour each, capital endowments k_i (total K). A job
+// needs KAPPA units of capital and yields Y; labour without capital yields S
+// (self-provisioning). Capital is scarce (K < N KAPPA), so in competitive
+// equilibrium the wage is S and capital earns the rent r = (Y - S)/KAPPA:
+//   income_i = S + r k_i .
+// Withdrawal (Roemer 1982): coalition C leaves with its per-capita share
+// |C| K / N of the capital and its own labour; it can then produce
+//   v(C) = J Y + (|C| - J) S ,  J = min(|C|, |C| K / (N KAPPA)) jobs.
+// C is capitalistically EXPLOITED iff v(C) > income(C), an EXPLOITER iff
+// v(C) < income(C). Theorem (checked on every coalition): exploited iff the
+// coalition's mean capital is below the social mean K/N.
+rule roemer-income : (roemer-income !ks !i !y !s !kappa) => (+ ?s (* (q/ (- ?y ?s) ?kappa) (nth ?i ?ks)))
+rule roemer-v : (roemer-v !ks !c !y !s !kappa) => (+ (* ?j ?y) (* (- ?m ?j) ?s))
+  where ?n <- (length ?ks), ?kk <- (vsum ?ks), ?m <- (length ?c), ?j <- (min ?m (q/ (* ?m ?kk) (* ?n ?kappa)))
+rule roemer-inc-c : (roemer-inc-c !ks !c !y !s !kappa) => (vsum (smap (inc-of ?ks ?y ?s ?kappa) ?c))
+rule app-inc-of : (app (inc-of ?ks ?y ?s ?kappa) ?i) => (roemer-income ?ks ?i ?y ?s ?kappa)
+// status of a coalition: exploited / exploiter / neutral
+rule roemer-status : (roemer-status !ks !c !y !s !kappa) => (status-of (- (roemer-v ?ks ?c ?y ?s ?kappa) (roemer-inc-c ?ks ?c ?y ?s ?kappa)))
+rule status-of : (status-of !x) => (if (> ?x 0) exploited (if (< ?x 0) exploiter neutral))
+rule mean-status : (mean-status !ks !c) => (status-of (- (q/ (vsum ?ks) (length ?ks)) (q/ (vsum (pick-idx ?ks ?c)) (length ?c))))
+// all nonempty coalitions of {0..n-1}
+rule coalitions : (coalitions !n) => (sfilter nonempty (subsets (srange 0 (- ?n 1))))
+rule subsets-0 : (subsets (list)) => (list (list))
+rule subsets-n : (subsets (list ?x ?xs...)) => (append (smap (prepend-x ?x) ?r) ?r) where ?r <- (subsets (list ?xs...))
+rule app-prepend-x : (app (prepend-x ?x) ?l) => (prepend ?x ?l)
+rule app-nonempty : (app nonempty ?l) => (not (empty? ?l))
+// Theorem R: on every coalition, status by withdrawal = status by mean capital
+rule roemer-theorem? : (roemer-theorem? !ks !y !s !kappa) => (sall (roemer-agree ?ks ?y ?s ?kappa) (coalitions (length ?ks)))
+rule app-roemer-agree : (app (roemer-agree ?ks ?y ?s ?kappa) ?c) => (= (roemer-status ?ks ?c ?y ?s ?kappa) (mean-status ?ks ?c))
+rule roemer-count : (roemer-count !ks !y !s !kappa !st) => (scount (has-status ?ks ?y ?s ?kappa ?st) (coalitions (length ?ks)))
+rule app-has-status : (app (has-status ?ks ?y ?s ?kappa ?st) ?c) => (= (roemer-status ?ks ?c ?y ?s ?kappa) ?st)
+// The same test applied to an accountable-planning allocation in which every
+// worker has access to the social means of production at the per-capita
+// share (the land/job assignment of the proposal): income_i = v({i}) for all.
+rule ap-income : (ap-income !ks !y !s !kappa) => (roemer-v ?ks (list 0) ?y ?s ?kappa)
+rule ap-exploited-count : (ap-exploited-count !ks !y !s !kappa) => (scount (ap-exploited? ?ks ?y ?s ?kappa) (coalitions (length ?ks)))
+rule app-ap-exploited? : (app (ap-exploited? ?ks ?y ?s ?kappa) ?c) => (> (roemer-v ?ks ?c ?y ?s ?kappa) (* (length ?c) (ap-income ?ks ?y ?s ?kappa)))
+
+// ============================================================================
+// 4. COLLUSION IN A DIVIDED GOVERNMENT (a repeated game)
+// ============================================================================
+// K secretaries, each from a different faction, can jointly subvert the
+// popular mandate for a rent R per period, shared equally. Any one of them can
+// instead blow the whistle and collect a legal bounty B; the conspiracy then
+// ends (all are fired). An independent audit also uncovers it each period with
+// probability P. Grim-trigger collusion is an equilibrium iff
+//   (R/K) / (1 - delta (1 - P)) >= B ,  i.e.  delta >= delta*(K) = (1 - R/(K B)) / (1 - P).
+// A single ruling party is the case K = 1 with no bounty a member could
+// claim (B = 0): collusion is sustainable at every delta.
+rule delta-star : (delta-star !k !r !b !p) => (q/ (- 1 (q/ ?r (* ?k ?b))) (- 1 ?p))
+rule delta-star-nb : (delta-star-nb !k !r !p) => -1
+rule collusion-possible? : (collusion-possible? !k !r !b !p) => (< (delta-star ?k ?r ?b ?p) 1)
+// the smallest K at which no discount factor < 1 sustains collusion
+rule k-bar : (k-bar !r !b !p) => (kb-go 1 ?r ?b ?p)
+rule kb-go : (kb-go !k !r !b !p) => (if (not (collusion-possible? ?k ?r ?b ?p)) ?k (if (> ?k 1000) none (kb-go (+ ?k 1) ?r ?b ?p)))
+
+// ============================================================================
+// 5. QUADRATIC VOTING AND DEMOCRATIC FINAL DEMAND
+// ============================================================================
+// A voter of type THETA (valuation per vote for each goods category) with B
+// voice credits casts integer votes v (v_c >= 0, sum v_c^2 <= B) to maximize
+// sum theta_c v_c. Exhaustive search (each v_c <= floor(sqrt B)); ties are
+// broken toward the lexicographically first ballot in the search order.
+rule qv-ballot : (qv-ballot !theta !b) => (qvb-best (qv-candidates (length ?theta) ?b) ?theta)
+rule qv-candidates : (qv-candidates !n !b) => (sfilter (within-budget ?b) (vectors ?n (isqrt ?b)))
+rule app-within-budget : (app (within-budget ?b) ?v) => (<= (vdot ?v ?v) ?b)
+rule vectors : (vectors !n !mx) => (if (<= ?n 0) (list (list)) (sconcat (smap (vec-ext (vectors (- ?n 1) ?mx)) (srange 0 ?mx))))
+rule app-vec-ext : (app (vec-ext ?tails) ?x) => (smap (prepend-x ?x) ?tails)
+rule qvb-best : (qvb-best (list ?v ?vs...) ?theta) => (qvb-go (list ?vs...) ?theta ?v ?u) where ?u <- (vdot ?theta ?v)
+rule qvb-go-0 : (qvb-go (list) ?theta ?best ?u) => ?best
+rule qvb-go-n : (qvb-go (list ?v ?vs...) ?theta ?best ?u) => (qvb-go (list ?vs...) ?theta ?b2 ?u2)
+  where ?uv <- (vdot ?theta ?v), ?b2 <- (if (> ?uv ?u) ?v ?best), ?u2 <- (max ?uv ?u)
+// a population: (list (voters COUNT THETA) ...); the aggregate vote vector
+rule qv-tally : (qv-tally !pop !b) => (qvt-go ?pop ?b ?z) where ?z <- (vzero (length (voters-theta (nth 0 ?pop))))
+rule voters-theta : (voters-theta (voters ?n ?th)) => ?th
+rule qvt-go-0 : (qvt-go (list) ?b ?acc) => ?acc
+rule qvt-go-n : (qvt-go (list (voters ?n ?th) ?rest...) ?b ?acc) => (qvt-go (list ?rest...) ?b ?acc2) where ?acc2 <- (vadd ?acc (vscale ?n (qv-ballot ?th ?b)))
+// one person one vote, by plurality per voter: everyone votes for its top category
+rule plurality-tally : (plurality-tally !pop) => (pt-go ?pop ?z) where ?z <- (vzero (length (voters-theta (nth 0 ?pop))))
+rule pt-go-0 : (pt-go (list) ?acc) => ?acc
+rule pt-go-n : (pt-go (list (voters ?n ?th) ?rest...) ?acc) => (pt-go (list ?rest...) ?acc2)
+  where ?top <- (argmax ?th), ?acc2 <- (lreplace ?acc ?top (+ (nth ?top ?acc) ?n))
+rule argmax : (argmax !xs) => (am-go ?xs 0 0 (nth 0 ?xs))
+rule am-go : (am-go ?xs ?i ?best ?bv) => (if (>= ?i (length ?xs)) ?best (am-go ?xs (+ ?i 1) (if (> (nth ?i ?xs) ?bv) ?i ?best) (max (nth ?i ?xs) ?bv)))
+// market demand: each voter spends income m in proportion to theta (Cobb-Douglas)
+// (list (earners COUNT INCOME THETA) ...)
+rule market-tally : (market-tally !pop) => (mt-go ?pop ?z) where ?z <- (vzero (length (earners-theta (nth 0 ?pop))))
+rule earners-theta : (earners-theta (earners ?n ?m ?th)) => ?th
+rule mt-go-0 : (mt-go (list) ?acc) => ?acc
+rule mt-go-n : (mt-go (list (earners ?n ?m ?th) ?rest...) ?acc) => (mt-go (list ?rest...) ?acc2)
+  where ?acc2 <- (vadd ?acc (vscale (q/ (* ?n ?m) (vsum ?th)) ?th))
+// shares of a vector
+rule shares : (shares !v) => (vscale (q/ 1 (vsum ?v)) ?v)
+// scale a demand direction so that it uses exactly H hours of living labour
+// (lambda . d = H); the plan, and the jobs by sector (l_j x_j)
+rule demand-for-hours : (demand-for-hours !e !dir !h) => (vscale (q/ ?h (vdot (lvalues ?e) ?dir)) ?dir)
+rule jobs-by-sector : (jobs-by-sector !e !d) => (vmul (e-l ?e) (gross ?e ?d))
+
+// ============================================================================
+// 6. PROSPECT THEORY AND THE RADICAL COALITION
+// ============================================================================
+// Value of an outcome x relative to the reference point (Kahneman-Tversky
+// shape, piecewise quadratic so that everything stays exact):
+//   v(x) = x - x^2/(2K)          for x >= 0   (concave: risk-averse in gains)
+//   v(x) = L (x + x^2/(2K))      for x <  0   (convex, steeper: loss aversion L)
+// valid for |x| <= K (where v is increasing).
+rule pt-v : (pt-v !x !kk !lam) => (if (>= ?x 0) (- ?x (q/ (* ?x ?x) (* 2 ?kk))) (* ?lam (+ ?x (q/ (* ?x ?x) (* 2 ?kk)))))
+// a lottery: (lot (o PROB OUTCOME) ...); its value from position D (current
+// standard minus reference point)
+rule pt-u : (pt-u !lot !d !kk !lam) => (ptu-go ?lot ?d ?kk ?lam 0)
+rule ptu-go-0 : (ptu-go (lot) ?d ?kk ?lam ?acc) => ?acc
+rule ptu-go-n : (ptu-go (lot (o ?p ?x) ?os...) ?d ?kk ?lam ?acc) => (ptu-go (lot ?os...) ?d ?kk ?lam ?acc2) where ?acc2 <- (+ ?acc (* ?p (pt-v (+ ?d ?x) ?kk ?lam)))
+rule pt-ev : (pt-ev (lot ?os...)) => (vsum (map o-ev (list ?os...)))
+rule app-o-ev : (app o-ev (o ?p ?x)) => (* ?p ?x)
+// choice of a voter at position D between a sure moderate MOD and a radical RAD
+rule pt-choice : (pt-choice !mod !rad !d !kk !lam) => (if (> (pt-u ?rad ?d ?kk ?lam) (pt-u ?mod ?d ?kk ?lam)) radical moderate)
+// share of a population (list (stratum WEIGHT D) ...) choosing radical
+rule radical-share : (radical-share !mod !rad !strata !kk !lam) => (q/ (rs-go ?mod ?rad ?strata ?kk ?lam 0) (vsum (map stratum-w ?strata)))
+rule app-stratum-w : (app stratum-w (stratum ?w ?d)) => ?w
+rule rs-go-0 : (rs-go ?mod ?rad (list) ?kk ?lam ?acc) => ?acc
+rule rs-go-n : (rs-go ?mod ?rad (list (stratum ?w ?d) ?ss...) ?kk ?lam ?acc) => (rs-go ?mod ?rad (list ?ss...) ?kk ?lam ?acc2)
+  where ?c <- (pt-choice ?mod ?rad ?d ?kk ?lam), ?acc2 <- (if (= ?c radical) (+ ?acc ?w) ?acc)
+// single crossing on a grid: the choices, ordered by D, are radical...radical
+// then moderate...moderate (at most one switch, from radical to moderate)
+rule single-crossing? : (single-crossing? !cs) => (sc-go ?cs radical)
+rule sc-go-0 : (sc-go (list) ?phase) => true
+rule sc-go-n : (sc-go (list ?c ?cs...) ?phase) => (if (and (= ?phase moderate) (= ?c radical)) false (sc-go (list ?cs...) ?c))
+
+// ============================================================================
+// 7. PATRONAGE COMPETITION BETWEEN IDEOLOGICAL NETWORKS
+// ============================================================================
+// Two networks R and L. In each period network X has resources
+//   Res_X = B_X + RHO * (its membership share);
+// it spends a fraction TH_X on jobs and the rest on messaging. Members are
+// attracted with weight A per unit of jobs and M per unit of messaging
+// (A > M: a job binds a member more than a message does -- the post's claim);
+// the share of R moves halfway toward R's share of total attraction:
+//   s' = s + (1/2) (att_R / (att_R + att_L) - s),  rounded to 1/1000.
+// Parameters: (rec (br ..) (bl ..) (rho ..) (a ..) (m ..) (t periods)).
+rule pat-run : (pat-run !thr !thl !p) => (pat-go ?thr ?thl ?p 1/2 (@ ?p t))
+rule pat-go : (pat-go !thr !thl !p !s !t) => (if (<= ?t 0) ?s (pat-go ?thr ?thl ?p (pat-step ?thr ?thl ?p ?s) (- ?t 1)))
+rule pat-step : (pat-step !thr !thl !p !s) => (round-to (+ ?s (q/ (- (q/ ?ar (+ ?ar ?al)) ?s) 2)) 1000)
+  where ?rr <- (+ (@ ?p br) (* (@ ?p rho) ?s)), ?rl <- (+ (@ ?p bl) (* (@ ?p rho) (- 1 ?s))),
+        ?ar <- (* ?rr (+ (* (@ ?p a) ?thr) (* (@ ?p m) (- 1 ?thr)))),
+        ?al <- (* ?rl (+ (* (@ ?p a) ?thl) (* (@ ?p m) (- 1 ?thl))))
+// as a normal-form game: strategies = job shares; payoff = final membership share
+rule pat-sets : (strategy-sets (pat-game ?p)) => (list (list 0 1/4 1/2 3/4 1) (list 0 1/4 1/2 3/4 1))
+rule pat-pay-0 : (payoff (pat-game ?p) 0 (prof ?x ?y)) => (pat-run ?x ?y ?p)
+rule pat-pay-1 : (payoff (pat-game ?p) 1 (prof ?x ?y)) => (- 1 (pat-run ?x ?y ?p))

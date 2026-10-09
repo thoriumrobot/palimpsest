@@ -1,0 +1,4 @@
+/target/
+**/.palimpsest/
+*.snap
+__pycache__/

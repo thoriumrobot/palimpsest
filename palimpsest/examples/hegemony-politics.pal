@@ -1,0 +1,76 @@
+#lang palimpsest
+#fuel 2000000000
+// POLITICS AND THE IMF.
+// T8 (election odds are monotone). The exact probability that a Working Class
+//    Bill opposed by the Capitalist passes -- 5 cubes drawn without replacement
+//    from (w WC, c CC, m neutral) cubes, then both sides commit Influence by the
+//    model's rule -- is nondecreasing in w and in WC Influence, nonincreasing
+//    in c and in CC Influence. Checked on the grid w, c in 0..12 (step 2),
+//    m in {5, 13}, Influence in {0, 1, 3} each: 882 exact rationals.
+// T9 (the IMF is a retraction). Applying the IMF to any state it produced
+//    changes nothing but the event log: imf(imf(S)) = imf(S). Checked from the
+//    round-3 state under all 243 settings of Policies 1-5, with the State
+//    holding 2 Loans and 30 in the Treasury.
+// T10 (welfare overreach). A scenario in which the Working Class starts with
+//    the Public Sector at full size (Fiscal A) and Labor Market A: the
+//    Treasury cannot carry 9 Public Companies at L3 Wages, the State borrows,
+//    and the IMF intervenes, resetting the policies to its profile.
+import "../lib/hegemony-loops.pal"
+rule pp : (pp ?w ?c ?m ?iw ?ic) => (/ (* 10000 (pnum ?q)) (pden ?q)) where ?q <- (p-pass ?w ?c ?m ?iw ?ic)
+rule odds-row : (odds-row ?w) => (cells (list ?w (pp ?w 9 13 0 0) (pp ?w 9 13 1 3) (pp ?w 9 13 3 1) (- (pp (+ ?w 3) 9 13 0 0) (pp ?w 9 13 0 0))) 12)
+rule odds-view : (odds-view) => (lines (list
+  "P(a WC Bill passes) x 10000; bag = w WC cubes, 9 CC, 13 neutral"
+  (cells (list w no-infl WC1-CC3 WC3-CC1 +3cubes) 12)
+  (rule-line 60)
+  (odds-row 2) (odds-row 4) (odds-row 6) (odds-row 8) (odds-row 10) (odds-row 12) (odds-row 14)))
+// rational comparison a/b <= c/d  <=>  a*d <= c*b
+rule qle : (qle (q ?a ?b) (q ?c ?d)) => (<= (* ?a ?d) (* ?c ?b))
+rule grid : (grid) => (list 0 2 4 6 8 10 12)
+rule infl : (infl-grid) => (list 0 1 3)
+rule t8-point : (t8-point ?w ?c ?m ?iw ?ic) => (and (qle ?p (p-pass (+ ?w 2) ?c ?m ?iw ?ic))
+     (and (qle (p-pass ?w (+ ?c 2) ?m ?iw ?ic) ?p)
+     (and (qle ?p (p-pass ?w ?c ?m (+ ?iw 1) ?ic)) (qle (p-pass ?w ?c ?m ?iw (+ ?ic 1)) ?p))))
+  where ?p <- (p-pass ?w ?c ?m ?iw ?ic)
+rule t8 : (t8) => (count-if t8-w (grid))
+rule app-t8-w : (app t8-w ?w) => (all-of (t8-c ?w) (grid))
+rule app-t8-c : (app (t8-c ?w) ?c) => (all-of (t8-m ?w ?c) (list 5 13))
+rule app-t8-m : (app (t8-m ?w ?c) ?m) => (all-of (t8-i ?w ?c ?m) (infl-grid))
+rule app-t8-i : (app (t8-i ?w ?c ?m) ?iw) => (all-of (t8-j ?w ?c ?m ?iw) (infl-grid))
+rule app-t8-j : (app (t8-j ?w ?c ?m ?iw) ?ic) => (t8-point ?w ?c ?m ?iw ?ic)
+
+// ---- T9 ----
+rule strip : (strip ?s) => (set@ ?s events (list))
+rule imf-base : (imf-base !s) => (set@ (set@ ?s st loans 2) st treasury 30)
+rule with-pols : (with-pols (prof ?l ?t ?h ?e ?tr) ?s) => (set@ ?s pol (rec (fiscal ?f) (labor ?l) (tax ?t) (health ?h) (edu ?e) (trade (@ ?s pol trade)) (immig (@ ?s pol immig))))
+  where ?f <- ?tr
+rule secs3 : (secs3) => (list A B C)
+rule profs : (profs) => (concat (map pf1 (secs3)))
+rule app-pf1 : (app pf1 ?a) => (concat (map (pf2 ?a) (secs3)))
+rule app-pf2 : (app (pf2 ?a) ?b) => (concat (map (pf3 ?a ?b) (secs3)))
+rule app-pf3 : (app (pf3 ?a ?b) ?c) => (concat (map (pf4 ?a ?b ?c) (secs3)))
+rule app-pf4 : (app (pf4 ?a ?b ?c) ?d) => (map (pf5 ?a ?b ?c ?d) (secs3))
+rule app-pf5 : (app (pf5 ?a ?b ?c ?d) ?e) => (prof ?b ?c ?d ?e ?a)
+rule t9 : (t9 !s) => (count-if (idem ?s) (profs))
+rule app-idem : (app (idem ?s) ?p) => (eq? (strip (imf ?once)) (strip ?once)) where ?once <- (imf (with-pols ?p ?s))
+
+// ---- T10 ----
+rule overreach : (overreach !s) => ?s3
+  where ?s1 <- (add@ (add@ (add@ (add@ (add@ ?s wc pool health 2) wc pool edu 2) wc pool media 3) wc pool u 4) wc workers 11),
+        ?s2 <- (set-policy labor A ?s1), ?s3 <- (set-policy fiscal A (set-policy fiscal B ?s2))
+rule imf-events : (imf-events ?s) => (filter is-imf-or-fiscal (@ ?s events))
+rule app-is-imf : (app is-imf-or-fiscal (ev ?r ?k ?what ?args...)) => (or (= ?what imf) (= ?what policy))
+rule t10 : (t10 !s) => (lines (list
+  (cat "Public Companies operating at the start: " (str (count-ids pub-op ?o)))
+  (hist-table ?g)
+  "policy changes and IMF interventions (round, turn, ...):"
+  (lines (map ev-line (imf-events ?g)))))
+  where ?o <- (overreach ?s), ?g <- (play-game ?o)
+rule app-ev-line : (app ev-line ?e) => (cat "  " (shw-v ?e))
+rule t10-imf-count : (t10-imf-count !s) => (count-if is-imf (@ (play-game (overreach ?s)) events))
+rule app-is-imf2 : (app is-imf (ev ?r ?k ?what ?args...)) => (= ?what imf)
+main = (h-setup)
+display (odds-view) with normalize
+display (t10 main) with normalize
+assert (= (t8) 7) with normalize
+assert (= (t9 (imf-base (play-round (play-round main)))) 243) with normalize
+assert (>= (t10-imf-count main) 1) with normalize
