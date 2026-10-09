@@ -96,7 +96,7 @@ details.help ul { margin: 6px 0 4px 18px; padding: 0; }
   <ul>
     <li>Pick a program, edit it if you like, and press <b>Run</b> (or <code>Ctrl</code>/<code>⌘</code> + <code>Enter</code>). The options mirror the command line: <code>--dry-run</code>, <code>--memo</code>, <code>--stats</code>, <code>--trace N</code>, <code>--fuel N</code>.</li>
     <li>The repository's files live in a virtual file system, so <code>import "../lib/prelude.pal"</code> works as it does locally. A program that runs <code>rewrite self</code> rewrites its file there; the editor shows the new text, <b>Undo</b> restores the previous version from the ledger, and <b>Reset</b> reloads the original.</li>
-    <li>Your edits are kept in this browser only. <b>Download</b> saves the current file; <b>Open…</b> loads a <code>.pal</code> file from your computer.</li>
+    <li>Your edits are kept in this browser only. <b>Download</b> saves the current file; <b>Open…</b> loads a <code>.pal</code> file from your computer. The undo history lasts for the session: <b>Stop</b>, a restart or reloading the page clears it.</li>
     <li>Programs run about 15× slower than the native Rust binary. Heavy studies (marked with their native run time) can take minutes; <b>Stop</b> ends a run at any time.</li>
   </ul>
 </details>
@@ -221,20 +221,24 @@ onmessage = async (e) => {
   if (m.type === "run") {
     writeFiles(m.files || {});
     const t0 = performance.now();
-    let status = 1;
+    let status = 1, crashed = false;
     try {
       const fn = py.globals.get("palimpsest_run");
       status = fn(py.toPy(m.args));
       fn.destroy();
     } catch (err) {
-      postMessage({ type: "err", text: "internal error: " + String(err && err.message || err) + "\n" });
+      const text = String(err && err.message || err);
+      crashed = !!(err && err.pyodide_fatal_error) || /Maximum call stack|fatal error/i.test(text);
+      if (!crashed) postMessage({ type: "err", text: "internal error: " + text + "\n" });
     }
     const changed = {};
-    for (const [p, before] of known) {
-      const now = readIfExists(p);
-      if (now !== null && now !== before) { changed[p] = now; known.set(p, now); }
-    }
-    postMessage({ type: "done", status, ms: performance.now() - t0, changed });
+    try {
+      for (const [p, before] of known) {
+        const now = readIfExists(p);
+        if (now !== null && now !== before) { changed[p] = now; known.set(p, now); }
+      }
+    } catch (e) { /* the file system is unreadable after a crash */ }
+    postMessage({ type: "done", status, ms: performance.now() - t0, changed, crashed });
   }
 };
 </script>
@@ -263,6 +267,9 @@ let current = null;
 let worker = null, workerReady = false, running = false, runStart = 0, tick = null;
 let outChars = 0;
 const OUT_LIMIT = 4_000_000;
+let runKind = "", runFile = null;
+let storedBases = {};
+const afterRewrite = new Map();  // path -> text just after the last rewrite (to warn before Undo discards later edits)
 
 function pyodideURLs() {
   const q = new URLSearchParams(location.search).get("pyodide");
@@ -274,14 +281,24 @@ function pyodideURLs() {
 }
 
 // ---- persistence of the user's edits (per browser) --------------------------
+const stale = new Set();        // edited files whose version on the site has changed since the edit
+function fnv(t) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16);
+}
 function loadStore() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { return {}; }
 }
 function saveStore() {
   try {
-    const edits = {};
-    for (const [p, t] of files) if (original.get(p) !== t) edits[p] = t;
-    const s = JSON.stringify({ edits, current, opts: readOpts() });
+    const edits = {}, bases = {};
+    for (const [p, t] of files) {
+      if (original.get(p) === t) continue;
+      edits[p] = t;
+      if (original.has(p)) bases[p] = stale.has(p) ? (storedBases[p] || fnv(original.get(p))) : fnv(original.get(p));
+    }
+    const s = JSON.stringify({ edits, bases, current, opts: readOpts() });
     if (s.length < 3_000_000) localStorage.setItem(STORE_KEY, s);
   } catch (e) { /* storage unavailable: edits last for this session only */ }
 }
@@ -329,6 +346,7 @@ function describe(p) {
     if (est >= 20) add("expect ≈ " + fmtSecs(est) + " here", "warn");
   }
   if (original.has(p) && original.get(p) !== files.get(p)) add("edited", "tag");
+  if (stale.has(p) && original.get(p) !== files.get(p)) add("the site's version of this file has changed since you edited it; Reset loads the new version", "warn");
 }
 function fmtSecs(s) {
   if (s < 1) return s.toFixed(2) + " s";
@@ -410,11 +428,25 @@ function onWorker(e) {
       files.set(p, t);
       synced.set(p, t);
       if (p === current) ui.editor.value = t;
+      if (runKind === "Undoing") afterRewrite.delete(p); else afterRewrite.set(p, t);
     }
     const secs = (m.ms / 1000).toFixed(m.ms < 10000 ? 2 : 1);
     const changedList = Object.keys(m.changed).filter((p) => !p.includes("/.palimpsest/"));
+    if (m.crashed) {
+      write("\nThe interpreter ran out of stack and has to restart. This program builds a term nested more deeply " +
+        "than the browser's stack allows (a few thousand levels); the native interpreter can run it. " +
+        "The undo history of this session is lost; Reset still restores the original file.\n", "err");
+      setRunning(false);
+      worker.terminate();
+      setStatus("Restarting the interpreter…", "", true);
+      startWorker();
+      buildSelect();
+      if (current) describe(current);
+      saveStore();
+      return;
+    }
     let note = "exit " + m.status + " · " + secs + " s";
-    if (changedList.length) note += " · rewrote " + changedList.join(", ");
+    if (changedList.length) note += (runKind === "Undoing" ? " · restored " : " · rewrote ") + changedList.join(", ");
     setStatus(note, m.status === 0 ? "ok" : "bad");
     setRunning(false);
     buildSelect();
@@ -446,6 +478,7 @@ function launch(args, label) {
   outChars = 0;
   write("$ palimpsest " + args.join(" ") + "\n", "note");
   worker.postMessage({ type: "run", args, files: pendingFiles() });
+  runKind = label; runFile = current;
   setRunning(true);
   runStart = performance.now();
   setStatus(label + "… 0 s", "", true);
@@ -485,7 +518,7 @@ function uniquePath(name) {
   let base = name.replace(/[^A-Za-z0-9._-]/g, "-");
   if (!base.endsWith(".pal")) base += ".pal";
   let p = "examples/" + base, i = 2;
-  while (files.has(p) && original.has(p)) { p = "examples/" + base.replace(/\.pal$/, "") + "-" + i++ + ".pal"; }
+  while (files.has(p)) { p = "examples/" + base.replace(/\.pal$/, "") + "-" + i++ + ".pal"; }
   return p;
 }
 const SCRATCH = `#lang palimpsest
@@ -501,13 +534,20 @@ show (sum (range 1 100)) with eval
 ui.run.onclick = () => current && launch(argsFor(current), "Running");
 ui.stop.onclick = stop;
 $("clear").onclick = () => { ui.out.textContent = ""; outChars = 0; };
-ui.undo.onclick = () => current && launch(["undo", current], "Undoing");
+ui.undo.onclick = () => {
+  if (!current) return;
+  const base = afterRewrite.get(current);
+  if (base !== undefined && ui.editor.value !== base &&
+      !confirm("Undo restores " + current + " as it was before its last rewrite, discarding the edits you made since. Continue?")) return;
+  launch(["undo", current], "Undoing");
+};
 ui.file.onchange = () => select(ui.file.value);
 ui.reset.onclick = () => {
   if (!current) return;
   if (original.has(current)) {
     if (files.get(current) !== original.get(current) && !confirm("Discard your changes to " + current + "?")) return;
     files.set(current, original.get(current));
+    stale.delete(current);
   } else {
     if (!confirm("Remove " + current + " from this browser?")) return;
     files.delete(current);
@@ -572,15 +612,19 @@ $("theme").onclick = () => {
   const a = $("repo-link");
   a.href = "https://github.com/" + m[1] + (repo && !repo.endsWith(".html") ? "/" + repo : "");
   a.classList.remove("hidden");
+  // GitHub Pages serves Markdown as plain text: link to GitHub's rendering instead
+  for (const l of document.querySelectorAll("#links a[href$='.md']")) l.href = a.href + "/blob/HEAD/" + l.getAttribute("href");
 })();
 
 (async function init() {
   setStatus("Fetching the repository's programs…", "", true);
   const missing = await fetchAll();
   const store = loadStore();
+  storedBases = store.bases || {};
   for (const [p, t] of Object.entries(store.edits || {})) {
     files.set(p, t);
     if (!info.has(p)) info.set(p, { path: p, group: "Your files" });
+    if (original.has(p) && storedBases[p] && storedBases[p] !== fnv(original.get(p))) stale.add(p);
   }
   if (store.opts) {
     ui.dry.checked = !!store.opts.dry; ui.memo.checked = !!store.opts.memo; ui.stats.checked = !!store.opts.stats;
