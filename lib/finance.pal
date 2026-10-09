@@ -1,0 +1,106 @@
+#lang palimpsest
+// finance.pal -- the financial mechanisms of the essays, each on its own
+// (Part VIII(a) of the materialist-economy study; me-finance.pal runs them):
+//
+//  1. CREDIT MONEY AND THE PRICE OF A FIXED STOCK. A bank loan creates the
+//     deposit it pays out and a repayment destroys one (the mechanical-
+//     materialism essay: "it does not lend out pre-existing deposits").
+//     A cohort of buyers with savings S bids for a fixed stock of houses with
+//     loans at loan-to-value LTV: the price is S / (1 - LTV), no house and no
+//     unit of output is added, and the sellers -- the incumbent asset holders
+//     -- receive the new money first (the Cantillon effect of econophysics.pal).
+//  2. THE WEALTH LATTICE. Fortunes live on levels 2^n (n = 0, 1, 2, ...;
+//     level 0 is the floor where a fortune rejoins the thermal class). Each
+//     period a fortune doubles with probability p (a capital gain) and halves
+//     with probability q (a reset: division among two heirs, a bankruptcy, a
+//     tax); at the floor it cannot halve. The stationary law is geometric in n,
+//     pi_n = (1 - z) z^n with z = p/q, so P(W >= 2^n) = z^n: a Pareto tail with
+//     exponent alpha = log2(q/p). Mean wealth is finite iff 2z < 1 (alpha > 1);
+//     at 2z >= 1 a vanishing fraction ends up with all the wealth -- the
+//     condensation of econophysics.pal §4, which is the case q = 0.
+//  3. FISHER'S DEBT DEFLATION. n firms each hold one unit of an asset worth P
+//     and owe d_j (spread evenly from d_lo to d_hi). A firm with d_j > P is
+//     insolvent and sells its unit; each distress sale lowers the price by eta:
+//     P(m) = 1 - sigma - eta m after a shock sigma and m sales. The number of
+//     sales is the least fixed point of m -> #{j : d_j > P(m)}. Insolvent
+//     firms' debts are extinguished; the survivors' debt in real terms is
+//     their nominal debt / P.
+import "econophysics.pal"
+import "report.pal"
+
+// ---------------------------------------------------------------- 1. credit
+// a banking ledger: (bk DEPOSITS LOANS); a loan credits a new deposit, a
+// repayment cancels one, a payment moves a deposit between customers
+rule bk-step-loan : (bk-step (bk ?m ?l) (loan ?x)) => (bk (+ ?m ?x) (+ ?l ?x))
+rule bk-step-repay : (bk-step (bk ?m ?l) (repay ?x)) => (bk (- ?m ?x) (- ?l ?x))
+rule bk-step-pay : (bk-step (bk ?m ?l) (pay ?x)) => (bk ?m ?l)
+rule bk-scan : (bk-scan !s !evs) => (bks-go ?s ?evs (list ?s))
+rule bks-go-0 : (bks-go ?s (list) ?acc) => ?acc
+rule bks-go-n : (bks-go ?s (list ?e ?es...) ?acc) => (bks-go ?s2 (list ?es...) (snoc ?acc ?s2)) where ?s2 <- (bk-step ?s ?e)
+rule bk-m : (bk-m (bk ?m ?l)) => ?m
+rule bk-l : (bk-l (bk ?m ?l)) => ?l
+// deposits created = loans outstanding, at every step
+rule app-bk-ok : (app (bk-ok ?m0) (bk ?m ?l)) => (= (- ?m ?m0) ?l)
+// the asset market: price, loan, and the new money of H sales
+rule am-price : (am-price !s !ltv) => (q/ ?s (- 1 ?ltv))
+rule am-loan : (am-loan !s !ltv) => (* ?ltv (am-price ?s ?ltv))
+// the sellers (group 1 of MS) spend the new money first on fixed output Q
+rule am-cantillon : (am-cantillon !ms !q !s !ltv !h) => (cantillon ?ms ?q (* ?h (am-loan ?s ?ltv)))
+
+// ---------------------------------------------------------------- 2. lattice
+// infinite lattice, z = p/q < 1/2: the share of wealth held by the top
+// fraction f of fortunes. With z^(n+1) <= f < z^n the top f holds every level
+// above n and part of level n:  (2z)^(n+1) + (f - z^(n+1)) 2^n (1 - 2z)/(1 - z)
+rule lat-n : (lat-n !z !f) => (ln-go ?z ?f 0)
+rule ln-go : (ln-go !z !f !n) => (if (<= (expt ?z (+ ?n 1)) ?f) ?n (ln-go ?z ?f (+ ?n 1)))
+rule lat-top : (lat-top !z !f) => (+ (expt (* 2 ?z) (+ ?n 1)) (q/ (* (* (- ?f (expt ?z (+ ?n 1))) (expt 2 ?n)) (- 1 (* 2 ?z))) (- 1 ?z)))
+  where (< ?z 1/2), ?n <- (lat-n ?z ?f)
+// alpha = log2(1/z) to three decimals (floor): the largest m with 2^m <= (1/z)^1000
+rule lat-alpha : (lat-alpha !z) => (q/ (la-go (expt (q/ 1 ?z) 1000) 0 8000 14) 1000)
+rule la-go : (la-go !big !lo !hi !k) => ?lo where (<= ?k 0)
+rule la-go-n : (la-go !big !lo !hi !k) => (if (<= (expt 2 ?m) ?big) (la-go ?big ?m ?hi ?k1) (la-go ?big ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (floor (q/ (+ ?lo ?hi) 2)), ?k1 <- (- ?k 1)
+// the z at which the top fraction f holds the share S (bisection on [1/100, 1/2))
+rule lat-z-for : (lat-z-for !f !share) => (lzf-go ?f ?share 1/100 1/2 30)
+rule lzf-go : (lzf-go !f !sh !lo !hi !k) => (round-to (q/ (+ ?lo ?hi) 2) 1000000) where (<= ?k 0)
+rule lzf-go-n : (lzf-go !f !sh !lo !hi !k) => (if (< (lat-top ?m ?f) ?sh) (lzf-go ?f ?sh ?m ?hi ?k1) (lzf-go ?f ?sh ?lo ?m ?k1))
+  where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+// a FINITE lattice of levels 0..L (any z > 0; the top level L is a cap: a
+// fortune there that would double is taxed back): stationary pi_n ~ z^n.
+// Share of the top fraction f, accumulating from level L downwards.
+rule latf-mass : (latf-mass !z !lv) => (lfm-go ?z ?lv 0)
+rule lfm-go : (lfm-go !z !k !acc) => (if (< ?k 0) ?acc (lfm-go ?z (- ?k 1) (+ ?acc (expt ?z ?k))))
+rule latf-wealth : (latf-wealth !z !lv) => (lfw-go ?z ?lv 0)
+rule lfw-go : (lfw-go !z !k !acc) => (if (< ?k 0) ?acc (lfw-go ?z (- ?k 1) (+ ?acc (expt (* 2 ?z) ?k))))
+rule latf-top : (latf-top !z !lv !f) => (q/ (lft2-go ?z ?lv ?f 0 0 (* ?f (latf-mass ?z ?lv))) (latf-wealth ?z ?lv))
+rule lft2-go : (lft2-go !z !k !f !m !w !target) => ?w where (< ?k 0)
+rule lft2-go-n : (lft2-go !z !k !f !m !w !target) => (if (>= (+ ?m ?mk) ?target) (+ ?w (* (- ?target ?m) (expt 2 ?k))) (lft2-go ?z (- ?k 1) ?f (+ ?m ?mk) (+ ?w (* ?mk (expt 2 ?k))) ?target))
+  where (>= ?k 0), ?mk <- (expt ?z ?k)
+// the chain itself on levels 0..L, one period: mass moves up with p, down
+// with q; reflecting at 0 and at L. Rounded to 1e-12 per period.
+rule lat-step : (lat-step !pis !p !q) => (map (lstep-at ?pis ?p ?q ?lv) (range 0 ?lv)) where ?lv <- (- (length ?pis) 1)
+rule app-lstep-at : (app (lstep-at ?pis ?p ?q ?lv) ?n) => (round-to (+ (+ ?from-below ?from-above) ?stay) 1000000000000)
+  where ?from-below <- (if (> ?n 0) (* ?p (nth (- ?n 1) ?pis)) 0), ?from-above <- (if (< ?n ?lv) (* ?q (nth (+ ?n 1) ?pis)) 0),
+        ?stay <- (* (nth ?n ?pis) (- 1 (+ (if (< ?n ?lv) ?p 0) (if (> ?n 0) ?q 0))))
+rule lat-iter : (lat-iter !pis !p !q !t) => (if (<= ?t 0) ?pis (lat-iter (lat-step ?pis ?p ?q) ?p ?q (- ?t 1)))
+rule lat-point : (lat-point !lv) => (prepend 1 (replicate ?lv 0))
+rule lat-geo : (lat-geo !z !lv) => (map (lg-at ?z ?norm) (range 0 ?lv)) where ?norm <- (latf-mass ?z ?lv)
+rule app-lg-at : (app (lg-at ?z ?norm) ?n) => (q/ (expt ?z ?n) ?norm)
+rule tv : (tv !a !b) => (q/ (vsum (map absf (vsub ?a ?b))) 2)
+
+// ---------------------------------------------------------------- 3. Fisher
+rule fc-debts : (fc-debts !dlo !dhi !n) => (map (fcd-at ?dlo (q/ (- ?dhi ?dlo) (- ?n 1))) (range 0 (- ?n 1)))
+rule app-fcd-at : (app (fcd-at ?dlo ?step) ?j) => (+ ?dlo (* ?j ?step))
+rule fc-price : (fc-price !sig !eta !m) => (fmax0 (- (- 1 ?sig) (* ?eta ?m)))
+rule fmax0 : (fmax0 !x) => (if (< ?x 0) 0 ?x)
+rule fc-count : (fc-count !ds !p) => (count-if (above ?p) ?ds)
+rule app-above : (app (above ?p) ?d) => (> ?d ?p)
+// least fixed point from m = 0: (fc SALES PRICE)
+rule fc-run : (fc-run !ds !sig !eta) => (fc-go ?ds ?sig ?eta 0)
+rule fc-go : (fc-go !ds !sig !eta !m) => (if (= ?m2 ?m) (fc ?m (fc-price ?sig ?eta ?m)) (fc-go ?ds ?sig ?eta ?m2))
+  where ?m2 <- (fc-count ?ds (fc-price ?sig ?eta ?m))
+rule fc-m : (fc-m (fc ?m ?p)) => ?m
+rule fc-p : (fc-p (fc ?m ?p)) => ?p
+// nominal debt of the solvent firms, before (P = 1, all) and after
+rule fc-nominal : (fc-nominal !ds !p) => (vsum (filter (not-above ?p) ?ds))
+rule app-not-above : (app (not-above ?p) ?d) => (<= ?d ?p)

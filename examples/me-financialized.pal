@@ -1,0 +1,262 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VIII(b) -- FINANCIALIZED CAPITALISM: credit, debt and desperation in the integrated economy (MATERIALIST-ECONOMY.md §16)
+// (1) the fourth regime against capitalism, and the nesting check (every
+//     financial channel off = capitalism, row for row); (2) the channels one
+//     at a time; (3) the credit crunch: when a crisis becomes a radical
+//     government, and the threshold it crosses; (4) how far banks
+//     accommodate; (5) inflation, deflation and the date of the debt crisis;
+//     (6) the 27-setting stress grid of Part IV, with and without finance;
+//     (7) induced mechanization against credit as remedies for the
+//     unemployment trend; (8) every new edge checked on the chain, the old
+//     edges finance changes, and the loops it adds.
+import "../lib/polecon-fin.pal"
+import "../lib/report.pal"
+
+// ---- runs ------------------------------------------------------------------
+rule fpar : (fpar !kvs) => (fp-go (pf-par) ?kvs)
+rule fp-go-0 : (fp-go !p (list)) => ?p
+rule fp-go-n : (fp-go !p (list (kv ?k ?x) ?rest...)) => (fp-go (put@ ?p ?k ?x) (list ?rest...))
+rule frows : (frows !p) => (traj-rows (pf-run (pf-init) ?p 60))
+rule crows : (crows !p) => (traj-rows (pf-run (pe-init cap) ?p 60))
+rule nofin : (nofin) => (list (kv lev 0) (kv chi 0))
+rule app-fr-t : (app fr-t ?r) => (fr-t ?r)
+rule app-is-cr : (app is-cr ?r) => (= (fr-cr ?r) 1)
+rule app-is-gov : (app is-gov ?r) => (= (fr-gov ?r) 1)
+rule crises : (crises !rows) => (smap fr-t (sfilter is-cr ?rows))
+rule govs : (govs !rows) => (smap fr-t (sfilter is-gov ?rows))
+rule ngov : (ngov !rows) => (scount is-gov ?rows)
+// a list of periods as text: "7 52", or "-" when empty
+rule ilist : (ilist !xs) => (if (= (length ?xs) 0) "-" (il-go ?xs))
+rule il-go-1 : (il-go (list ?x)) => (str ?x)
+rule il-go-n : (il-go (list ?x ?y ?ys...)) => (cat (str ?x) (cat " " (il-go (list ?y ?ys...))))
+rule at-r : (at-r !rows !k) => (nth ?k ?rows)
+rule wchg : (wchg !rows) => (- (q/ (fr-w (at-r ?rows 59)) (fr-w (at-r ?rows 0))) 1)
+rule pct : (pct !x !d) => (cat (decimal (* 100 ?x) ?d) "%")
+rule stress-kv : (stress-kv) => (list (kv scale 30) (kv asp 2/5))
+
+// ---- (1) baseline -----------------------------------------------------------
+// between two crises the wage share is constant (to 3 decimals) and the profit
+// rate falls every period: the falling rate of profit at a constant rate of
+// exploitation, which credit-held employment supplies
+rule seg : (seg !rows !a !b) => (take (+ (- ?b ?a) 1) (drop ?a ?rows))
+rule decr-0 : (decr? (list ?x)) => true
+rule decr-n : (decr? (list ?x ?y ?zs...)) => (if (< ?y ?x) (decr? (list ?y ?zs...)) false)
+rule incr-0 : (incr? (list ?x)) => true
+rule incr-n : (incr? (list ?x ?y ?zs...)) => (if (> ?y ?x) (incr? (list ?y ?zs...)) false)
+rule app-dh-high : (app dh-high ?r) => (> (fr-dh ?r) 19/20)
+rule wspread : (wspread !rows) => (- (lmax (smap fr-w ?rows)) (lmin (smap fr-w ?rows)))
+rule s1 : (s1 !f !c) => (lines (list
+  "§F5.1 FINANCIALIZED CAPITALISM (lev = 1, chi = 1/2, interest 5%; every 3rd period)"
+  (pf-hist-view ?f 3)
+  (cat "  crises (net profit rate below r_min): " (cat (ilist (crises ?f)) (cat ";  radical government in periods " (ilist (govs ?f)))))
+  (cat "  capitalism (Part IV): crises " (cat (ilist (crises ?c)) (cat ";  radical government in " (cat (sh (ngov ?c)) " periods"))))
+  (cat "  unemployment at t = 0 / 8 / 30 / 51 / 59: " (drow (smap fr-u (list (at-r ?f 0) (at-r ?f 8) (at-r ?f 30) (at-r ?f 51) (at-r ?f 59))) 3 7))
+  (cat "    capitalism, the same periods:             " (drow (smap fr-u (list (at-r ?c 0) (at-r ?c 8) (at-r ?c 30) (at-r ?c 51) (at-r ?c 59))) 3 7))
+  (cat "  between the crises (t = 9..51): wage share within " (cat (decimal (wspread (seg ?f 9 51)) 4) (cat ";  profit rate falls every period: " (cat (tf (decr? (smap fr-r (seg ?f 9 51)))) (cat ", " (cat (decimal (fr-r (at-r ?f 9)) 4) (cat " -> " (decimal (fr-r (at-r ?f 51)) 4))))))))
+  (cat "  firm debt / capital at t = 9 / 24 / 39 / 51: " (cat (drow (smap fr-dk (list (at-r ?f 9) (at-r ?f 24) (at-r ?f 39) (at-r ?f 51))) 3 7) (cat ";  household debt / income at its ceiling for t = 15..39: " (tf (sall dh-high (drop 15 (take 40 ?f)))))))
+  (cat "  labour share, relative change over 60 periods: financialized " (cat (pct (wchg ?f) 1) (cat ";  capitalism " (pct (wchg ?c) 1))))))
+
+// ---- (2) the channels one at a time -----------------------------------------
+rule chan-runs : (chan-runs) => (list
+  (ch "none (= capitalism)" (nofin)) (ch "firm credit" (list (kv chi 0)))
+  (ch "household credit" (list (kv lev 0))) (ch "both" (list)))
+rule app-ch-line : (app ch-line (ch ?name ?kvs)) => (cats (list (padr ?name 22) (padl (ilist (crises ?f)) 12) (padl (sh (ngov ?f)) 5) (dpad (fr-u (at-r ?f 59)) 3 8) (padl (pct (wchg ?f) 1) 9)
+    (dpad (lmax (smap fr-dk ?f)) 3 9) (dpad (lmax (smap fr-dh ?f)) 3 9)))
+  where ?f <- (frows (fpar ?kvs))
+rule s2 : (s2) => (lines (list
+  "§F5.2 THE CHANNELS ONE AT A TIME"
+  "  channels                   crises radgov  u_59  w change max Df/K max dh/inc"
+  (lines (smap ch-line (chan-runs)))))
+
+// ---- (3) the credit crunch --------------------------------------------------
+// At a crisis lending stops and households repay; their standard falls below
+// the reference point set by last period's credit-financed standard. The
+// employed vote radical iff the standard is below (1 + D*/scale) of their
+// aspiration, D* = -5.39929 the exact threshold of Part III (K = 10, lambda = 9/4).
+rule dstar : (dstar) => (dst-go -8 0 30)
+rule dst-go-0 : (dst-go !lo !hi !k) => (q/ (+ ?lo ?hi) 2) where (<= ?k 0)
+rule dst-go-n : (dst-go !lo !hi !k) => (if (= (pe-rad? ?m) 1) (dst-go ?m ?hi ?k1) (dst-go ?lo ?m ?k1)) where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+rule crunch-lines : (crunch-lines !name !rows) => (smap (crunch-line ?name ?rows) (crises ?rows))
+rule app-crunch-line : (app (crunch-line ?name ?rows) ?t) => (cats (list (padr ?name 18) (padl (str ?t) 4) (dpad (fr-ce ?r0) 3 8) (dpad (fr-ce ?r1) 3 8) (dpad (fr-asp ?r1) 3 8)
+    (padl (pct (- 1 (q/ (fr-ce ?r1) (fr-ce ?r0))) 1) 8) (dpad (q/ (fr-ce ?r1) (fr-asp ?r1)) 4 8) (dpad (fr-dh ?r0) 3 8) (padl (sh (pe-rad? (pe-pos (fr-ce ?r1) (fr-asp ?r1) (pf-par)))) 6)))
+  where ?r0 <- (at-r ?rows (- ?t 1)), ?r1 <- (at-r ?rows ?t)
+rule app-chi-line : (app chi-line ?chi) => (cats (list (dpad ?chi 3 7) (padl (ilist (crises ?f)) 10) (padl (ilist (govs ?f)) 12) (dpad (lmax (smap fr-dh ?f)) 3 9)))
+  where ?f <- (frows (fpar (list (kv chi ?chi))))
+rule app-crunch-ok : (app (crunch-ok ?rows ?ds) ?t) => (= (= (pe-rad? (pe-pos (fr-ce ?r1) (fr-asp ?r1) (pf-par))) 1) (< (q/ (fr-ce ?r1) (fr-asp ?r1)) (+ 1 (q/ ?ds 20))))
+  where ?r1 <- (at-r ?rows ?t)
+rule chis : (chis) => (list 0 1/8 1/4 3/8 1/2 3/4 1)
+rule s3 : (s3 !f !fc !ds) => (lines (list
+  "§F5.3 THE CREDIT CRUNCH: WHEN A CRISIS BECOMES A RADICAL GOVERNMENT"
+  (cat "  the employed vote radical iff standard / aspiration < 1 + D*/20 = " (cat (decimal (+ 1 (q/ ?ds 20)) 4) (cat "   (D* = " (cat (decimal ?ds 5) ")"))))
+  "  run              crisis  ce_t-1    ce_t   asp_t    drop  ce/asp  dh/inc radical"
+  (lines (crunch-lines "financialized" ?f))
+  (lines (crunch-lines "firm credit only" ?fc))
+  "  household borrowing propensity chi (lev = 1):"
+  "    chi    crises   radical gov  max dh/inc"
+  (lines (smap chi-line (chis)))))
+
+// ---- (4) credit accommodation -----------------------------------------------
+rule levs : (levs) => (list 0 1/4 1/2 5/8 3/4 7/8 1)
+rule app-lev-line : (app lev-line ?lev) => (cats (list (dpad ?lev 3 7) (padl (ilist (crises ?f)) 10) (padl (sh (ngov ?f)) 5) (dpad (fr-u (at-r ?f 59)) 3 8) (dpad (lmax (smap fr-dk ?f)) 3 9)))
+  where ?f <- (frows (fpar (list (kv lev ?lev))))
+// the boundary between 3/4 (no crisis in 60 periods) and 7/8 (a crisis), by bisection
+rule has-crisis : (has-crisis !lev) => (> (length (crises (frows (fpar (list (kv lev ?lev)))))) 0)
+rule lev-edge : (lev-edge !lo !hi !k) => (list ?lo ?hi) where (<= ?k 0)
+rule lev-edge-n : (lev-edge !lo !hi !k) => (if (has-crisis ?m) (lev-edge ?lo ?m ?k1) (lev-edge ?m ?hi ?k1)) where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+rule s4 : (s4 !le) => (lines (list
+  "§F5.4 HOW FAR THE BANKS ACCOMMODATE (share lev of the financing gap; chi = 1/2)"
+  "    lev    crises radgov  u_59  max Df/K"
+  (lines (smap lev-line (levs)))
+  (cat "  a debt crisis within 60 periods appears between lev = " (cat (decimal (nth 0 ?le) 4) (cat " (none) and " (cat (decimal (nth 1 ?le) 4) " (a crisis)"))))))
+
+// ---- (5) inflation, deflation and the debt crisis ---------------------------
+rule second-crisis : (second-crisis !pi) => (sc2 (crises (frows (fpar (list (kv pistar ?pi))))))
+rule app-second-crisis : (app second-crisis ?pi) => (second-crisis ?pi)
+rule sc2 : (sc2 (list ?a ?b ?rest...)) => ?b
+rule sc2-none : (sc2 (list ?a)) => 1000
+rule nondecr-1 : (nondecr? (list ?x)) => true
+rule nondecr-n : (nondecr? (list ?x ?y ?zs...)) => (if (>= ?y ?x) (nondecr? (list ?y ?zs...)) false)
+rule pis : (pis) => (list 0 1/50 1/25 3/50 2/25 1/10)
+rule app-pi-line : (app pi-line ?pi) => (cats (list (dpad ?pi 3 7) (padl (ilist (crises ?f)) 10) (padl (sh (ngov ?f)) 5) (dpad (fr-dk (at-r ?f 59)) 3 8) (padl (pct (q/ ?pi (+ 1 ?pi)) 1) 9)))
+  where ?f <- (frows (fpar (list (kv pistar ?pi))))
+rule app-shock-line : (app shock-line (sk ?name ?reg ?sh)) => (cats (list (padr ?name 26) (padl (ilist (crises ?f)) 10) (padl (ilist (govs ?f)) 22) (dpad (fr-ce (at-r ?f 40)) 3 8) (dpad (fr-dh (at-r ?f 42)) 3 8)))
+  where ?kvs <- (if (= ?reg cap) (prepend (kv shockpi ?sh) (nofin)) (list (kv shockpi ?sh))), ?f <- (frows (fpar ?kvs))
+rule shocks : (shocks) => (list (sk "capitalism, inflation" cap 1/10) (sk "capitalism, deflation" cap -1/10)
+  (sk "financialized, inflation" fin 1/10) (sk "financialized, deflation" fin -1/10))
+rule s5 : (s5) => (lines (list
+  "§F5.5 INFLATION, DEFLATION AND THE DEBT CRISIS"
+  "  steady inflation (the shock of t = 40-41 kept at 10%):"
+  "     pi    crises radgov Df/K_59 pay cut"
+  (lines (smap pi-line (pis)))
+  "  a 10% inflation shock against a 10% deflation shock at t = 40-41:"
+  "  run                           crises         radical gov   ce_40 dh/inc_42"
+  (lines (smap shock-line (shocks)))))
+
+// ---- (6) the stress grid ----------------------------------------------------
+rule grid : (grid) => (sconcat (smap gsc (list 20 30 40)))
+rule app-gsc : (app gsc ?sc) => (sconcat (smap (gsh ?sc) (list 1/20 1/10 1/5)))
+rule app-gsh : (app (gsh ?sc) ?sh) => (smap (gasp ?sc ?sh) (list 1/10 1/5 2/5))
+rule app-gasp : (app (gasp ?sc ?sh) ?asp) => (gp ?sc ?sh ?asp)
+rule gkv : (gkv (gp ?sc ?sh ?asp)) => (list (kv scale ?sc) (kv shockpi ?sh) (kv asp ?asp))
+rule app-grid-row : (app grid-row ?g) => (gr ?g (ngov (frows (fpar (append (gkv ?g) (nofin))))) (ngov (frows (fpar (gkv ?g)))))
+rule app-gr-line : (app gr-line (gr (gp ?sc ?sh ?asp) ?c ?f)) => (cats (list (padl (str ?sc) 6) (padl (str ?sh) 6) (padl (str ?asp) 6) (padl (str ?c) 8) (padl (str ?f) 8)))
+rule app-gr-c : (app gr-c (gr ?g ?c ?f)) => (> ?c 0)
+rule app-gr-f : (app gr-f (gr ?g ?c ?f)) => (> ?f 0)
+rule app-gr-fewer : (app gr-fewer (gr ?g ?c ?f)) => (< ?f ?c)
+rule app-gr-locked : (app gr-locked (gr (gp ?sc ?sh ?asp) ?c ?f)) => (and (= ?asp 2/5) (>= ?c 56))
+rule app-gr-notbetter : (app gr-notbetter (gr ?g ?c ?f)) => (>= ?f ?c)
+rule gsum-c : (gsum-c !gr) => (vsum (smap grc ?gr))
+rule gsum-f : (gsum-f !gr) => (vsum (smap grf ?gr))
+rule app-grc : (app grc (gr ?g ?c ?f)) => ?c
+rule app-grf : (app grf (gr ?g ?c ?f)) => ?f
+rule s6 : (s6 !gr) => (lines (list
+  "§F5.6 THE STRESS GRID OF PART IV WITH AND WITHOUT FINANCE: radical-government periods of 60"
+  "  scale shock   asp     cap     fin"
+  (lines (smap gr-line ?gr))
+  (cat "  settings with a radical government: capitalism " (cat (sh (scount gr-c ?gr)) (cat " of 27;  financialized " (cat (sh (scount gr-f ?gr)) " of 27"))))
+  (cat "  radical-government periods in all 27: capitalism " (cat (sh (gsum-c ?gr)) (cat ";  financialized " (sh (gsum-f ?gr)))))
+  (cat "  settings in which finance has fewer radical periods than capitalism: " (cat (sh (scount gr-fewer ?gr)) (cat ";  all of them locked in under capitalism (aspiration 2/5, 56+ periods): " (tf (sall gr-locked (sfilter gr-fewer ?gr))))))))
+
+// ---- (7) induced mechanization against credit -------------------------------
+rule hr-runs : (hr-runs) => (list (hr "capitalism" cap (nofin)) (hr "capitalism, induced" cap (list (kv imech 1) (kv lev 0) (kv chi 0)))
+  (hr "financialized" fin (list)) (hr "financialized, induced" fin (list (kv imech 1))))
+rule hr-rows : (hr-rows !reg !kvs) => (if (= ?reg cap) (crows (fpar ?kvs)) (frows (fpar ?kvs)))
+rule app-hr-line : (app hr-line (hr ?name ?reg ?kvs)) => (cats (list (padr ?name 24) (drow (smap fr-u (list (at-r ?f 0) (at-r ?f 15) (at-r ?f 30) (at-r ?f 45) (at-r ?f 59))) 3 7)
+    (padl (pct (wchg ?f) 1) 8) (dpad (fr-r (at-r ?f 59)) 4 8) (padl (ilist (crises ?f)) 9)))
+  where ?f <- (hr-rows ?reg ?kvs)
+rule app-ws-line : (app ws-line ?ws) => (cats (list (dpad ?ws 3 7) (drow (smap fr-u (list (at-r ?f 15) (at-r ?f 30) (at-r ?f 45) (at-r ?f 59))) 3 7) (padl (pct (wchg ?f) 1) 8)))
+  where ?f <- (crows (fpar (list (kv imech 1) (kv lev 0) (kv chi 0) (kv ws ?ws))))
+rule s7 : (s7 !ci !fi) => (lines (list
+  "§F5.7 INDUCED MECHANIZATION AGAINST CREDIT: TWO REMEDIES FOR THE UNEMPLOYMENT TREND"
+  "  run                        u_0   u_15   u_30   u_45   u_59  w chg    r_59   crises"
+  (lines (smap hr-line (hr-runs)))
+  (cat "  financialized, induced: unemployment the same in every period from t = 30: " (tf (sall (u-is (fr-u (at-r ?fi 30))) (drop 30 ?fi))))
+  (cat "  capitalism, induced: unemployment rises by less than 0.001 a period from t = 30: " (tf (slow-rise? (smap fr-u (drop 30 ?ci)))))
+  "  the switch share ws at which mechanizing stops paying (capitalism, induced):"
+  "     ws   u_15   u_30   u_45   u_59  w chg"
+  (lines (smap ws-line (list 7/10 3/4 153/200 4/5 21/25)))))
+rule app-u-is : (app (u-is ?u) ?r) => (= (round-to (fr-u ?r) 1000) (round-to ?u 1000))
+rule slow-rise-1 : (slow-rise? (list ?x)) => true
+rule slow-rise-n : (slow-rise? (list ?x ?y ?zs...)) => (if (and (>= ?y ?x) (< (- ?y ?x) 1/1000)) (slow-rise? (list ?y ?zs...)) false)
+
+// ---- (8) edges and loops ----------------------------------------------------
+// base states of the financialized economy: the baseline at 0 / 15 / 30 / 45,
+// the two crisis periods (7, 52) and the radical government after the first
+// (8), the stress scenario at 10, household debt at its ceiling with an
+// inflation shock (40), and the deflation scenario at 41
+rule fin-bases : (fin-bases) => (list
+  (base f0 (pf-at (pf-init) (pf-par) 0) (pf-par)) (base f15 (pf-at (pf-init) (pf-par) 15) (pf-par))
+  (base f30 (pf-at (pf-init) (pf-par) 30) (pf-par)) (base f45 (pf-at (pf-init) (pf-par) 45) (pf-par))
+  (base cr7 (pf-at (pf-init) (pf-par) 7) (pf-par)) (base gov8 (pf-at (pf-init) (pf-par) 8) (pf-par))
+  (base cr52 (pf-at (pf-init) (pf-par) 52) (pf-par)) (base st10 (pf-at (pf-init) ?st 10) ?st)
+  (base inf40 (pf-at (pf-init) (pf-par) 40) (pf-par)) (base def41 (pf-at (pf-init) ?df 41) ?df))
+  where ?st <- (fpar (stress-kv)), ?df <- (fpar (list (kv shockpi -1/10)))
+rule app-fverify : (app (fverify-on ?bs) ?e) => (pf-verify-edge ?e ?bs)
+rule app-ev-line : (app ev-line (everdict ?a ?b ?sg ?ds ?v)) => (cats (list (padl (str ?a) 4) " -> " (padr (str ?b) 4) (padl (str ?sg) 4) (padl (str ?v) 7) (drow ?ds 3 8)))
+rule app-ev-ok : (app ev-ok ?ev) => (or (= (ev-verdict ?ev) strict) (= (ev-verdict ?ev) weak))
+rule app-ev-fail : (app ev-fail ?ev) => (= (ev-verdict ?ev) FAIL)
+rule app-ev-changed : (app ev-changed ?ev) => (<> (ev-verdict ?ev) strict)
+rule app-ev-alive : (app ev-alive ?ev) => (<> (ev-verdict ?ev) absent)
+rule app-ev-name : (app ev-name (everdict ?a ?b ?sg ?ds ?v)) => (cat (str ?a) (cat "->" (str ?b)))
+rule app-ev-tag : (app ev-tag (everdict ?a ?b ?sg ?ds ?v)) => (cat (str ?a) (cat "->" (cat (str ?b) (cat ":" (str ?v)))))
+rule app-ev-edge : (app ev-edge (everdict ?a ?b ?sg ?ds ?v)) => (edge ?a ?b ?sg "")
+// the financialized diagram: capitalism's edges that are present at the
+// financialized bases (absent ones dropped, a failing one kept with its
+// stated sign) plus the financial edges
+rule fin-cld : (fin-cld !old !new) => (cld (list K Kap E U B W Inf Ce Pi Rr I Asp Rad Gov SR Df Dh DS) (append (smap ev-edge (sfilter ev-alive ?old)) (smap ev-edge ?new)))
+rule app-has-fin : (app has-fin (loop ?k ?n ?p)) => (or (member Df ?p) (or (member Dh ?p) (member DS ?p)))
+rule s8 : (s8 !new !old !ls) => (lines (list
+  "§F5.8 THE FINANCIAL EDGES, CHECKED ON THE EQUATION CHAIN (partial finite differences)"
+  "                       deltas at:   f0     f15     f30     f45     cr7    gov8    cr52    st10   inf40   def41"
+  (lines (smap ev-line ?new))
+  (cat "  financial edges confirmed (strict or weak): " (cat (sh (scount ev-ok ?new)) (cat " of " (sh (length ?new)))))
+  "  capitalism's 24 edges at the financialized bases: those not strict"
+  (lines (smap ev-line (sfilter ev-changed ?old)))
+  (cat "  financialized diagram: " (cat (sh (length (sfilter ev-alive ?old))) (cat " of capitalism's edges + " (cat (sh (length ?new)) (cat " financial = " (cat (sh (+ (length (sfilter ev-alive ?old)) (length ?new))) " edges"))))))
+  (cat "  elementary cycles: " (cat (sh (length ?ls)) (cat "   reinforcing " (cat (sh (cld-count R ?ls)) (cat "   balancing " (cat (sh (cld-count B ?ls)) (cat ";  through a financial node: " (cat (sh (scount has-fin ?ls)) (cat " (R " (cat (sh (cld-count R (sfilter has-fin ?ls))) (cat ", B " (cat (sh (cld-count B (sfilter has-fin ?ls))) ")"))))))))))))
+  "  the shortest loops through a financial node:"
+  (cld-loops-view (sfilter (short-fin 4) ?ls))))
+rule app-short-fin : (app (short-fin ?k) (loop ?kd ?n ?p)) => (and (<= ?n ?k) (or (member Df ?p) (or (member Dh ?p) (member DS ?p))))
+
+main = 0
+let $f = (frows (pf-par)) with eval
+let $fc = (frows (fpar (list (kv chi 0)))) with eval
+let $c = (crows (fpar (nofin))) with eval
+let $c0 = (frows (fpar (nofin))) with eval
+let $cp = (traj-rows (pe-run (pe-init cap) (pe-par) 60)) with eval
+let $ds = (dstar) with eval
+let $le = (lev-edge 3/4 7/8 8) with eval
+let $gr = (smap grid-row (grid)) with eval
+let $ci = (crows (fpar (list (kv imech 1) (kv lev 0) (kv chi 0)))) with eval
+let $fi = (frows (fpar (list (kv imech 1)))) with eval
+let $fd = (frows (fpar (list (kv shockpi -1/10)))) with eval
+let $cd = (crows (fpar (prepend (kv shockpi -1/10) (nofin)))) with eval
+let $le1 = (frows (fpar (list (kv lev 3/4)))) with eval
+let $fb = (fin-bases) with eval
+let $new = (smap (fverify-on $fb) (pf-new-edges)) with eval
+let $old = (smap (fverify-on $fb) (cld-edges (pe-cld))) with eval
+let $ls = (cld-classify (fin-cld $old $new)) with eval
+display (s1 $f $c) with eval
+display (s2) with eval
+display (s3 $f $fc $ds) with eval
+display (s4 $le) with eval
+display (s5) with eval
+display (s6 $gr) with eval
+display (s7 $ci $fi) with eval
+display (s8 $new $old $ls) with eval
+// nesting: with both credit channels off, the financialized chain is
+// capitalism's, row for row (both through polecon's and through this runner)
+assert (and (same? (smap pf-as-row $c0) (smap pe-as-row $cp)) (same? (smap pf-as-row $c) (smap pe-as-row $cp))) with eval
+assert (and (same? (crises $f) (list 7 52)) (same? (govs $f) (list 8 53))) with eval
+assert (and (decr? (smap fr-r (seg $f 9 51))) (< (wspread (seg $f 9 51)) 1/100)) with eval
+assert (and (same? (crises $fc) (list 5 50)) (= (ngov $fc) 0)) with eval
+assert (= (scount gr-f $gr) 27) with eval
+assert (and (= (scount gr-fewer $gr) 5) (sall gr-locked (sfilter gr-fewer $gr))) with eval
+assert (sall (u-is (fr-u (at-r $fi 30))) (drop 30 $fi)) with eval
+assert (and (= (scount ev-ok $new) 11) (same? (smap ev-name (sfilter ev-fail $new)) (list "Inf->Dh"))) with eval
+assert (and (sall (crunch-ok $f $ds) (crises $f)) (sall (crunch-ok $fc $ds) (crises $fc))) with eval
+assert (nondecr? (smap second-crisis (pis))) with eval
+assert (and (< (sc2 (crises $fd)) 52) (> (ngov $fd) (ngov $f))) with eval
+assert (and (same? (crises $le1) (list)) (> (fr-ce (at-r $cd 40)) (fr-ce (at-r $c 40)))) with eval

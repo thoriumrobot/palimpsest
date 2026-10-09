@@ -10,7 +10,7 @@ Seven essays argue for a materialist political economy in three layers:
 - **Social.** Class relations drive capitalism's dynamics: a falling profit rate, a reserve army that disciplines labour, and a turn to radical politics when living standards fall.
 - **Programmatic.** Democratic planning would remove these dynamics. Its instruments are a job guarantee, non-circulating labour vouchers, a divided government and an asset cap.
 
-We state the essays' claims as fourteen propositions and write every mechanism as rewrite rules in the language Palimpsest, with exact rational arithmetic. Each proposition then faces three tests:
+We state the essays' claims as eighteen propositions and write every mechanism as rewrite rules in the language Palimpsest, with exact rational arithmetic. Each proposition then faces three tests:
 
 1. Does the model derive it?
 2. Where does the model's behaviour change: at which limits, thresholds and tipping points?
@@ -26,7 +26,9 @@ We state the essays' claims as fourteen propositions and write every mechanism a
 
 **The integrated economy.** Capitalism's labour share falls 19.9% in 60 periods, against 20.2% for the US from 1960 to 2026. Its unemployment, however, rises without limit, because mechanization outruns accumulation. A crisis becomes a lasting radical government above a sharp threshold in aspiration messaging, between 0.26 and 0.27. Planning removes every channel into the radical vote.
 
-Every displayed table is regenerated digit for digit by an independent implementation (62 checks).
+**Finance.** Credit at loan-to-value LTV prices a fixed stock at S/(1 − LTV) and hands the new money to incumbent holders, adding no output. Capital gains set against resets (heirs, bankruptcy, taxes) give a Pareto class with exponent log₂(q/p), which condenses below α = 1. Read on this lattice, the US top-1% wealth shares imply α = 1.46 in 1989, against direct estimates of 1.48–1.55, and 1.32 in 2026. Distress selling becomes a self-reinforcing spiral exactly when one sale lowers the price by more than the spacing of leverage. In a fourth, financialized regime, credit holds employment until the falling profit rate and interest bring a Minsky crisis. Each such crisis becomes a radical government through the household credit crunch, and none does without household debt. The regime elects radical governments in all 27 stress settings, against capitalism's 15. Inflation postpones the debt crisis; deflation brings it forward. Induced mechanization stops the unemployment trend, but it shows that the labour-share match rests on that trend.
+
+Every displayed table is regenerated digit for digit by an independent implementation (80 checks).
 
 ## 1 Introduction
 
@@ -56,11 +58,12 @@ In that language:
 
 - **The accounting and the equilibria hold.** Conservation, the exponential limit, the Cantillon transfer, voucher non-circulation and the job guarantee's effect on employers are exact properties of the rules.
 - **Every "always" becomes a threshold.** The falling profit rate, the radical coalition, the job guarantee's power and the patronage spiral each hold only on a definite part of parameter space, and the model computes its boundary.
+- **Finance sharpens the political results.** A crisis turns into a radical government through the household credit crunch, which removes a reference point that credit had raised. Inflation postpones the second debt crisis but cannot prevent the first, and capital gains make a Pareto class whose size is set by policy.
 - **The patterns match; some magnitudes do not.** Without any fitting, the wage curve, the labour share's decline, the lower-class Gini and the job guarantee's wage effect come out close to the data. Price–value deviations, wealth concentration and the long-run path of unemployment do not. In each of these failures the model's direction is right and a mechanism is missing.
 
 ### 1.2 How the paper is organized
 
-Section 2 states the essays' claims as propositions T1–T14 and defines the three tests. Section 3 describes Palimpsest in enough detail to reproduce every run.
+Section 2 states the essays' claims as propositions T1–T14 and defines the three tests; §9 adds four financial propositions, T15–T18. Section 3 describes Palimpsest in enough detail to reproduce every run.
 
 Sections 4–8 follow the essays' own chain from physics to politics:
 
@@ -70,13 +73,13 @@ Sections 4–8 follow the essays' own chain from physics to politics:
 - §7 politics;
 - §8 the integrated economy, in which all these mechanisms run together in three regimes.
 
-Each of these sections first builds the mechanism, then locates its thresholds, then sets it against the data, and ends with a verdict.
+Each of these sections first builds the mechanism, then locates its thresholds, then sets it against the data, and ends with a verdict. Section 9 adds finance: credit money, capital gains, debt deflation, and a fourth, financialized regime of the integrated economy (T15–T18), with two further omitted mechanisms, induced mechanization and capital mobility.
 
-Section 9 collects the verdicts, §10 gives the reproduction protocol, §11 the limitations, and §12 concludes.
+Section 10 collects the verdicts, §11 gives the reproduction protocol, §12 the limitations, and §13 concludes.
 
 ## 2 The theories and how they are tested
 
-### 2.1 Fourteen propositions
+### 2.1 Eighteen propositions
 
 The essays draw on three reference works:
 
@@ -84,7 +87,7 @@ The essays draw on three reference works:
 - **How the World Works** (Cockshott, 2019): the historical materialism, including the demographic theory of the profit rate.
 - **The Logic of Political Survival** (Bueno de Mesquita, Smith, Siverson and Morrow, 2003): selectorate theory, which we use to formalize the essays' claims about party-states, patronage and divided government.
 
-The essays' claims reduce to fourteen propositions. The table numbers them in the order the essays raise them. Sections 4–8 group them by theme, and the last column gives where each is tested.
+The essays' claims reduce to fourteen propositions here, and §9 adds four about finance. The table numbers them in the order the essays raise them. Sections 4–8 group them by theme, and the last column gives where each is tested.
 
 |  | proposition | essay (quoted) | tested in |
 | --- | --- | --- | --- |
@@ -399,7 +402,7 @@ Uncapped, capital income does more than produce a Pareto tail: it *condenses*, a
 
 **The data.** In Ludwig and Yakovenko's data the upper class is a Pareto tail holding 34% of income in 2018, and the total Gini is about 0.6. The top 1% income share rose from 9% to 21% over 1983–2018. The Federal Reserve's Distributional Financial Accounts put the top 1% wealth share at 32.5% in Q2 2026.
 
-The model's direction is right: with capital income and no cap, concentration rises. Its magnitude is not. Real economies hold the tail at a power law through forces the minimal model omits: dispersion of returns, inheritance taxation, bankruptcy and the splitting of fortunes among heirs. The asset cap itself has no empirical counterpart to test.
+The model's direction is right: with capital income and no cap, concentration rises. Its magnitude is not. Real economies hold the tail at a power law through forces the minimal model omits: dispersion of returns, inheritance taxation, bankruptcy and the splitting of fortunes among heirs. Section 9.2 adds them. The asset cap itself has no empirical counterpart to test.
 
 ### 5.3 Money creation and labour vouchers (T4, T10)
 
@@ -484,7 +487,7 @@ With b\_l = 1/5, b\_h = 1/2, k = ρ = 1/20, r\_ext = 1/10, s = 2/5 and g = 4/5 a
 
 Both thresholds have closed forms. Against organized labour, conceding leaves capital 1 − w\_h, which near full employment is below r\_ext, so flight is the best response once it also beats repression: r\_ext ≥ 1 − w\_l − ρ. With r\_ext = 1/10 and ρ = 1/20 this means w\_l ≥ 17/20, which the reserve-army wage reaches exactly at u = 1/12. Against accepting labour, flight must beat conceding: r\_ext ≥ 1 − w\_l, or w\_l ≥ 9/10, reached exactly at u = 1/20. Above 1/12 the grid's closed-form condition for "no pure equilibrium" holds at every u, because the gap w\_h − w\_l stays above k and ρ. Labour's bargaining power therefore jumps from 0.2000 in the flight region to 0.2549 at u = 0.1 before declining.
 
-This is the model's formal version of Kalecki's (1943) "political aspects of full employment". Near full employment both wage levels approach the whole product, so the owner's best response to labour is to leave. The essays claim that, under planning, capitalists "must offer conditions attractive enough to compete". Under capitalism the claim has a converse: when conditions become attractive for labour, capital exits. Section 8.5 shows that this converse is the one causal edge of the integrated model that fails its check.
+This is the model's formal version of Kalecki's (1943) "political aspects of full employment". Near full employment both wage levels approach the whole product, so the owner's best response to labour is to leave. The essays claim that, under planning, capitalists "must offer conditions attractive enough to compete". Under capitalism the claim has a converse: when conditions become attractive for labour, capital exits. Section 9.7 lets the return abroad vary. Section 8.5 shows that this converse is the one causal edge of the integrated model that fails its check.
 
 ### 6.3 The job guarantee
 
@@ -503,7 +506,7 @@ Below 9.1% unemployment the guarantee is slack. Above it the private-wage gain r
 
 The model predicts exactly this channel: the guarantee raises the private wage by improving the outside option. The observed +5% corresponds to u = 12.5%, a slack rural labour market.
 
-The job-guarantee essay presents the guarantee as decisive at all times. In the model it is decisive in slack markets and inert in tight ones, because the bargaining formula already gives workers more than *g* there. That inertness is partly an artefact of the formula, which lets the wage share approach 1 at full employment (§11.1).
+The job-guarantee essay presents the guarantee as decisive at all times. In the model it is decisive in slack markets and inert in tight ones, because the bargaining formula already gives workers more than *g* there. That inertness is partly an artefact of the formula, which lets the wage share approach 1 at full employment (§12.1).
 
 **Verdict.** T8 is *reproduced* above u\_c = 1/11 and *supported* by the data in slack labour markets. It is untested at full employment.
 
@@ -732,7 +735,7 @@ Together with the switch wage of §4.3, this closes a loop the essays describe i
 
 **The data.** Here the model fails clearly. US unemployment (FRED, 1948–2026) has no secular trend; it was 4.2% in September 2026. Barbosa-Filho and Taylor (2006) find Goodwin cycles in US data since 1929, together with a long-term profit squeeze.
 
-The model contains the Goodwin loop (§8.5), but in its baseline the loop is overwhelmed, because mechanization of 1% a period outruns accumulation. Real economies with no unemployment trend must sit near the boundary μ ≈ s\_c·r − δ. Channels the model omits hold them there: demand management, the expansion of services and falling hours.
+The model contains the Goodwin loop (§8.5), but in its baseline the loop is overwhelmed, because mechanization of 1% a period outruns accumulation. Real economies with no unemployment trend must sit near the boundary μ ≈ s\_c·r − δ. Channels the model omits hold them there: demand management, the expansion of services and falling hours. Section 9.6 adds two candidates, credit and induced mechanization.
 
 ### 8.4 Stress, lock-in and the tipping point (T11, T13, T14)
 
@@ -815,9 +818,274 @@ Five readings follow:
 4. **Synthesis.** Whether synthesis holds depends on the reference point the successor inherits.
 5. **The sign of d.** The framework assumes that the candidate's contribution *d* is non-negative. The model computes it instead, and it is sometimes negative.
 
-## 9 Assessment: what the model validates
+## 9 Finance (T15–T18)
 
-### 9.1 The scorecard
+In §§4–8 money appears only as a conserved quantity and as a one-off injection (§5.3). The essays say more about it, in four claims:
+
+- **Credit money.** The mechanical-materialism essay says a bank "does not lend out pre-existing deposits" and that "New money bids up the price of housing and equities without a corresponding increase in the real output of the economy".
+- **Capital gains.** The same essay traces the Pareto class to "compounding capital-gains income" and says the class structure is not something that "could be reformed away with the right policies".
+- **Debt deflation.** The accountable-planning essay says that "nearly all production is financed by borrowing". Falling prices start a spiral ("Falling prices cause insolvency, insolvency causes distress selling, distress selling causes further price declines"), so "The system requires that the purchasing power of money be deliberately eroded as a condition of its own stability".
+- **Debt and desperation.** The same essay treats economic insecurity as "an existential threat in the same register as mortality". The first version of this evaluation added that debt deepens the desperation, and with it the terror-management effects.
+
+|  | proposition | essay (quoted) | tested in |
+| --- | --- | --- | --- |
+| T15 | Credit creates money and inflates asset prices, not output | mechanical materialism: "New money bids up the price of housing and equities without a corresponding increase in the real output of the economy" | §9.1 |
+| T16 | Compounding capital gains produce the Pareto class, which reform cannot remove | mechanical materialism: "The Pareto (superthermal) class corresponds to compounding capital-gains income" | §9.2 |
+| T17 | Nominal debt makes deflation a self-reinforcing spiral, so the system needs inflation, which cuts real pay | accountable planning: "The system requires that the purchasing power of money be deliberately eroded as a condition of its own stability" | §9.3–9.4 |
+| T18 | Debt deepens economic desperation and the turn to authoritarian options | accountable planning: insecurity is "an existential threat in the same register as mortality" | §9.5 |
+
+Two other omissions also bear on earlier claims. Induced mechanization, which the first version listed as a limitation, bears on the unemployment failure of §8.3 (§9.6). Capital mobility, which the first version held fixed in a single return abroad, bears on the flight threshold of §6.2 (§9.7).
+
+The results are checked by `me-finance.pal` (7 assertions), `me-financialized.pal` (12) and `me-evidence.pal` §EV2 (1). The cross-check adds 18 checks (§11.2).
+
+### 9.1 Credit money and the price of a fixed stock (T15)
+
+**The model.** A loan credits the borrower with a deposit that did not exist before, and a repayment cancels one. Over a ledger of eight loans, payments and repayments, new deposits equal loans outstanding after every event.
+
+Now let buyers with savings S bid for a fixed stock of houses, borrowing at loan-to-value ratio LTV. A buyer can pay at most S + LTV·P, so
+
+```latex
+P=\frac{S}{1-\mathrm{LTV}}.
+```
+
+Raising LTV from 0 to 0.8 multiplies the price by 5, and raising it to 0.95 multiplies it by 20. No house is built and no output is produced.
+
+Each sale creates new money LTV·P and pays it to the incumbent holder first. With output fixed, the holder's real gain is exactly Q·D/M, the first-recipient transfer of §5.3, and everyone else loses as much. At LTV = 0.95, ten sales a period move 190 of 1,000 units of output to the sellers.
+
+**The data.**
+- **Favara and Imbs (2015)** use US bank-branching deregulation (1994–2005) as an exogenous expansion of mortgage credit. It raised house prices. Only where housing supply was elastic did the stock grow instead.
+- **Jordà, Schularick and Taylor (2016)** find that across 17 advanced economies mortgages rose from about 30% of bank lending in 1900 to about 60% today. Nearly all of the financial sector's growth since 1913 is household mortgage lending, which "has little to do with the financing of the business sector".
+
+**Verdict.** T15 is *derived*: the price formula and the transfer are accounting identities. It is *supported* by the data.
+
+### 9.2 Capital gains, resets and the Pareto class (T16)
+
+Section 5.2 found that capital income condenses and does not merely produce a Pareto tail. What it lacked are the forces that break fortunes up.
+
+**The model.** The wealth lattice adds those forces in the simplest exact form:
+- fortunes sit on levels 2ⁿ;
+- each period a fortune doubles with probability p, a capital gain;
+- it halves with probability q, a reset: division between two heirs, a bankruptcy or a tax;
+- at the floor, n = 0, a fortune rejoins the exponential class and cannot halve.
+
+The stationary law is geometric, π_n = (1 − z)zⁿ with z = p/q, so
+
+```latex
+P(W\ge 2^{n})=z^{n}=\bigl(2^{n}\bigr)^{-\alpha},\qquad \alpha=\log_2\frac{q}{p}.
+```
+
+Two regimes follow.
+
+- **Resets frequent enough (z < 1/2, α > 1).** Mean wealth is finite and every top share converges. From every fortune at the floor, 31 levels reach the geometric law within 10⁻⁶ in 300 periods.
+- **Resets too rare (z ≥ 1/2, α ≤ 1).** Mean wealth diverges, and a vanishing fraction ends with nearly everything. With the lattice capped at level L and z = 3/5, the top 1% hold 42.3%, 90.7%, 99.8% and 100.0% as L rises from 10 to 80. At z = 2/5 their share settles at 32.5%.
+
+Section 5.2 is the case q = 0: no resets, so the wealth condenses. The asset cap is a finite lattice and bounds the share at every z.
+
+The top-1% share moves steeply with α: 9.5% at α = 2, 17.9% at 1.58, 32.5% at 1.32 and 72.6% at 1.07 (Figure 7).
+
+[Chart: see the published version of this paper; its data are reproduced by the program named in the caption below.]
+
+*Figure 7. The top-1% wealth share on the lattice against the tail exponent, with the Federal Reserve's 1989 and 2026 shares read on it (`me-finance.pal` §F2).*
+
+**The data.** Read on the lattice, the Federal Reserve's top-1% wealth shares imply:
+- α = 1.460 in 1989, when the share was 22.8%;
+- α = 1.322 in 2026, when it was 32.5%.
+
+The 1989 value is close to direct estimates of the US wealth tail. Klass et al. (2006) find 1.49 from the Forbes 400 for 1988–2003, and Vermeulen (2018) finds 1.48–1.55 after correcting for non-response; both are reported by Benhabib and Bisin (2018).
+
+The concentration since then corresponds to a 10.1% rise in the ratio of capital-gain doublings to resets. That rise has moved the tail about a third of the way to the condensation boundary α = 1. The lattice treats all fortunes as one Pareto population, so these numbers are a reading of the data, not a fit.
+
+**Verdict.** The first half of T16 is *derived*: compounding gains set against resets give a Pareto class with exponent log₂(q/p).
+
+The second half is *qualified*. The class's existence is structural, because any p > 0 and q > 0 produce a power law. Its weight is not. The resets are inheritance rules, bankruptcy law and taxes, and between α = 2 and α = 1.07 the top 1%'s share varies almost eightfold. Reform cannot remove the class, but it decides how large the class is. The condensation failure of §5.2 becomes a threshold, z = 1/2, and real economies sit below it.
+
+### 9.3 Debt deflation (T17)
+
+**The model.** Twenty firms each hold one unit of an asset and owe d_j, with debts evenly spaced (spacing Δ) between d_lo and d_hi.
+- A shock σ lowers the price to 1 − σ.
+- A firm whose debt exceeds the price is insolvent and sells.
+- Each distress sale lowers the price by η.
+
+The number of sales is the least fixed point of m ↦ #{j : d_j > 1 − σ − ηm}. The program computes it and checks a closed form on 36 cases:
+
+- if η ≥ Δ, one insolvency brings down every firm;
+- if η < Δ, the sales stop at
+
+```latex
+m^{*}=\left\lceil\frac{d_{\mathrm{hi}}-1+\sigma}{\Delta-\eta}\right\rceil .
+```
+
+The spiral is self-reinforcing exactly when one sale lowers the price by more than the gap to the next debtor. Financialization narrows that gap. With η = 0.025:
+- firms whose debts are spread over [0.20, 0.80] (Δ = 0.032) absorb shocks up to 20% without a single sale, and amplify a 25% shock 1.8-fold;
+- firms crowded into [0.50, 0.95] (Δ = 0.024) collapse completely after a 10% shock, a sixfold amplification.
+
+**The data.** Fisher (1933) set out the chain from debt liquidation to distress selling, falling prices, falling net worth and bankruptcy, and stated its paradox: "Each dollar of debt still unpaid becomes a bigger dollar", so that "the very effort of individuals to lessen their burden of debts increases it" (p. 344, as quoted by Shiller). The model reproduces the mechanism and its threshold; it is not compared with Fisher's magnitudes.
+
+**Verdict.** The spiral of T17 is *derived*, with a threshold: it is self-reinforcing only when distress sales move the price by more than the spacing of leverage. Section 9.4 tests the second half of T17, the need for inflation, in the integrated economy.
+
+### 9.4 Financialized capitalism (T17, T5)
+
+**The model.** `lib/polecon-fin.pal` adds a fourth regime to §8. It is capitalism with three financial channels, each one equation with one parameter.
+
+1. **Credit-financed accumulation.**
+   - Firms invest (μ + δ)K, which holds their workforce as capital per job rises. Banks lend the share lev of the gap that retained profit leaves.
+   - Interest at 5% on firm debt is a deduction from profit, and the capital strike of §8.1 now reads the *net* profit rate. A debt crisis is therefore the existing crisis rule, reached through interest: Minsky's moment.
+   - Debt is nominal, so inflation erodes it. A crisis writes off the share of the debt that the crash destroys and stops new lending.
+2. **Household credit.**
+   - The employed borrow half the gap between their aspiration (the reference point of §8.4) and their income net of interest.
+   - Their debt is capped at one period's income.
+   - In a crisis lending stops, and they repay a fifth of their debt.
+3. **Debt and desperation.**
+   - Debt service is owed whatever happens, so it is subtracted from the worker's fallback in the wage bargain.
+   - The debt-service share of income, DS, joins unemployment in the insecurity that raises the pull of the right network's institutions: the terror-management term 3(1 + U) of §8.1 becomes 3(1 + U + DS).
+   - Households' interest is income of capital and funds the right network with profits.
+
+With both credit channels off, the regime reproduces capitalism row for row (asserted).
+
+**The baseline** (lev = 1; Figure 8):
+
+- **Crises.** There are two, at t = 7 and t = 52, and each is followed by one period of radical government. Capitalism at the same parameters has none.
+- **Unemployment.** It no longer rises every period. It is flat between the crises, at 0.189–0.190 from t = 15 to t = 51, and jumps at each crisis. After 60 periods it is 0.298, against capitalism's 0.299. Credit changes the shape of the trend, not its size.
+- **The profit rate.** Between the crises the wage share stays within 0.009, while the profit rate falls every period, from 0.073 to 0.040. Holding employment with credit holds the rate of exploitation constant, and as capital per job rises the profit rate falls. This is the reading of T5 that §4.3 found under constant exploitation, now produced by the economy instead of assumed. The crisis restores the profit rate.
+- **Debt.** Firm debt rises from 6.2% of capital at t = 24 to 19.0% at t = 51 as profits fall. Household debt sits at its ceiling from t = 15 until the inflation shock of t = 40–41 cuts real income.
+
+[Chart: see the published version of this paper; its data are reproduced by the program named in the caption below.]
+
+*Figure 8. Unemployment in four runs, and firm debt relative to capital in the two financialized runs; dots mark crises (`me-financialized.pal` §F5.7, §F5.1).*
+
+**The channels one at a time.**
+- Firm credit alone produces crises at t = 5 and 50 and no radical government.
+- Household credit alone produces no crisis.
+- Both together produce crises at t = 7 and 52, each followed by a radical government.
+
+**The thresholds.**
+
+- **Accommodation.** How far the banks accommodate decides whether there is a crisis at all. For lev ≤ 3/4 there is none within 60 periods, and unemployment ends below capitalism's (0.240 at lev = 3/4). The boundary lies between lev = 0.7617 and 0.7622.
+- **Inflation postpones the debt crisis but cannot prevent it.** The first crisis (t = 6–8) comes from the falling profit rate and happens at every inflation rate tested. The second comes later as inflation rises:
+
+| steady inflation | 0 | 2% | 4% | 6% | 8% | 10% |
+| --- | --- | --- | --- | --- | --- | --- |
+| second crisis | t = 48 | 52 | 54 | 57 | 59 | none in 60 periods |
+| real pay cut between settlements, π/(1 + π) | 0 | 2.0% | 3.8% | 5.7% | 7.4% | 9.1% |
+
+- **Deflation does the opposite.** A 10% fall in prices at t = 40–41 raises the employed's living standard in debt-free capitalism, from 1.787 to 2.184. In the financialized economy the same fall:
+  - lifts real household debt above its ceiling, to 1.235 of income at t = 42;
+  - brings the second crisis forward from t = 52 to t = 49;
+  - doubles the periods of radical government, from 2 to 4.
+
+**The data.** US household debt rose to 99.1% of GDP in the first quarter of 2008 and has since fallen to 66.6% (Q1 2026; BIS data via FRED). This is the model's pattern of a ceiling followed by deleveraging, although the model's ceiling is a parameter, not an estimate.
+
+**Verdict.** T17 is *reproduced* and *qualified*. The financialized economy needs inflation to postpone its debt crises, and the inflation that does so is a real pay cut, as the essay says. Inflation does not remove the crisis. It moves the second one later by about one period per percentage point.
+
+T5 is *reproduced* under financialization: credit supplies the wage rule that §4.3 found the falling profit rate needs.
+
+### 9.5 Debt, desperation and the radical vote (T18)
+
+In §8.4 a shock became a radical government only under stress. In the financialized economy every crisis does so, even at baseline. The mechanism is the credit crunch.
+
+**The crunch.** At a crisis, lending stops and households start repaying, so the employed's standard falls from a level that credit had inflated. That inflated standard also set their reference point. The employed vote radical iff their standard falls below 1 + D\*/20 = 0.730 of their aspiration, where D\* = −5.399 is the threshold of §7.1.
+
+| run | crisis | standard before | standard at crisis | change | standard / aspiration | radical |
+| --- | --- | --- | --- | --- | --- | --- |
+| financialized | t = 7 | 1.095 | 0.851 | −22.3% | 0.670 | yes |
+| financialized | t = 52 | 2.586 | 2.026 | −21.7% | 0.664 | yes |
+| firm credit only | t = 5 | 0.935 | 0.959 | +2.5% | 0.889 | no |
+| firm credit only | t = 50 | 2.491 | 2.553 | +2.5% | 0.871 | no |
+
+Without household debt, the employed's standard *rises* at the same crisis. In both runs the program asserts that each crisis is radical exactly when the ratio falls below 0.730. A crisis becomes a radical government through the credit crunch, not through output: the crash destroys 10% of capital in both runs.
+
+**How much households borrow.** At a borrowing propensity of 1/8 neither crisis radicalizes. At 1/4 and 3/8 only the second does, after debt has reached its ceiling. From 1/2 both do.
+
+**Robustness.** Over the 27 stress settings of §8.4:
+- capitalism elects a radical government in 15 settings, and the financialized economy in all 27;
+- radical periods total 386 under capitalism and 509 under finance;
+- in five settings finance *shortens* radical rule. All five are settings in which capitalism is locked in for 56 periods or more, and there credit lets households cushion the loss.
+
+**The terror-management channel.** Three new edges hold with their stated sign at all ten base states probed:
+- debt service → the right network (DS → SR);
+- debt → debt service;
+- debt → the wage, which is negative: the indebted worker bargains from a worse fallback.
+
+The first is weak: a rise of 0.05 in DS raises the network's share by only 0.001–0.004. Through these edges financialization adds two reinforcing loops of four links:
+- aspiration → household debt → debt service → right network → aspiration;
+- wage → right network → aspiration → debt → wage.
+
+Firm debt forms a balancing loop, capital → debt → profit rate → investment → capital: debt brings the crisis that writes it off. The financialized diagram has 36 edges and 37 elementary loops, of which 18 run through a financial variable (7 reinforcing, 11 balancing).
+
+Two edges fail their checks.
+- **U → B** fails as it did in §8.5.
+- **Inflation → household debt** was expected to be negative, because inflation erodes debt. It is positive at the first base state, where households owe little: inflation cuts real pay, and households borrow to make it up. Which effect wins depends on the level of debt.
+
+**The data.**
+- **Funke, Schularick and Trebesch (2016).** Far-right vote shares rise by about 30% after financial crises, but not after normal recessions. This is the pattern the crunch reproduces.
+- **Mian, Sufi and Trebbi (2014).** Countries become more polarized and fractionalized after financial crises.
+- **Mian, Rao and Sufi (2013).** In the 2006–09 housing collapse, consumption responded most to wealth losses in ZIP codes with poorer and more levered households, whose marginal propensity to consume out of housing wealth was highest.
+- **Jordà, Schularick and Taylor (2013).** Financial-crisis recessions cost more output. Three years after the peak, real GDP per capita is 2.5% below it after a financial crisis and 2.0% above it after a normal recession. The model does not reproduce this pattern: its crises destroy the same capital whether or not households are in debt.
+
+**Verdict.** T18 is *reproduced*, and the data *support* its political pattern. In the model, desperation works mostly through the fall from a credit-inflated reference point, and only weakly through the level of debt service. This sharpens the finding of §7.1: financial crises cross the curvature threshold because credit has raised the reference point that the crunch then removes.
+
+### 9.6 Two remedies for the unemployment trend
+
+Section 8.3 found the model's clearest empirical failure: unemployment rises without limit, while US unemployment has no trend. Two omitted mechanisms could hold it down. Credit is one (§9.4).
+
+The other is the loop that §4.3 closed only analytically: firms mechanize only when labour is dear. Under induced mechanization, capital per job rises at
+
+```latex
+\mu_t=\mu\,\frac{\max(0,\;w_t-w_s)}{w_m-w_s}.
+```
+
+The rate is the full 1% at the initial wage share w_m = 0.864. It is zero at w_s = 0.765, a wage share lower by the switch ratio 1.129 of §4.3.
+
+| run | u₀ | u₁₅ | u₃₀ | u₄₅ | u₅₉ | wage share, 60 periods | r₅₉ | crises |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| capitalism | 0.100 | 0.168 | 0.205 | 0.249 | 0.299 | −19.9% | 0.0571 | none |
+| capitalism, induced | 0.100 | 0.141 | 0.149 | 0.156 | 0.161 | −8.4% | 0.0538 | none |
+| financialized | 0.100 | 0.190 | 0.189 | 0.189 | 0.298 | −21.7% | 0.0494 | t = 7, 52 |
+| financialized, induced | 0.100 | 0.149 | 0.140 | 0.140 | 0.140 | −7.2% | 0.0477 | t = 7 |
+
+**Induced mechanization removes the trend.** After t = 30 unemployment rises by less than 0.001 a period. With credit as well, it is constant at 0.140 from t = 30, after a single crisis. The switch share w_s sets the level: unemployment ends at 0.187 when w_s = 0.70 and at 0.117 when w_s = 0.84.
+
+**The remedy costs the model its best quantitative match.** The labour share now falls only 8.4%, or 7.2% with credit, against 20.2% in the data. Across the switch shares, the less unemployment rises, the less the labour share falls: −11.2% at u₅₉ = 0.187, down to −2.7% at 0.117.
+
+The reason is that in this model the wage share is a function of unemployment, and debt (§9.4) shifts it by only a point or two. The match of §8.2, 19.9% against 20.2%, is therefore the same fact as the unemployment failure. The US combination of a labour share down 20% and no unemployment trend needs a fall in labour's bargaining power at given unemployment, and neither remedy supplies one.
+
+### 9.7 Capital mobility and Kalecki's threshold (T8)
+
+Capital mobility is one candidate for that fall. In §6.2 the return abroad r_ext was fixed at 10%. Flight is an equilibrium of the class game when the reserve-army wage reaches 1 − ρ − r_ext. For returns from 5% to 40% that is
+
+```latex
+u\le u_f=\frac{\beta_l\,(\rho+r_{\mathrm{ext}})}{(1-\beta_l)(1-\rho-r_{\mathrm{ext}}-s)}.
+```
+
+The game and the closed form agree at all seven returns tested. (At a zero return the formula fails: flight is then an equilibrium only at full employment.)
+
+| return abroad | 5% | 10% | 15% | 20% | 25% | 30% | 40% |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| flight up to unemployment u_f | 5.0% | 8.3% | 12.5% | 17.9% | 25.0% | 35.0% | 75.0% |
+
+From r_ext = 43%, flight is an equilibrium at every unemployment rate. Financial openness therefore raises the unemployment rate below which capital leaves. It also lowers, one for one, the highest wage share consistent with domestic investment: from 0.85 to 0.80 as r_ext rises from 10% to 15%.
+
+**The data.** Furceri, Loungani and Ostry (2019) find that episodes of capital-account liberalization lower the labour share by about 4.5% in the medium term, most in industries that depend on external finance.
+
+The model's channel is cruder. Where the game has no pure equilibrium, the return abroad does not enter the mixed equilibrium, so openness moves the threshold but not the bargained wage. On its own it cannot produce the decoupling of §9.6.
+
+Under planning, flight triggers expropriation, so capital mobility leaves the job guarantee of T8 unaffected. Under capitalism, Kalecki's political limit to full employment moves with financial openness.
+
+### 9.8 Verdicts
+
+- **T15** is *derived* and *supported*.
+- **T16** is *derived* for the Pareto class, with exponent log₂(q/p). Its claim that reform cannot remove the class is *qualified*: the class persists, but its weight is set by resets that are matters of policy. The data *support* it, since the lattice reads the 1989 share as α = 1.46 against direct estimates of 1.48–1.55.
+- **T17** is *derived* as a spiral above a threshold (η ≥ Δ). The need for inflation is *reproduced* as a postponement of the debt crisis. Fisher's account supports it.
+- **T18** is *reproduced*, through the crunch, and *supported* by the political and consumption data. The output pattern of Jordà, Schularick and Taylor is not reproduced.
+- **Earlier verdicts revised.**
+  - T3's upper class: condensation becomes a threshold.
+  - T5: reproduced under financialization.
+  - §8.3's unemployment failure: either remedy removes it only by exposing that the labour-share match rests on it.
+  - T8: Kalecki's threshold moves with the return abroad.
+
+## 10 Assessment: what the model validates
+
+### 10.1 The scorecard
 
 The table collects the verdicts of §§4–8. Each proposition appears with what the model derives, what the data show, and the limit or condition the model finds.
 
@@ -825,20 +1093,24 @@ The table collects the verdicts of §§4–8. Each proposition appears with what
 | --- | --- | --- | --- | --- | --- |
 | T1 | value conserved in exchange | **derived** | not directly testable | holds for any transitive exchange table, fails for any intransitive one | 4.1 |
 | T2 | values predict prices | **derived**, deviation growing in r | **supported** (r ≈ 0.94–0.99) | deviations 3–11× too small in a 3–4-sector model | 4.2 |
-| T3 | exponential lower class, Pareto upper class | lower class **derived**; upper class **qualified** | lower class **supported** (Gini 0.5); upper class milder than the model | without a cap, capital income condenses (98% to one owner) | 5.1–5.2 |
+| T3 | exponential lower class, Pareto upper class | lower class **derived**; upper class **qualified**, and **derived** once fortunes can be broken up (§9.2) | lower class **supported** (Gini 0.5); upper class matched by the lattice reading | condensation without resets (98% to one owner), a Pareto tail with them (z < 1/2) | 5.1–5.2, 9.2 |
 | T4 | money creation redistributes | **derived** (zero-sum; first recipients gain Q·D/M) | **supported** (BIS) | a proportional injection spent after prices adjust redistributes nothing | 5.3 |
-| T5 | falling profit rate | **qualified**: needs a wage rule or slowing demography | **supported** as a long-run trend (Maito, Basu) | floor −(1 − w)(g + δ) below n\* = −0.0248, with slow convergence there | 4.3, 8.3 |
+| T5 | falling profit rate | **qualified**: needs a wage rule or slowing demography; **reproduced** under financialization (§9.4) | **supported** as a long-run trend (Maito, Basu) | floor −(1 − w)(g + δ) below n\* = −0.0248, with slow convergence there | 4.3, 8.3 |
 | T6 | planning converges fast | **derived** (18 passes) | consistent with the essay's worked example | speed set by the spectral radius of A | 4.1 |
 | T7 | QV redirects production toward need | **reproduced** | **weakly supported** (survey QV) | none found | 7.5 |
-| T8 | job guarantee breaks employer power | **reproduced** above u\_c = 1/11 | **supported** in slack markets (NREGA) | inert below 9.1% unemployment | 6.1–6.3 |
+| T8 | job guarantee breaks employer power | **reproduced** above u\_c = 1/11 | **supported** in slack markets (NREGA) | inert below 9.1% unemployment; capital flight up to u_f, which rises with the return abroad | 6.1–6.3, 9.7 |
 | T9 | divided government cannot conspire | **derived**: K̄ = ⌈ 1/P ⌉ | **plausible** (leniency programmes); selectorate evidence contested | a single party sustains collusion at every δ | 7.3–7.4 |
 | T10 | vouchers and caps prevent accumulation | **derived** (non-interference; bounded owners' share) | no test available | the cap bounds the last reinforcing loop | 5.2–5.3, 8.5 |
 | T11 | losses and inflation drive radicalism | **qualified**: requires D < −5.4, a curvature effect | **supported and qualified** (crises, not ordinary recessions) | threshold 11/2 − K in deep losses; tipping point at aspiration 0.26–0.27 | 7.1, 8.4 |
 | T12 | the Cold War raised living standards | **reproduced** | **supported** (Obinger and Schmitt) | the protection ends the period the Cold War ends | 8.2 |
 | T13 | patronage spiral | **reproduced** | premise **supported** (Thachil) | a spiral only above a threshold; below it the protest vote reverses | 7.2, 8.4 |
 | T14 | planning defuses authoritarianism | **reproduced** in all 27 stress settings | no test available | an inherited reference point can make the successor's first period non-viable | 8.4–8.6 |
+| T15 | credit inflates asset prices, not output | **derived** (P = S/(1 − LTV); sellers gain Q·D/M) | **supported** (Favara and Imbs; mortgages 30% → 60% of bank lending) | none: accounting identities | 9.1 |
+| T16 | capital gains make the Pareto class, which reform cannot remove | **derived** (α = log₂(q/p)); "cannot be reformed away" **qualified** | **supported** (lattice reading 1.46 in 1989 against direct estimates 1.48–1.55) | condensation iff 2p ≥ q; the exponent is set by resets, which are policy | 9.2 |
+| T17 | debt deflation; the system needs inflation | spiral **derived** with a threshold; the need for inflation **reproduced** as postponement | **supported** (Fisher 1933) | complete spiral iff η ≥ Δ; second crisis at t = 48 → 59 for π = 0 → 8% | 9.3–9.4 |
+| T18 | debt deepens desperation and radicalism | **reproduced** (2 of 2 crises radical with household credit, 0 of 2 without; 27 of 27 stress settings) | **supported** (Funke et al.; Mian, Sufi and Trebbi; Mian, Rao and Sufi) | standard/aspiration < 0.730 at the crunch; output depth not reproduced | 9.5 |
 
-### 9.2 The data at a glance
+### 10.2 The data at a glance
 
 `examples/me-evidence.pal` prints the quantitative comparisons of §§4–8 side by side:
 
@@ -854,30 +1126,42 @@ The table collects the verdicts of §§4–8. Each proposition appears with what
     ... no effect below u_c = 1/11;  +5% at u = 0.1250
   Gini of the exponential (lower) class      0.500       0.524  (geometric law, T = 10)
   loss aversion lambda                       2.25        2.25  (input; the threshold moves by 0.18 from lambda = 2 to 10, me-extremes §X4)
+
+§EV2 FINANCE: THE MODEL AGAINST EMPIRICAL DATA
+  quantity                                   data        model
+  Pareto exponent of US wealth               1.49        1.460  (the lattice reading of the 1989 top-1% share)
+    ... top-1% share 22.8% -> 32.5% (1989 -> 2026): alpha 1.460 -> 1.322; condensation at 1
+  far-right vote after financial crises      +30.0%      radical government after 2 of 2 crunches with household debt, 0 of 2 without
+    ... the employed standard in the crunch: -22.3% / -21.7% with household debt; +2.5% without
+  labour share, relative change              -20.2%      financialized -21.7%;  induced mechanization -8.4% (u_59 0.161)
+  capital-account opening, labour share      -4.5%       wage-share ceiling 1 - rho - r_ext: -5.9%  (r_ext 10% -> 15%)
 ```
 
-### 9.3 Four patterns
+### 10.3 Five patterns
 
 1. **The structural core holds.** Conservation, the real opposition of wages and profits, the reserve army's effect on wages and the exponential lower class are derived or reproduced exactly. They match the data in sign. For the wage curve and the labour share's decline they also match in magnitude.
 2. **Every "always" becomes a threshold.** The essays state several claims without conditions: the more radical side *always* wins, the job guarantee breaks employer power, the profit rate falls. The model turns each into a statement with a computable boundary: D < −5.4, u > 1/11, and μ > s\_c·r − δ or n < n\*. Where data exist, they confirm the conditions: radicalization follows financial crises but not ordinary recessions, and job-guarantee wage effects come from slack labour markets.
-3. **The model's failures are magnitudes, not signs.** Three magnitudes are wrong: price–value deviations are too small, capital concentration is too extreme, and unemployment rises without limit. In each case the model's direction agrees with the data. Each failure comes from a missing mechanism: industry detail, forces that hold wealth to a power law, and demand-side or institutional offsets to mechanization.
-4. **Some claims are beyond the data.** The model can show that vouchers, the asset cap and planning remove mechanisms. No economy has implemented the proposal, so whether it would work as modelled cannot be tested.
+3. **The model's failures are magnitudes, not signs.** Three magnitudes were wrong in the first version: price–value deviations are too small, capital concentration is too extreme, and unemployment rises without limit. In each case the model's direction agrees with the data, and each failure comes from a missing mechanism. Section 9 supplies two of the missing mechanisms.
+   - Resets turn condensation into a Pareto tail; read from the 1989 top-1% share, its exponent (1.46) is close to the measured 1.48–1.55.
+   - Induced mechanization stops the unemployment trend, but it reveals that the labour-share match rested on that trend.
+4. **Finance runs the political mechanisms harder.** Every financial crisis in the model becomes a radical government, and does so through the household credit crunch, which removes the reference point that credit had raised. This is the pattern Funke et al. find: radicalization after financial crises, not after ordinary recessions.
+5. **Some claims are beyond the data.** The model can show that vouchers, the asset cap and planning remove mechanisms. No economy has implemented the proposal, so whether it would work as modelled cannot be tested.
 
-## 10 Verification and reproduction
+## 11 Verification and reproduction
 
 Every result is checked twice:
 
 1. by the assertions of the program that computes it;
 2. by an independent second implementation that regenerates the text of every displayed table.
 
-### 10.1 Reproduction protocol
+### 11.1 Reproduction protocol
 
 The requirements are a Rust toolchain (`cargo`) and Python 3 (standard library only). From the root of the repository:
 
 ```
 cargo build --release
 cargo test --release                    # 44 unit tests, among them exact arithmetic, memo, trace
-./verify-materialist.sh                 # 13 checks, about 4 minutes; exit status 0 iff all pass
+./verify-materialist.sh                 # 15 checks, about 6 minutes; exit status 0 iff all pass
 
 # individual programs (--dry-run: never write files)
 ./target/release/palimpsest examples/me-tour.pal --trace 22
@@ -890,13 +1174,15 @@ cargo test --release                    # 44 unit tests, among them exact arithm
 ./target/release/palimpsest examples/me-loops.pal --dry-run          # 16 s,  5 assertions
 ./target/release/palimpsest examples/me-dialectics.pal --dry-run     #  5 s, 13 assertions
 ./target/release/palimpsest examples/me-extremes.pal --dry-run       # 11 s,  6 assertions
-./target/release/palimpsest examples/me-evidence.pal --dry-run       # 0.5 s, 3 assertions
+./target/release/palimpsest examples/me-evidence.pal --dry-run       #  2 s,  4 assertions
+./target/release/palimpsest examples/me-finance.pal --dry-run        # 19 s,  7 assertions
+./target/release/palimpsest examples/me-financialized.pal --dry-run  # 56 s, 12 assertions
 
 # the self-rewriting economy: run on a copy; six runs rewrite it, the seventh is a fixed point
 cp examples/me-economy.pal /tmp/e.pal && sed -i 's#import "../lib/#import "#' /tmp/e.pal
 for i in 1 2 3 4 5 6 7; do PALIMPSEST_LIB=$PWD/lib ./target/release/palimpsest /tmp/e.pal | grep -E 'WROTE|FIXED POINT'; done
 
-python3 crosscheck/materialist_crosscheck.py     # 62 independent checks
+python3 crosscheck/materialist_crosscheck.py     # 80 independent checks
 ```
 
 The times are wall-clock times on a two-core cloud container; each program runs on one core.
@@ -904,12 +1190,12 @@ The times are wall-clock times on a two-core cloud container; each program runs 
 - **Pass and fail.** A program that prints `asserts : n passed, 0 failed` has verified all of its theorems. Any failed assertion makes it exit with a non-zero status.
 - **Determinism.** All randomness comes from the deterministic `rng` hash, so every output, including the agent-based samples, is identical on every machine.
 
-### 10.2 The independent cross-check
+### 11.2 The independent cross-check
 
 `crosscheck/materialist_crosscheck.py` is a second implementation written from the specification, using exact `Fraction` arithmetic. It reproduces:
 
 - the interpreter's rounding rules, its `rng` hash and its floor square root;
-- every model, including the bisection brackets, the class game's equilibria, the agent models, the equation chain with its probe hooks, the dialectics predicates, the selectorate equilibrium, every threshold and every model figure of §§4–8.
+- every model, including the bisection brackets, the financialized chain with its debts and hooks, the wealth lattice and the debt-deflation cascade, the class game's equilibria, the agent models, the equation chain with its probe hooks, the dialectics predicates, the selectorate equilibrium, every threshold and every model figure of §§4–8.
 
 It formats each table exactly as Palimpsest does and requires the two texts to agree character for character.
 
@@ -923,29 +1209,39 @@ It formats each table exactly as Palimpsest does and requires the two texts to a
 | VI(a) classical | 5 | §4.1, §4.3, §8.3 (long run, input–output table, accumulation identity) |
 | VI(b) selectorate | 5 | §7.4 |
 | VI(c) extremes | 11 | the thresholds of §4.2–4.3, §6.1–6.2, §7.1, §7.3–7.4, §8.3–8.4 |
-| VI(d) evidence | 2 | §6.3, §9.2 |
+| VI(d) evidence | 2 | §6.3, §10.2 |
+| VIII(a) finance | 5 | §9.1–9.3, §9.7 (credit ledger, asset price, lattice, cascade, capital mobility) |
+| VIII(b) financialized | 12 | §9.4–9.6, including the nesting check (both credit channels off = capitalism, row for row), the 54-run stress grid and all 360 edge probes |
+| VIII(c) evidence | 1 | §10.2 (§EV2) |
 
-All 62 checks agree. The other 76 example programs of the Palimpsest distribution and its ten other verification suites also pass with the interpreter described here.
+All 80 checks agree. The other 76 example programs of the Palimpsest distribution and its ten other verification suites also pass with the interpreter described here.
 
-### 10.3 What the verification does and does not establish
+### 11.3 What the verification does and does not establish
 
 The two implementations share a specification, not code. They therefore catch implementation errors, such as an off-by-one period, a wrong rounding, a mis-signed probe or a mis-copied payoff. They cannot catch a specification error.
 
-The empirical comparisons of §§4–8 are the check on the specification. Its constants are cited in the program so that a reader can trace each one to its source.
+The empirical comparisons of §§4–9 are the check on the specification. Its constants are cited in the program so that a reader can trace each one to its source.
 
-## 11 Limitations
+## 12 Limitations
 
-### 11.1 The model
+### 12.1 The model
 
 - **It formalizes; it does not estimate.** Its parameters come from its own steady-state algebra or from the essays, and the empirical comparisons in §§4–8 are not fits. A parameter-free match, such as the wage-curve elasticity or the labour share's relative decline, is evidence for a mechanism. It is not evidence that the model is calibrated.
 - **The outside-option formula lets the wage share approach 1 at full employment.** This drives three results: the capital-flight equilibrium below u = 1/12 (§6.2), the job guarantee's inertness below u\_c = 1/11 (§6.3), and the zero elasticity at u = 0. A formula with a productivity ceiling or an efficiency-wage floor would move all three thresholds.
-- **Mechanization is exogenous in the integrated model.** Capital per job rises at a fixed rate μ. Section 4.3 computes when mechanization pays, but the integrated model does not let firms choose it, so the loop from wages to technique is closed only analytically.
-- **There is no demand side.** Output equals what the employed produce, and nothing models realization crises, credit or fiscal policy. This is the most likely reason for the model's trending unemployment (§8.3).
+- **Mechanization is exogenous in the three regimes of §8.** Capital per job rises at a fixed rate μ. Section 9.6 lets firms choose it, as an option. The trend then stops, at the cost of the labour-share match.
+- **There is no demand side.** Credit (§9.4) finances investment and consumption, but output is still what the employed produce. Nothing models a realization crisis or fiscal policy.
+- **The financial parameters are round values, not steady-state algebra.** They are the interest rate (5%), the banks' accommodation (lev = 1), the households' borrowing propensity (1/2), the debt ceiling (one period's income) and the crunch repayment (1/5). Section 9 reports a grid for each one that decides an outcome, together with the threshold where it changes.
+- **The financial model is partial.**
+  - Households default on nothing, and the unemployed carry no debt.
+  - The interest rate responds to nothing.
+  - Asset prices (§9.1) and the wealth lattice (§9.2) are not inside the integrated economy.
+  - Crises destroy the same capital with or without debt, so the model cannot reproduce the deeper output losses of financial recessions.
 - **The value function's curvature is a modelling choice.** The piecewise-quadratic form keeps everything exact, but it is valid only for losses smaller than K, and §7.1 shows that K decides the radical threshold. Results that depend on the threshold, notably the lock-in point of §8.4, inherit this dependence.
+- **The wealth lattice is one population.** Reading the top-1% shares as tail exponents treats every fortune as part of one Pareto population. These numbers are a reading of the data, not an estimate.
 - **The agent models are small.** They have 20 to 100 agents and are seeded. The exact results of §5.1 are what they approximate.
 - **Some inputs are reconstructions.** These are the planning table, two prior and likelihood pairs in the dialectics examples, the intermediate demography values, and the encoding of *Classical Econophysics* Table 10.1.
 
-### 11.2 The empirical comparison
+### 12.2 The empirical comparison
 
 - **The data are mostly from the United States.** The labour share, wage curve, distribution and unemployment series are US data, and the profit-rate and political evidence is drawn mainly from rich democracies. The essays' claims are general.
 - **The measures do not map one to one.** Measured labour share includes employer contributions and treats depreciation and self-employment differently from the model's value-added share. Measured MAWD uses market prices from 40–100-industry tables, not prices of production from three sectors. Tax-unit income is not money holdings.
@@ -953,17 +1249,17 @@ The empirical comparisons of §§4–8 are the check on the specification. Its c
 - **Some sources were consulted at second hand.** Shaikh (1998) and Zachariah (2006) are cited as reported in *Classical Econophysics*. Cockshott and Cottrell (1997) and Işıkara and Mokre (2022) are cited as reported in the essays and in the journal abstract.
 - **Accountable planning cannot be tested.** No economy has run it, so §§8.1–8.6 describe the consequences of its rules, not evidence that it works. The Cold War regime has an empirical counterpart; the planning regime does not.
 
-### 11.3 Not modelled
+### 12.3 Not modelled
 
 The model omits:
 
-- international trade and unequal exchange;
+- international trade and unequal exchange (capital mobility enters only through the return abroad, §9.7);
 - the party-state beyond its collusion and selectorate readings;
 - Wright's social-architecture model of firm formation (*Classical Econophysics*, ch. 13);
 - the psychoanalytic and Buddhist parts of the contradictions essay;
 - the gender and racial divisions of the working class.
 
-## 12 Conclusion
+## 13 Conclusion
 
 The essays argue from conservation through class relations to politics, and the model follows the same chain. Its first links hold as theorems:
 
@@ -982,6 +1278,8 @@ Where the data speak, they generally confirm both the mechanisms and their thres
 
 The model's failures are informative in the same way. Prices deviate from values more than three sectors allow. Wealth concentrates less than condensation predicts. Unemployment stays trendless where the model's grows. Each failure names a mechanism the essays leave implicit and a real economy supplies.
 
+Finance follows the same pattern. Credit inflates asset prices without adding output. Capital gains make a Pareto class whose weight depends on how often fortunes are broken up. Distress selling is a spiral only above a threshold. Inflation postpones debt crises but cannot prevent the first one. And the essays' link from insecurity to authoritarianism runs most strongly through the credit crunch, which turns a financial crisis into a radical government by removing a reference point that credit had raised. The one remedy that fixes the unemployment trend also shows that the labour share's decline needs a cause the model does not contain.
+
 The method made these results possible. Because every causal claim is a rewrite rule, every edge of the causal diagram can be checked against the equations that also run the simulation. Because the arithmetic is exact, observations near a tie become theorems, and thresholds become closed forms. Planning removes the mechanisms the essays blame, within the model. Whether it would do so in an economy is a question no data can yet answer.
 
 ## References
@@ -996,13 +1294,16 @@ The method made these results possible. Because every causal claim is a rewrite 
 
 **Theory**
 
+- Bouchaud, J.-P., and Mézard, M. (2000). Wealth condensation in a simple model of economy. *Physica A*, 282, 536–545.
 - Colletti, L. (1975). Marxism and the dialectic. *New Left Review*, I/93, 3–29.
 - Djilas, M. (1957). *The New Class*. New York: Praeger.
 - Drăgulescu, A., and Yakovenko, V. M. (2000). Statistical mechanics of money. *European Physical Journal B*, 17, 723–729.
+- Fisher, I. (1933). The debt-deflation theory of great depressions. *Econometrica*, 1(4), 337–357.
 - Goodwin, R. M. (1967). A growth cycle. In C. H. Feinstein (ed.), *Socialism, Capitalism and Economic Growth*, 54–58. Cambridge University Press.
 - Kahneman, D., and Tversky, A. (1979). Prospect theory. *Econometrica*, 47(2), 263–291.
 - Kalecki, M. (1943). Political aspects of full employment. *Political Quarterly*, 14(4), 322–330.
 - Lalley, S. P., and Weyl, E. G. (2018). Quadratic voting. *AEA Papers and Proceedings*, 108, 33–37.
+- Minsky, H. P. (1986). *Stabilizing an Unstable Economy*. New Haven: Yale University Press.
 - Morishima, M. (1973). *Marx's Economics*. Cambridge University Press.
 - Nash, J. F. (1950). The bargaining problem. *Econometrica*, 18(2), 155–162.
 - Okishio, N. (1961). Technical changes and the rate of profit. *Kobe University Economic Review*, 7, 85–99.
@@ -1012,26 +1313,37 @@ The method made these results possible. Because every causal claim is a rewrite 
 
 - Barbosa-Filho, N. H., and Taylor, L. (2006). Distributive and demand cycles in the US economy: A structuralist Goodwin model. *Metroeconomica*, 57(3), 389–411.
 - Basu, D. (2022). World profit rates, 1960–2019. UMass Amherst Economics Working Paper 318.
+- Benhabib, J., and Bisin, A. (2018). Skewed wealth distributions: Theory and empirics. *Journal of Economic Literature*, 56(4), 1261–1291.
 - Blanchflower, D. G., and Oswald, A. J. (2005). The wage curve reloaded. NBER Working Paper 11338 / IZA DP 1665.
 - Bureau of Labor Statistics (2026). Labor share at its lowest level, 52.8 percent, in second quarter 2026. *The Economics Daily*, 15 September 2026.
 - Clarke, K. A., and Stone, R. W. (2008). Democracy and the logic of political survival. *American Political Science Review*, 102(3), 387–392.
 - Cockshott, W. P., and Cottrell, A. (1997). Labour-time versus alternative value bases: A research note. *Cambridge Journal of Economics*, 21(4), 545–549.
 - Domanski, D., Scatigna, M., and Zabai, A. (2016). Wealth inequality and monetary policy. *BIS Quarterly Review*, March, 45–64.
+- Favara, G., and Imbs, J. (2015). Credit supply and the price of housing. *American Economic Review*, 105(3), 958–992.
 - Federal Reserve Board (2026). Distributional Financial Accounts: share of net worth held by the top 1%, Q2 2026 (FRED series WFRBST01134).
 - Federal Reserve Bank of St. Louis (2026). Unemployment rate, UNRATE, 1948–2026.
+- Federal Reserve Bank of St. Louis (2026). Household debt to GDP for the United States, HDTGPDUSQ163N (BIS data).
 - Funke, M., Schularick, M., and Trebesch, C. (2016). Going to extremes: Politics after financial crises, 1870–2014. *European Economic Review*, 88, 227–260.
+- Furceri, D., Loungani, P., and Ostry, J. D. (2019). The aggregate and distributional effects of financial globalization: Evidence from macro and sectoral data. CEPR Discussion Paper 14001.
 - Imbert, C., and Papp, J. (2015). Labor market effects of social programs: Evidence from India's employment guarantee. *American Economic Journal: Applied Economics*, 7(2), 233–263.
 - Işıkara, G., and Mokre, P. (2022). Price-value deviations and the labour theory of value: Evidence from 42 countries, 2000–2017. *Review of Political Economy*, 34(1), 165–180.
+- Jordà, Ò., Schularick, M., and Taylor, A. M. (2013). When credit bites back. *Journal of Money, Credit and Banking*, 45(s2), 3–28.
+- Jordà, Ò., Schularick, M., and Taylor, A. M. (2016). The great mortgaging: Housing finance, crises and business cycles. *Economic Policy*, 31(85), 107–152.
+- Klass, O. S., Biham, O., Levy, M., Malcai, O., and Solomon, S. (2006). The Forbes 400 and the Pareto wealth distribution. *Economics Letters*, 90(2), 290–295. As reported in Benhabib and Bisin (2018).
 - Lakner, C., and Milanovic, B. (2016). Global income distribution: From the fall of the Berlin Wall to the Great Recession. *World Bank Economic Review*, 30(2), 203–232.
 - Ludwig, D., and Yakovenko, V. M. (2022). Physics-inspired analysis of the two-class income distribution in the USA in 1983–2018. *Philosophical Transactions of the Royal Society A*, 380, 20210162.
 - Maito, E. E. (2014). The historical transience of capital: The downward trend in the rate of profit since XIX century. MPRA Paper 55894.
+- Mian, A., Rao, K., and Sufi, A. (2013). Household balance sheets, consumption, and the economic slump. *Quarterly Journal of Economics*, 128(4), 1687–1726.
+- Mian, A., Sufi, A., and Trebbi, F. (2014). Resolving debt overhang: Political constraints in the aftermath of financial crises. *American Economic Journal: Macroeconomics*, 6(2), 1–28.
 - Miller, N. H. (2009). Strategic leniency and cartel enforcement. *American Economic Review*, 99(3), 750–768.
 - Muralidharan, K., Niehaus, P., and Sukhtankar, S. (2023). General equilibrium effects of (improving) public employment programs: Experimental evidence from India. *Econometrica*, 91(4), 1261–1295.
 - Obinger, H., and Schmitt, C. (2011). Guns and butter? Regime competition and the welfare state during the Cold War. *World Politics*, 63(2), 246–270.
 - Quarfoot, D., von Kohorn, D., Slavin, K., Sutherland, R., Goldstein, D., and Konar, E. (2017). Quadratic voting in the wild: Real people, real votes. *Public Choice*, 172, 283–303.
 - Shaikh, A. (1998). The empirical strength of the labour theory of value. In R. Bellofiore (ed.), *Marxian Economics: A Reappraisal*, vol. 2. Macmillan. As reported in *Classical Econophysics*, Table 10.2.
+- Shiller, R. J. (2011). Irving Fisher, debt deflation and crises. Cowles Foundation Discussion Paper 1817.
 - Thachil, T. (2011). Embedded mobilization: Nonstate service provision as electoral strategy in India. *World Politics*, 63(3), 434–469.
 - Tversky, A., and Kahneman, D. (1992). Advances in prospect theory: Cumulative representation of uncertainty. *Journal of Risk and Uncertainty*, 5(4), 297–323.
+- Vermeulen, P. (2018). How fat is the top tail of the wealth distribution? *Review of Income and Wealth*, 64(2), 357–387. As reported in Benhabib and Bisin (2018).
 - Zachariah, D. (2006). Labour value and equalisation of profit rates. *Indian Development Review*, 4(1), 1–21. As reported in *Classical Econophysics*, Table 10.3.
 
 ### Sources consulted online
@@ -1053,6 +1365,17 @@ The method made these results possible. Because every causal claim is a rewrite 
 - [Thachil (2011), World Politics](https://www.cambridge.org/core/journals/world-politics/article/abs/embedded-mobilization-nonstate-service-provision-as-electoral-strategy-in-india/386281259E8743E3C2D78B3D641ABA8B)
 - [Domanski, Scatigna and Zabai (2016), BIS Quarterly Review](https://www.bis.org/publ/qtrpdf/r_qt1603f.htm)
 - [Lakner and Milanovic (2016), CGD summary](https://www.cgdev.org/node/3126072)
+- [Fed DFA top 1% wealth share, full series](https://fred.stlouisfed.org/data/WFRBST01134.txt)
+- [Household debt to GDP, FRED HDTGPDUSQ163N](https://fred.stlouisfed.org/data/HDTGPDUSQ163N.txt)
+- [Jordà, Schularick and Taylor (2013), NBER w17621](https://www.nber.org/papers/w17621.pdf)
+- [Jordà, Schularick and Taylor, "The great mortgaging", VoxEU](https://cepr.org/voxeu/columns/great-mortgaging)
+- [Favara and Imbs (2015), PSE record](https://www.parisschoolofeconomics.eu/en/publications-hal/credit-supply-and-the-price-of-housing)
+- [Mian, Rao and Sufi (2013), RePEc record](https://ideas.repec.org/a/oup/qjecon/v128y2013i4p1687-1726.html)
+- [Mian, Sufi and Trebbi (2014), Chicago Booth summary](https://www.chicagobooth.edu/research/rustandy/social-impact-research/research-papers/2014/resolving-debt-overhang-political-constraints-in-the-aftermath-of-financial-crises)
+- [Benhabib and Bisin (2018), JEL survey](https://bpb-us-e1.wpmucdn.com/wp.nyu.edu/dist/c/16384/files/2019/11/5.-BB-JelPub.pdf)
+- [Furceri, Loungani and Ostry, VoxEU summary](https://cepr.org/voxeu/columns/aggregate-and-distributional-effects-financial-globalisation)
+- [Fisher (1933), debt deflation](https://en.wikipedia.org/wiki/Debt_deflation)
+- [Shiller (2011), Irving Fisher, debt deflation and crises](https://cowles.yale.edu/sites/default/files/2022-08/d1817.pdf)
 
 ## Appendix A: Palimpsest at a glance
 
@@ -1093,6 +1416,8 @@ rewrite self with S | rewrite file "p" with S
 | `lib/classgames.pal` | bargaining, the class-struggle game, Roemer, collusion, QV, prospect theory, patronage | §6, §7 |
 | `lib/selectorate.pal` | the selectorate equilibrium with certified square roots | §7.4 |
 | `lib/polecon.pal` | the integrated economy, its causal-loop diagram and probes | §8.1–8.5 |
+| `lib/finance.pal` | credit money and a fixed stock, the wealth lattice, the debt-deflation cascade | §9.1–9.3 |
+| `lib/polecon-fin.pal` | the financialized regime and induced mechanization, on the chain of `polecon.pal` | §9.4–9.6 |
 | `lib/cld.pal`, `lib/dialectics.pal`, `lib/report.pal` | loop enumeration, Structural Dialectics, text reports | §8.5–8.6 |
 | `examples/me-tour.pal` | one feedback loop, traced (2 assertions) | §3.3 |
 | `examples/me-value.pal` | value, planning, prices, profit (17) | §4 |
@@ -1105,6 +1430,8 @@ rewrite self with S | rewrite file "p" with S
 | `examples/me-loops.pal` | cycles, edge probes, what planning removes (5) | §8.5 |
 | `examples/me-dialectics.pal` | Structural Dialectics (13) | §8.6 |
 | `examples/me-extremes.pal` | limits, thresholds and inflection points (6) | §4.2–4.3, §6.1–6.2, §7.1, §7.3–7.4, §8.3–8.4 |
-| `examples/me-evidence.pal` | the model against cited data (3) | §§4–8, §9.2 |
-| `crosscheck/materialist_crosscheck.py` | independent Python implementation (62 checks) | §10 |
-| `verify-materialist.sh` | runs all of the above (13 checks) | §10 |
+| `examples/me-evidence.pal` | the model against cited data (4) | §§4–9, §10.2 |
+| `examples/me-finance.pal` | credit money, the wealth lattice, debt deflation, capital mobility (7) | §9.1–9.3, §9.7 |
+| `examples/me-financialized.pal` | the financialized economy: channels, crunch, thresholds, stress grid, remedies, edges and loops (12) | §9.4–9.6 |
+| `crosscheck/materialist_crosscheck.py` | independent Python implementation (80 checks) | §11 |
+| `verify-materialist.sh` | runs all of the above (15 checks) | §11 |

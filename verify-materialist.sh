@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Verifies the materialist-economy study (MATERIALIST-ECONOMY.md): every
-# program's assertions, the self-rewriting economy (6 rewrites, then a quine),
+# program's assertions (Parts I-VIII, finance included), the self-rewriting
+# economy (6 rewrites, then a quine),
 # and -- if python3 is available -- the independent Python re-derivation,
 # which regenerates every displayed table and compares it digit for digit.
 set -u
@@ -34,7 +35,9 @@ run examples/me-classical.pal    "asserts : 8 passed, 0 failed"
 run examples/me-selectorate.pal  "asserts : 7 passed, 0 failed"
 run examples/me-tour.pal         "asserts : 2 passed, 0 failed"
 run examples/me-extremes.pal     "asserts : 6 passed, 0 failed"
-run examples/me-evidence.pal     "asserts : 3 passed, 0 failed"
+run examples/me-evidence.pal     "asserts : 4 passed, 0 failed"
+run examples/me-finance.pal      "asserts : 7 passed, 0 failed"
+run examples/me-financialized.pal "asserts : 12 passed, 0 failed"
 # 3. independent re-derivation (reuses the outputs captured above)
 if command -v python3 >/dev/null; then
   if ME_OUTPUTS="$OUT" python3 crosscheck/materialist_crosscheck.py "$BIN" > "$OUT/crosscheck.out" 2>&1; then

@@ -60,6 +60,11 @@ rule pe-order-ap : (pe-order ap) => (list E U B Fl Inf W Lreq PlanErr Ce Cu Pi R
 rule pe-chain : (pe-chain !s !p !h) => (pe-finish ?v2 ?p)
   where ?m <- (pe-mode ?s ?p), ?v0 <- (put@ ?s mode ?m), ?v1 <- (pe-hook-state ?v0 ?h), ?v2 <- (pe-go (pe-order ?m) ?v1 ?p ?h)
 rule pe-go-0 : (pe-go (list) ?v ?p ?h) => ?v
+// (as NAME EQ) in an order stores equation EQ's value under NAME: a regime
+// can replace one equation while every reader, row and probe keeps using NAME
+// (polecon-fin.pal). No order of the three regimes above uses it.
+rule pe-go-as : (pe-go (list (as ?x ?e) ?xs...) ?v ?p ?h) => (pe-go (list ?xs...) ?v3 ?p ?h)
+  where ?val <- (pe-eq ?e ?v ?p), ?v2 <- (put@ ?v ?x ?val), ?v3 <- (pe-hook ?x ?v2 ?h)
 rule pe-go-n : (pe-go (list ?x ?xs...) ?v ?p ?h) => (pe-go (list ?xs...) ?v3 ?p ?h)
   where ?val <- (pe-eq ?x ?v ?p), ?v2 <- (put@ ?v ?x ?val), ?v3 <- (pe-hook ?x ?v2 ?h)
 // interventions on state variables happen before the chain runs

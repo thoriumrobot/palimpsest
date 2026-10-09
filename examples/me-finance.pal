@@ -1,0 +1,128 @@
+#lang palimpsest
+#fuel 4000000000
+#memo
+// PART VIII(a) -- FINANCE ON ITS OWN: credit money, the wealth lattice, debt deflation, capital mobility (MATERIALIST-ECONOMY.md §15)
+// (1) loans create deposits; credit at loan-to-value LTV prices a fixed stock
+//     at S/(1 - LTV) and hands the new money to the incumbent holders first;
+// (2) the wealth lattice: a Pareto tail of exponent log2(q/p), condensation
+//     at 2p >= q, the asset cap, and what the US top-1% wealth shares imply;
+// (3) Fisher's debt deflation: insolvency, distress sales and the price, with
+//     the spacing threshold for a complete spiral; (4) capital mobility: the
+//     unemployment rate below which capital flight is an equilibrium, as the
+//     return abroad rises.
+import "../lib/finance.pal"
+import "../lib/polecon.pal"
+import "../lib/report.pal"
+
+rule pct : (pct !x !d) => (cat (decimal (* 100 ?x) ?d) "%")
+
+// ---- (1) credit money and a fixed stock ------------------------------------
+rule ledger : (ledger) => (list (loan 50) (pay 30) (loan 80) (repay 20) (pay 40) (loan 10) (repay 50) (repay 70))
+rule app-bk-line : (app bk-line ?s) => (cats (list (dpad (bk-m ?s) 0 9) (dpad (bk-l ?s) 0 9)))
+rule ltvs : (ltvs) => (list 0 1/2 3/4 4/5 9/10 19/20)
+// savings S = 1 per buyer, 10 sales a period; sellers hold 600 of M = 1000,
+// output Q = 1000 (the Cantillon table of Part II)
+rule app-am-line : (app am-line ?ltv) => (cats (list (dpad ?ltv 2 6) (dpad (am-price 1 ?ltv) 2 9) (dpad (am-loan 1 ?ltv) 2 9) (dpad (* 10 (am-loan 1 ?ltv)) 1 10)
+    (dpad (nth 0 ?g) 2 10) (dpad (+ (nth 1 ?g) (nth 2 ?g)) 2 10) (padl (tf (= (vsum ?g) 0)) 7)))
+  where ?g <- (am-cantillon (list 600 300 100) 1000 1 ?ltv 10)
+rule s1 : (s1 !sc) => (lines (list
+  "§F1 CREDIT MONEY AND THE PRICE OF A FIXED STOCK"
+  "  a ledger of loans (L), payments and repayments: deposits M and loans outstanding L after each event"
+  "        M        L"
+  (lines (smap bk-line ?sc))
+  (cat "  new deposits = loans outstanding after every event: " (tf (sall (bk-ok 100) ?sc)))
+  "  buyers with savings 1 bid for a fixed stock at loan-to-value LTV; 10 sales a period; output fixed at 1000"
+  "   LTV    price  loan/sale new money  sellers' gain  others' loss  sum 0"
+  (lines (smap am-line (ltvs)))
+  (cat "  price = savings / (1 - LTV) on the whole grid; no house and no unit of output added: " (tf (sall am-ok (ltvs))))))
+rule app-am-sum0 : (app am-sum0 ?ltv) => (= (vsum (am-cantillon (list 600 300 100) 1000 1 ?ltv 10)) 0)
+rule app-am-ok : (app am-ok ?ltv) => (= (* (am-price 1 ?ltv) (- 1 ?ltv)) 1)
+
+// ---- (2) the wealth lattice -------------------------------------------------
+rule zs : (zs) => (list 1/4 1/3 3/8 2/5 9/20 19/40)
+rule app-z-line : (app z-line ?z) => (cats (list (padl (sh ?z) 7) (dpad (q/ 1 ?z) 3 8) (dpad (lat-alpha ?z) 3 8) (padl (pct (lat-top ?z 1/100) 1) 9) (padl (pct (lat-top ?z 1/10) 1) 9)))
+rule app-l-line : (app l-line ?z) => (cats (list (padl (sh ?z) 7) (padl (sh (* 2 ?z)) 6) (cats (map (lshare ?z) (list 10 20 40 80)))))
+rule app-lshare : (app (lshare ?z) ?lv) => (padl (pct (latf-top ?z ?lv 1/100) 1) 9)
+// below the threshold the capped share converges to the infinite lattice's; at
+// or above it the share keeps rising with the cap (condensation)
+rule app-cv-ok : (app cv-ok ?z) => (< (abs (- (latf-top ?z 80 1/100) (lat-top ?z 1/100))) 1/1000000)
+rule app-dv-ok : (app dv-ok ?z) => (and (< (latf-top ?z 10 1/100) (latf-top ?z 20 1/100)) (and (< (latf-top ?z 20 1/100) (latf-top ?z 40 1/100)) (< (latf-top ?z 40 1/100) (latf-top ?z 80 1/100))))
+rule s2 : (s2 !tv !z89 !z26) => (lines (list
+  "§F2 THE WEALTH LATTICE: doublings p, halvings q, z = p/q"
+  "  the stationary law of the infinite lattice: a Pareto tail with alpha = log2(q/p)"
+  "      z     q/p   alpha  top 1%  top 10%"
+  (lines (smap z-line (zs)))
+  (cat "  from all fortunes at the floor, 300 periods of the chain (p = 1/10, q = 1/4, levels 0..30): TV distance to z^n = " (decimal ?tv 6))
+  "  a finite lattice of L + 1 levels (a cap at 2^L): share of the top 1% as the cap is raised"
+  "      z    2z     L=10     L=20     L=40     L=80"
+  (lines (smap l-line (list 2/5 1/2 3/5)))
+  "  the US top-1% wealth shares (Distributional Financial Accounts) read on the lattice:"
+  (cat "    22.8% (1989 Q3): z = " (cat (decimal ?z89 4) (cat ", alpha = " (cat (decimal (lat-alpha ?z89) 3) (cat ";   32.5% (2026 Q2): z = " (cat (decimal ?z26 4) (cat ", alpha = " (decimal (lat-alpha ?z26) 3))))))))
+  (cat "    the change in the ratio of capital-gain doublings to resets, p/q: " (cat "+" (pct (- (q/ ?z26 ?z89) 1) 1)))))
+
+// ---- (3) Fisher's debt deflation --------------------------------------------
+rule profiles : (profiles) => (list (pf "spread [0.20, 0.80]" 1/5 4/5) (pf "high [0.50, 0.95]" 1/2 19/20))
+rule sigs : (sigs) => (list 1/20 1/10 3/20 1/5 1/4 3/10)
+rule etas : (etas) => (list 1/50 1/40 1/30)
+rule fc-ds : (fc-ds (pf ?name ?lo ?hi)) => (fc-debts ?lo ?hi 20)
+rule fc-spacing : (fc-spacing (pf ?name ?lo ?hi)) => (q/ (- ?hi ?lo) 19)
+rule app-fc-block : (app (fc-block ?eta) ?pf) => (lines (prepend (cat "  leverage " (cat (fc-name ?pf) (cat ", spacing " (cat (decimal (fc-spacing ?pf) 4) (cat ";  eta = " (decimal ?eta 4))))))
+    (smap (fc-line ?pf ?eta) (sigs))))
+rule fc-name : (fc-name (pf ?name ?lo ?hi)) => ?name
+rule app-fc-line : (app (fc-line ?pf ?eta) ?sig) => (cats (list (dpad ?sig 2 9) (padl (sh (fc-m ?r)) 6) (dpad (fc-p ?r) 3 8) (padl (pct (- (q/ (fc-nominal ?ds (fc-p ?r)) (vsum ?ds)) 1) 1) 9)
+    (padl (if (> (fc-p ?r) 0) (cat "+" (pct (- (q/ 1 (fc-p ?r)) 1) 1)) "-") 9) (dpad (q/ (- 1 (fc-p ?r)) ?sig) 2 7)))
+  where ?ds <- (fc-ds ?pf), ?r <- (fc-run ?ds ?sig ?eta)
+// the cascade in closed form: with eta >= the spacing D of leverage one
+// insolvency brings down every firm; with eta < D the sales stop at
+//   m* = ceil((d_hi - (1 - sigma)) / (D - eta))   (at most n, at least 0)
+rule fc-closed : (fc-closed !pf !sig !eta) => (if (<= (fc-hi ?pf) (- 1 ?sig)) 0 (if (>= ?eta ?dd) 20 (min 20 (ceil (q/ (- (fc-hi ?pf) (- 1 ?sig)) (- ?dd ?eta))))))
+  where ?dd <- (fc-spacing ?pf)
+rule fc-hi : (fc-hi (pf ?name ?lo ?hi)) => ?hi
+rule app-fc-rule : (app (fc-rule ?pf) ?eta) => (sall (fcr-at ?pf ?eta) (sigs))
+rule app-fcr-at : (app (fcr-at ?pf ?eta) ?sig) => (= (fc-m (fc-run (fc-ds ?pf) ?sig ?eta)) (fc-closed ?pf ?sig ?eta))
+rule app-fc-rule-all : (app fc-rule-all ?pf) => (sall (fc-rule ?pf) (etas))
+rule s3 : (s3) => (lines (list
+  "§F3 FISHER'S DEBT DEFLATION: 20 firms, distress sales lower the price by eta each"
+  "    shock sales   price  nominal  dollar   amplification"
+  (lines (smap (fc-block 1/40) (profiles)))
+  (lines (smap (fc-block 1/50) (profiles)))
+  (cat "  sales = the closed form (eta >= spacing: all 20 once one fails; else ceil((d_hi - 1 + shock)/(spacing - eta))), 2 profiles x 3 etas x 6 shocks: " (tf (sall fc-rule-all (profiles))))))
+
+// ---- (4) capital mobility ---------------------------------------------------
+// the class game of Part III at return abroad r: is capital flight one of its
+// pure equilibria at u? (the integrated model takes the first equilibrium)
+rule cm-gp : (cm-gp !u !r) => (set@ (put@ (pe-par) u ?u) rext ?r)
+rule cm-flight? : (cm-flight? !u !r) => (cmf-any (pure-nash (cs-game cap (cm-gp ?u ?r))))
+rule cmf-any-0 : (cmf-any (list)) => false
+rule cmf-any-n : (cmf-any (list (prof ?w ?c) ?more...)) => (if (= ?c flt) true (cmf-any (list ?more...)))
+rule cm-edge : (cm-edge !r) => (cme-go ?r 0 1 40)
+rule cme-go : (cme-go !r !lo !hi !k) => (round-to (q/ (+ ?lo ?hi) 2) 100000) where (<= ?k 0)
+rule cme-go-n : (cme-go !r !lo !hi !k) => (if (cm-flight? ?m ?r) (cme-go ?r ?m ?hi ?k1) (cme-go ?r ?lo ?m ?k1)) where (> ?k 0), ?m <- (q/ (+ ?lo ?hi) 2), ?k1 <- (- ?k 1)
+// closed form: flight beats repressing organized labour iff w_cap(bl, u, s) >= 1 - rho - r
+rule cm-closed : (cm-closed !r) => (q/ (* 1/5 (+ 1/20 ?r)) (* 4/5 (- (- (- 1 1/20) ?r) 2/5)))
+rule rexts : (rexts) => (list 1/20 1/10 3/20 1/5 1/4 3/10 2/5)
+rule app-cm-line : (app cm-line ?r) => (cats (list (dpad ?r 3 7) (dpad (cm-edge ?r) 4 9) (dpad (cm-closed ?r) 4 9) (dpad (- (- 1 1/20) ?r) 3 9) (padl (tf (cm-flight? 1 ?r)) 8)))
+rule app-cm-ok : (app cm-ok ?r) => (< (abs (- (cm-edge ?r) (cm-closed ?r))) 1/10000)
+rule s4 : (s4) => (lines (list
+  "§F4 CAPITAL MOBILITY: THE UNEMPLOYMENT RATE BELOW WHICH CAPITAL FLIGHT IS AN EQUILIBRIUM"
+  "  r_ext  game u_f  closed u_f  max w_l  flight at u = 1"
+  (lines (smap cm-line (rexts)))
+  (cat "  game and closed form u_f = bl (rho + r) / ((1 - bl)(1 - rho - r - s)) agree on the grid: " (tf (sall cm-ok (rexts))))
+  (cat "  flight is an equilibrium at every unemployment rate once r_ext >= 1 - rho - (bl + (1 - bl) s) = " (cat (sh (- (- 1 1/20) 13/25)) (cat ": " (tf (and (cm-flight? 1 43/100) (not (cm-flight? 1 21/50)))))))))
+
+main = 0
+let $sc = (bk-scan (bk 100 0) (ledger)) with eval
+let $tv = (tv (lat-iter (lat-point 30) 1/10 1/4 300) (lat-geo 2/5 30)) with eval
+let $z89 = (lat-z-for 1/100 228/1000) with eval
+let $z26 = (lat-z-for 1/100 325/1000) with eval
+display (s1 $sc) with eval
+display (s2 $tv $z89 $z26) with eval
+display (s3) with eval
+display (s4) with eval
+assert (and (sall (bk-ok 100) $sc) (sall am-ok (ltvs))) with eval
+assert (sall am-sum0 (ltvs)) with eval
+assert (< $tv 1/1000000) with eval
+assert (and (= (lat-top 2/5 1/100) 1016/3125) (> (latf-top 3/5 80 1/100) 99/100)) with eval
+assert (and (sall cv-ok (list 1/4 1/3 2/5)) (sall dv-ok (list 1/2 3/5))) with eval
+assert (sall fc-rule-all (profiles)) with eval
+assert (sall cm-ok (rexts)) with eval

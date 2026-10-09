@@ -3,11 +3,12 @@
 
 Pure Python 3, standard library only (fractions.Fraction for exact arithmetic).
 Re-implements, from the written specification and not from the Palimpsest
-code, every computation reported by the eleven programs
+code, every computation reported by the thirteen programs
 
     examples/me-value.pal  me-distribution.pal  me-games.pal  me-economy.pal
     examples/me-regimes.pal  me-loops.pal  me-dialectics.pal
     examples/me-classical.pal  me-selectorate.pal  me-extremes.pal  me-evidence.pal
+    examples/me-finance.pal  me-financialized.pal
 
 regenerates the text of their displayed tables with the same formatting, and
 compares it with what Palimpsest prints. A table that agrees agrees digit for
@@ -1555,7 +1556,434 @@ def part6d():
          "  Gini of the exponential (lower) class      " + dec(F(1, 2), 3) + "       " + dec(gg, 3) + "  (geometric law, T = 10)",
          "  loss aversion lambda                       " + dec(F(9, 4), 2) + "        2.25  (input; the threshold moves by 0.18 from lambda = 2 to 10, me-extremes §X4)"]
     check("§EV the comparison table: wage curve, labour share, MAWD, job guarantee, Gini", "\n".join(s), D[0])
-    check("me-evidence.pal: all assertions pass", asserts_ok(out), (3, 0))
+    check("me-evidence.pal: all assertions pass", asserts_ok(out), (4, 0))
+
+
+# ============================================================== PART VIII ===
+# (a) examples/me-finance.pal: credit money and a fixed stock, the wealth
+# lattice, Fisher's debt deflation, capital mobility (lib/finance.pal);
+# (b) examples/me-financialized.pal: the financialized regime of
+# lib/polecon-fin.pal, written again here from its header's specification.
+def pct8(x, d): return dec(100 * x, d) + "%"
+def ilist(xs): return "-" if not xs else " ".join(str(x) for x in xs)
+
+
+def cantillon8(ms, q, d):
+    m = sum(ms); ms2 = [ms[0] + d] + list(ms[1:])
+    p0 = m / q; b1 = min(F(q), ms2[0] / p0); left = q - b1; rest = ms2[1:]
+    withv = [b1] + ([x * left / sum(rest) for x in rest] if sum(rest) > 0 else rest)
+    return [a - F(q) * b_ / m for a, b_ in zip(withv, ms)]
+
+
+def lat_top(z, f):
+    n = 0
+    while not (z ** (n + 1) <= f): n += 1
+    return (2 * z) ** (n + 1) + (f - z ** (n + 1)) * 2 ** n * (1 - 2 * z) / (1 - z)
+
+
+def latf_top(z, L, f):
+    mass = sum(z ** k for k in range(L + 1)); wealth = sum((2 * z) ** k for k in range(L + 1))
+    target = f * mass; m = F(0); w = F(0)
+    for k in range(L, -1, -1):
+        mk = z ** k
+        if m + mk >= target: return (w + (target - m) * 2 ** k) / wealth
+        m += mk; w += mk * 2 ** k
+    return w / wealth
+
+
+def lat_alpha(z):
+    big = (1 / z) ** 1000; lo, hi = 0, 8000
+    for _ in range(14):
+        m = (lo + hi) // 2
+        if 2 ** m <= big: lo = m
+        else: hi = m
+    return F(lo, 1000)
+
+
+def lat_z_for(f, share):
+    lo, hi = F(1, 100), F(1, 2)
+    for _ in range(30):
+        m = (lo + hi) / 2
+        if lat_top(m, f) < share: lo = m
+        else: hi = m
+    return rnd((lo + hi) / 2, 10 ** 6)
+
+
+def part8a():
+    print("PART VIII(a)  finance on its own (me-finance)")
+    out = run_pal("me-finance.pal"); D = displays(out)
+    # (1) the ledger and the asset market
+    sc = [(F(100), F(0))]
+    for ev, x in (("loan", 50), ("pay", 30), ("loan", 80), ("repay", 20), ("pay", 40), ("loan", 10), ("repay", 50), ("repay", 70)):
+        m_, l_ = sc[-1]
+        sc.append((m_ + x, l_ + x) if ev == "loan" else ((m_ - x, l_ - x) if ev == "repay" else (m_, l_)))
+    s1 = ["§F1 CREDIT MONEY AND THE PRICE OF A FIXED STOCK",
+          "  a ledger of loans (L), payments and repayments: deposits M and loans outstanding L after each event",
+          "        M        L"] + [padl(dec(m_, 0), 9) + padl(dec(l_, 0), 9) for m_, l_ in sc]
+    s1.append("  new deposits = loans outstanding after every event: " + tf(all(m_ - 100 == l_ for m_, l_ in sc)))
+    s1 += ["  buyers with savings 1 bid for a fixed stock at loan-to-value LTV; 10 sales a period; output fixed at 1000",
+           "   LTV    price  loan/sale new money  sellers' gain  others' loss  sum 0"]
+    ltvs = [F(0), F(1, 2), F(3, 4), F(4, 5), F(9, 10), F(19, 20)]
+    for ltv in ltvs:
+        price = 1 / (1 - ltv); loan = ltv * price; g = cantillon8([F(600), F(300), F(100)], 1000, 10 * loan)
+        s1.append(padl(dec(ltv, 2), 6) + padl(dec(price, 2), 9) + padl(dec(loan, 2), 9) + padl(dec(10 * loan, 1), 10)
+                  + padl(dec(g[0], 2), 10) + padl(dec(g[1] + g[2], 2), 10) + padl(tf(sum(g) == 0), 7))
+    s1.append("  price = savings / (1 - LTV) on the whole grid; no house and no unit of output added: " + tf(all((1 / (1 - x)) * (1 - x) == 1 for x in ltvs)))
+    check("§F1 a credit ledger; the price of a fixed stock and its Cantillon transfer", "\n".join(s1), D[0])
+    # (2) the lattice
+    s2 = ["§F2 THE WEALTH LATTICE: doublings p, halvings q, z = p/q",
+          "  the stationary law of the infinite lattice: a Pareto tail with alpha = log2(q/p)",
+          "      z     q/p   alpha  top 1%  top 10%"]
+    for z in (F(1, 4), F(1, 3), F(3, 8), F(2, 5), F(9, 20), F(19, 40)):
+        s2.append(padl(sh(z), 7) + padl(dec(1 / z, 3), 8) + padl(dec(lat_alpha(z), 3), 8) + padl(pct8(lat_top(z, F(1, 100)), 1), 9) + padl(pct8(lat_top(z, F(1, 10)), 1), 9))
+    pis = [F(1)] + [F(0)] * 30; p_, q_ = F(1, 10), F(1, 4); L = 30
+    for _ in range(300):
+        new = []
+        for n in range(L + 1):
+            fb = p_ * pis[n - 1] if n > 0 else F(0); fa = q_ * pis[n + 1] if n < L else F(0)
+            stay = pis[n] * (1 - ((p_ if n < L else 0) + (q_ if n > 0 else 0)))
+            new.append(rnd(fb + fa + stay, 10 ** 12))
+        pis = new
+    zz = F(2, 5); norm = sum(zz ** k for k in range(L + 1))
+    tvd = sum(abs(a - zz ** n / norm) for n, a in enumerate(pis)) / 2
+    s2.append("  from all fortunes at the floor, 300 periods of the chain (p = 1/10, q = 1/4, levels 0..30): TV distance to z^n = " + dec(tvd, 6))
+    s2 += ["  a finite lattice of L + 1 levels (a cap at 2^L): share of the top 1% as the cap is raised",
+           "      z    2z     L=10     L=20     L=40     L=80"]
+    for z in (F(2, 5), F(1, 2), F(3, 5)):
+        s2.append(padl(sh(z), 7) + padl(sh(2 * z), 6) + "".join(padl(pct8(latf_top(z, L_, F(1, 100)), 1), 9) for L_ in (10, 20, 40, 80)))
+    z89, z26 = lat_z_for(F(1, 100), F(228, 1000)), lat_z_for(F(1, 100), F(325, 1000))
+    s2 += ["  the US top-1% wealth shares (Distributional Financial Accounts) read on the lattice:",
+           "    22.8% (1989 Q3): z = " + dec(z89, 4) + ", alpha = " + dec(lat_alpha(z89), 3) + ";   32.5% (2026 Q2): z = " + dec(z26, 4) + ", alpha = " + dec(lat_alpha(z26), 3),
+           "    the change in the ratio of capital-gain doublings to resets, p/q: +" + pct8(z26 / z89 - 1, 1)]
+    check("§F2 the wealth lattice: tail exponent, condensation, the cap, the DFA shares", "\n".join(s2), D[1])
+    # (3) Fisher
+    def fdebts(lo, hi): return [lo + j * (hi - lo) / 19 for j in range(20)]
+    def frun(ds, sig, eta):
+        m = 0
+        while True:
+            p = max(F(0), 1 - sig - eta * m); m2 = sum(1 for d in ds if d > p)
+            if m2 == m: return m, p
+            m = m2
+    profs = [("spread [0.20, 0.80]", F(1, 5), F(4, 5)), ("high [0.50, 0.95]", F(1, 2), F(19, 20))]
+    sigs = [F(1, 20), F(1, 10), F(3, 20), F(1, 5), F(1, 4), F(3, 10)]
+    s3 = ["§F3 FISHER'S DEBT DEFLATION: 20 firms, distress sales lower the price by eta each",
+          "    shock sales   price  nominal  dollar   amplification"]
+    for eta in (F(1, 40), F(1, 50)):
+        for name, lo, hi in profs:
+            ds = fdebts(lo, hi)
+            s3.append("  leverage " + name + ", spacing " + dec((hi - lo) / 19, 4) + ";  eta = " + dec(eta, 4))
+            for sig in sigs:
+                m, p = frun(ds, sig, eta)
+                s3.append(padl(dec(sig, 2), 9) + padl(str(m), 6) + padl(dec(p, 3), 8) + padl(pct8(sum(d for d in ds if d <= p) / sum(ds) - 1, 1), 9)
+                          + padl(("+" + pct8(1 / p - 1, 1)) if p > 0 else "-", 9) + padl(dec((1 - p) / sig, 2), 7))
+    def closed(lo, hi, sig, eta):
+        dd = (hi - lo) / 19
+        if hi <= 1 - sig: return 0
+        if eta >= dd: return 20
+        x = (hi - (1 - sig)) / (dd - eta)
+        return min(20, -((-x.numerator) // x.denominator))
+    ok = all(frun(fdebts(lo, hi), sig, eta)[0] == closed(lo, hi, sig, eta) for _, lo, hi in profs for eta in (F(1, 50), F(1, 40), F(1, 30)) for sig in sigs)
+    s3.append("  sales = the closed form (eta >= spacing: all 20 once one fails; else ceil((d_hi - 1 + shock)/(spacing - eta))), 2 profiles x 3 etas x 6 shocks: " + tf(ok))
+    check("§F3 Fisher's debt deflation: the cascade and its closed form", "\n".join(s3), D[2])
+    # (4) capital mobility
+    def flight_any(u, r):
+        gp = dict(PE); gp["u"] = u; gp["rext"] = r
+        return any(c == "flt" for _, c in cs_game("cap", gp).nash())
+    def edge(r):
+        lo, hi = F(0), F(1)
+        for _ in range(40):
+            m = (lo + hi) / 2
+            if flight_any(m, r): lo = m
+            else: hi = m
+        return rnd((lo + hi) / 2, 100000)
+    cl = lambda r: F(1, 5) * (F(1, 20) + r) / (F(4, 5) * (1 - F(1, 20) - r - F(2, 5)))
+    rs = [F(1, 20), F(1, 10), F(3, 20), F(1, 5), F(1, 4), F(3, 10), F(2, 5)]
+    s4 = ["§F4 CAPITAL MOBILITY: THE UNEMPLOYMENT RATE BELOW WHICH CAPITAL FLIGHT IS AN EQUILIBRIUM",
+          "  r_ext  game u_f  closed u_f  max w_l  flight at u = 1"]
+    for r in rs:
+        s4.append(padl(dec(r, 3), 7) + padl(dec(edge(r), 4), 9) + padl(dec(cl(r), 4), 9) + padl(dec(1 - F(1, 20) - r, 3), 9) + padl(tf(flight_any(F(1), r)), 8))
+    s4.append("  game and closed form u_f = bl (rho + r) / ((1 - bl)(1 - rho - r - s)) agree on the grid: " + tf(all(abs(edge(r) - cl(r)) < F(1, 10000) for r in rs)))
+    s4.append("  flight is an equilibrium at every unemployment rate once r_ext >= 1 - rho - (bl + (1 - bl) s) = 43/100: " + tf(flight_any(F(1), F(43, 100)) and not flight_any(F(1), F(21, 50))))
+    check("§F4 capital mobility and the flight threshold", "\n".join(s4), D[3])
+    check("me-finance.pal: all assertions pass", asserts_ok(out), (7, 0))
+
+
+# --- the financialized regime ------------------------------------------------
+PF = dict(PE); PF.update(ifr=F(1, 20), lev=F(1), chi=F(1, 2), dcap=F(1), arep=F(1, 5), imech=0, ws=F(153, 200), wm=F(108, 125))
+FIN_NODE_VARS = ["E", "U", "B", "W", "Inf", "Ce", "Pi", "Rr", "I", "K2", "Asp", "Rad", "Gov2", "SR2", "Df2", "Dh2", "DS"]
+
+
+def pf_init():
+    S = pe_init("fin"); S["Df"] = F(0); S["dh"] = F(0); return S
+
+
+def pf_mu(V, p):
+    if p.get("imech", 0) == 1:
+        return p["mu"] * max(F(0), V["W"] - p["ws"]) / (p["wm"] - p["ws"])
+    return p["mu"]
+
+
+def pf_chain(S, p, hook=None):
+    """one period of the financialized regime (fin); other regimes go to pe_chain"""
+    if S["reg"] != "fin":
+        return pe_chain(S, p, hook)
+    V = dict(S); V["mode"] = "fin"
+    if hook and hook[0] in V:
+        V[hook[0]] = V[hook[0]] + hook[1]
+    def eq(name, val):
+        V[name] = val
+        if hook:
+            x, d, base, frozen = hook
+            if name == x: V[name] = V[name] + d
+            elif name in frozen: V[name] = base[name]
+    N = p["N"]
+    eq("E", min(N, V["K"] / V["kap"])); eq("U", 1 - V["E"] / N)
+    gp = dict(p); gp["u"] = V["U"]
+    if V["gov"] >= 1:
+        gp["bl"] = p["bl"] / 2; gp["bh"] = p["bh"] / 2
+    b, fl = beta_and_flight("cap", gp)
+    eq("B", b); eq("Fl", fl)
+    eq("Inf", p["shockpi"] if p["shock1"] <= V["t"] <= p["shock2"] else p["pistar"])
+    eq("W", w_cap(V["B"], V["U"], p["s"] - p["ifr"] * V["dh"] * (1 + V["Inf"]) / V["A"]))
+    eq("Pi", (1 - V["W"]) * V["E"])
+    pn = lambda: V["Pi"] - p["ifr"] * V["Df"]
+    eq("Rr", pn() / V["K"] if V["K"] > 0 else F(0))
+    eq("Cr", 1 if (V["Rr"] < p["rmin"] or V["Fl"] == 1) else 0)
+    eq("Mu", pf_mu(V, p))
+    eq("Bf", F(0) if V["Cr"] == 1 else p["lev"] * max(F(0), (V["Mu"] + p["dep"]) * V["K"] - p["sc"] * pn()))
+    eq("I", F(0) if V["Cr"] == 1 else p["sc"] * pn() + V["Bf"])
+    eq("Df2", ((1 - p["crash"]) * V["Df"] if V["Cr"] == 1 else V["Df"] + V["Bf"]) / (1 + V["Inf"]))
+    eq("K2", V["K"] * (1 - p["dep"]) + V["I"] - V["Cr"] * p["crash"] * V["K"])
+    eq("Asp", V["ce"] * (1 + p["asp"] * V["sR"]))
+    eq("Inc", V["W"] * V["A"] / (1 + V["Inf"]))
+    eq("Jh", p["ifr"] * V["dh"])
+    eq("Bh", F(0) if V["Cr"] == 1 else min(p["chi"] * max(F(0), V["Asp"] - (V["Inc"] - V["Jh"])), max(F(0), p["dcap"] * V["Inc"] - V["dh"])))
+    eq("Rh", p["arep"] * V["dh"] if V["Cr"] == 1 else F(0))
+    eq("Ce", (V["Inc"] - V["Jh"]) + (V["Bh"] - V["Rh"]))
+    eq("Cu", p["s"])
+    eq("DS", (V["Jh"] + V["Rh"]) / V["Inc"])
+    eq("Dh2", (V["dh"] + V["Bh"] - V["Rh"]) / (1 + V["Inf"]))
+    pos = lambda c: clampv(p["scale"] * (c - V["Asp"]) / V["Asp"], F(-8), F(8))
+    eq("Rad", (1 - V["U"]) * (1 if pt_radical(pos(V["Ce"])) else 0) + V["U"] * (1 if pt_radical(pos(V["Cu"])) else 0))
+    eq("Gov2", 1 if V["Rad"] > F(1, 2) else 0)
+    br = p["phi"] * (V["Pi"] + V["Jh"] * (1 + V["Inf"]) / V["A"] * V["E"])
+    eq("SR2", pat1(1, 0, br, p["psi"] * V["W"] * V["E"], p["prho"], 3 * (1 + V["U"] + V["DS"]), F(1), V["sR"]))
+    ec = clampv((V["Rr"] - p["rmin"]) / p["rmin"], F(-1), F(1)); po = 2 * (F(1, 2) - V["Rad"])
+    V["econ"], V["pol"], V["Phi"] = ec, po, min(ec, po)
+    return V
+
+
+def pf_next(S, V, p):
+    S2 = dict(S); r6 = lambda x: rnd(x, 10 ** 6)
+    S2.update(t=S["t"] + 1, K=r6(V["K2"]), kap=r6(S["kap"] * (1 + pf_mu(V, p))), A=r6(S["A"] * (1 + p["gam"])), ce=r6(V["Ce"]), sR=V["SR2"], gov=V["Gov2"])
+    if "Df" in S:
+        S2.update(Df=r6(V["Df2"]), dh=r6(V["Dh2"]))
+    return S2
+
+
+def pf_rows(S, p, n=60):
+    rows = []
+    for _ in range(n):
+        V = pf_chain(S, p)
+        rows.append(dict(t=V["t"], U=V["U"], B=V["B"], W=V["W"], Rr=V["Rr"], Cr=V["Cr"], Ce=V["Ce"], Asp=V["Asp"],
+                         dk=V.get("Df", F(0)) / V["K"], dh=(V["dh"] / V["Inc"]) if "Inc" in V else F(0), DS=V.get("DS", F(0)),
+                         Rad=V["Rad"], sR=V["sR"], gov=V["gov"], Phi=V["Phi"]))
+        S = pf_next(S, V, p)
+    return rows
+
+
+def pf_at(S, p, n):
+    for _ in range(n):
+        S = pf_next(S, pf_chain(S, p), p)
+    return S
+
+
+def part8b():
+    print("PART VIII(b)  the financialized economy (me-financialized)")
+    out = run_pal("me-financialized.pal"); D = displays(out)
+    fp = lambda **kw: dict(PF, **kw)
+    NOF = dict(lev=F(0), chi=F(0))
+    frows = lambda p: pf_rows(pf_init(), p)
+    crows = lambda p: pf_rows(pe_init("cap"), p)
+    crises = lambda rs: [r["t"] for r in rs if r["Cr"] == 1]
+    govs = lambda rs: [r["t"] for r in rs if r["gov"] == 1]
+    wchg = lambda rs: rs[59]["W"] / rs[0]["W"] - 1
+    def hist(rows, every):
+        out_ = ["     t      u      w      r cr     ce    asp   Df/K dh/inc     DS    rad     sR gov"]
+        for r in rows:
+            if r["t"] % every == 0:
+                out_.append(padl(str(r["t"]), 6) + padl(dec(r["U"], 3), 7) + padl(dec(r["W"], 3), 7) + padl(dec(r["Rr"], 4), 7) + padl(str(r["Cr"]), 3)
+                            + padl(dec(r["Ce"], 3), 7) + padl(dec(r["Asp"], 3), 7) + padl(dec(r["dk"], 3), 7) + padl(dec(r["dh"], 3), 7) + padl(dec(r["DS"], 3), 7)
+                            + padl(dec(r["Rad"], 3), 7) + padl(dec(r["sR"], 3), 7) + padl(str(r["gov"]), 4))
+        return "\n".join(out_)
+    f = frows(PF); c = crows(fp(**NOF)); fc = frows(fp(chi=F(0)))
+    # nesting (asserted by the program; checked here too)
+    _, cp = pe_run("cap", PE, 60); c0 = frows(fp(**NOF))
+    keys = ["t", "U", "B", "W", "Rr", "Cr", "Ce", "Rad", "sR", "gov", "Phi"]
+    nest = all(all(a[k] == b_[k] for k in keys) for a, b_ in zip(c0, cp)) and all(all(a[k] == b_[k] for k in keys) for a, b_ in zip(c, cp))
+    check("financialized with both credit channels off = capitalism, row for row (60 periods)", nest, True)
+    seg = f[9:52]
+    s1 = ["§F5.1 FINANCIALIZED CAPITALISM (lev = 1, chi = 1/2, interest 5%; every 3rd period)", hist(f, 3),
+          "  crises (net profit rate below r_min): " + ilist(crises(f)) + ";  radical government in periods " + ilist(govs(f)),
+          "  capitalism (Part IV): crises " + ilist(crises(c)) + ";  radical government in " + str(len(govs(c))) + " periods",
+          "  unemployment at t = 0 / 8 / 30 / 51 / 59: " + drow([f[t]["U"] for t in (0, 8, 30, 51, 59)], 3, 7),
+          "    capitalism, the same periods:             " + drow([c[t]["U"] for t in (0, 8, 30, 51, 59)], 3, 7),
+          "  between the crises (t = 9..51): wage share within " + dec(max(r["W"] for r in seg) - min(r["W"] for r in seg), 4)
+          + ";  profit rate falls every period: " + tf(all(b_["Rr"] < a["Rr"] for a, b_ in zip(seg, seg[1:]))) + ", " + dec(f[9]["Rr"], 4) + " -> " + dec(f[51]["Rr"], 4),
+          "  firm debt / capital at t = 9 / 24 / 39 / 51: " + drow([f[t]["dk"] for t in (9, 24, 39, 51)], 3, 7)
+          + ";  household debt / income at its ceiling for t = 15..39: " + tf(all(r["dh"] > F(19, 20) for r in f[15:40])),
+          "  labour share, relative change over 60 periods: financialized " + pct8(wchg(f), 1) + ";  capitalism " + pct8(wchg(c), 1)]
+    check("§F5.1 the financialized trajectory against capitalism", "\n".join(s1), D[0])
+    s2 = ["§F5.2 THE CHANNELS ONE AT A TIME", "  channels                   crises radgov  u_59  w change max Df/K max dh/inc"]
+    for name, kw in (("none (= capitalism)", NOF), ("firm credit", dict(chi=F(0))), ("household credit", dict(lev=F(0))), ("both", {})):
+        rs = frows(fp(**kw))
+        s2.append(padr(name, 22) + padl(ilist(crises(rs)), 12) + padl(str(len(govs(rs))), 5) + padl(dec(rs[59]["U"], 3), 8) + padl(pct8(wchg(rs), 1), 9)
+                  + padl(dec(max(r["dk"] for r in rs), 3), 9) + padl(dec(max(r["dh"] for r in rs), 3), 9))
+    check("§F5.2 the financial channels one at a time", "\n".join(s2), D[1])
+    lo, hi = F(-8), F(0)
+    for _ in range(30):
+        m = (lo + hi) / 2
+        if pt_radical(m): lo = m
+        else: hi = m
+    dstar = (lo + hi) / 2
+    pos20 = lambda cc, ref: clampv(20 * (cc - ref) / ref, F(-8), F(8))
+    s3 = ["§F5.3 THE CREDIT CRUNCH: WHEN A CRISIS BECOMES A RADICAL GOVERNMENT",
+          "  the employed vote radical iff standard / aspiration < 1 + D*/20 = " + dec(1 + dstar / 20, 4) + "   (D* = " + dec(dstar, 5) + ")",
+          "  run              crisis  ce_t-1    ce_t   asp_t    drop  ce/asp  dh/inc radical"]
+    crunch_ok = True
+    for name, rs in (("financialized", f), ("firm credit only", fc)):
+        for t in crises(rs):
+            r0, r1 = rs[t - 1], rs[t]; rad = 1 if pt_radical(pos20(r1["Ce"], r1["Asp"])) else 0
+            crunch_ok &= (rad == 1) == (r1["Ce"] / r1["Asp"] < 1 + dstar / 20)
+            s3.append(padr(name, 18) + padl(str(t), 4) + padl(dec(r0["Ce"], 3), 8) + padl(dec(r1["Ce"], 3), 8) + padl(dec(r1["Asp"], 3), 8)
+                      + padl(pct8(1 - r1["Ce"] / r0["Ce"], 1), 8) + padl(dec(r1["Ce"] / r1["Asp"], 4), 8) + padl(dec(r0["dh"], 3), 8) + padl(str(rad), 6))
+    s3 += ["  household borrowing propensity chi (lev = 1):", "    chi    crises   radical gov  max dh/inc"]
+    for chi in (F(0), F(1, 8), F(1, 4), F(3, 8), F(1, 2), F(3, 4), F(1)):
+        rs = frows(fp(chi=chi))
+        s3.append(padl(dec(chi, 3), 7) + padl(ilist(crises(rs)), 10) + padl(ilist(govs(rs)), 12) + padl(dec(max(r["dh"] for r in rs), 3), 9))
+    check("§F5.3 the credit crunch, the radical threshold it crosses, and chi", "\n".join(s3), D[2])
+    check("every crunch is radical exactly when standard/aspiration < 1 + D*/20", crunch_ok, True)
+    s4 = ["§F5.4 HOW FAR THE BANKS ACCOMMODATE (share lev of the financing gap; chi = 1/2)", "    lev    crises radgov  u_59  max Df/K"]
+    for lev in (F(0), F(1, 4), F(1, 2), F(5, 8), F(3, 4), F(7, 8), F(1)):
+        rs = frows(fp(lev=lev))
+        s4.append(padl(dec(lev, 3), 7) + padl(ilist(crises(rs)), 10) + padl(str(len(govs(rs))), 5) + padl(dec(rs[59]["U"], 3), 8) + padl(dec(max(r["dk"] for r in rs), 3), 9))
+    lo, hi = F(3, 4), F(7, 8)
+    for _ in range(8):
+        m = (lo + hi) / 2
+        if crises(frows(fp(lev=m))): hi = m
+        else: lo = m
+    s4.append("  a debt crisis within 60 periods appears between lev = " + dec(lo, 4) + " (none) and " + dec(hi, 4) + " (a crisis)")
+    check("§F5.4 credit accommodation and the crisis threshold", "\n".join(s4), D[3])
+    s5 = ["§F5.5 INFLATION, DEFLATION AND THE DEBT CRISIS", "  steady inflation (the shock of t = 40-41 kept at 10%):", "     pi    crises radgov Df/K_59 pay cut"]
+    seconds = []
+    for pi in (F(0), F(1, 50), F(1, 25), F(3, 50), F(2, 25), F(1, 10)):
+        rs = frows(fp(pistar=pi)); cr = crises(rs); seconds.append(cr[1] if len(cr) > 1 else 1000)
+        s5.append(padl(dec(pi, 3), 7) + padl(ilist(cr), 10) + padl(str(len(govs(rs))), 5) + padl(dec(rs[59]["dk"], 3), 8) + padl(pct8(pi / (1 + pi), 1), 9))
+    s5 += ["  a 10% inflation shock against a 10% deflation shock at t = 40-41:", "  run                           crises         radical gov   ce_40 dh/inc_42"]
+    for name, reg, shk in (("capitalism, inflation", "cap", F(1, 10)), ("capitalism, deflation", "cap", F(-1, 10)), ("financialized, inflation", "fin", F(1, 10)), ("financialized, deflation", "fin", F(-1, 10))):
+        rs = frows(fp(shockpi=shk, **(NOF if reg == "cap" else {})))
+        s5.append(padr(name, 26) + padl(ilist(crises(rs)), 10) + padl(ilist(govs(rs)), 22) + padl(dec(rs[40]["Ce"], 3), 8) + padl(dec(rs[42]["dh"], 3), 8))
+    check("§F5.5 inflation, deflation and the date of the debt crisis", "\n".join(s5), D[4])
+    check("the second debt crisis comes no earlier as steady inflation rises", all(b_ >= a for a, b_ in zip(seconds, seconds[1:])), True)
+    s6 = ["§F5.6 THE STRESS GRID OF PART IV WITH AND WITHOUT FINANCE: radical-government periods of 60", "  scale shock   asp     cap     fin"]
+    gr = []
+    for sc_ in (20, 30, 40):
+        for sh_ in (F(1, 20), F(1, 10), F(1, 5)):
+            for asp in (F(1, 10), F(1, 5), F(2, 5)):
+                cc = len(govs(frows(fp(scale=F(sc_), shockpi=sh_, asp=asp, **NOF)))); ff = len(govs(frows(fp(scale=F(sc_), shockpi=sh_, asp=asp))))
+                gr.append((sc_, sh_, asp, cc, ff))
+                s6.append(padl(str(sc_), 6) + padl(sh(sh_), 6) + padl(sh(asp), 6) + padl(str(cc), 8) + padl(str(ff), 8))
+    fewer = [g for g in gr if g[4] < g[3]]
+    s6 += ["  settings with a radical government: capitalism " + str(sum(1 for g in gr if g[3] > 0)) + " of 27;  financialized " + str(sum(1 for g in gr if g[4] > 0)) + " of 27",
+           "  radical-government periods in all 27: capitalism " + str(sum(g[3] for g in gr)) + ";  financialized " + str(sum(g[4] for g in gr)),
+           "  settings in which finance has fewer radical periods than capitalism: " + str(len(fewer)) + ";  all of them locked in under capitalism (aspiration 2/5, 56+ periods): "
+           + tf(all(g[2] == F(2, 5) and g[3] >= 56 for g in fewer))]
+    check("§F5.6 the 27-setting stress grid with and without finance (54 runs)", "\n".join(s6), D[5])
+    s7 = ["§F5.7 INDUCED MECHANIZATION AGAINST CREDIT: TWO REMEDIES FOR THE UNEMPLOYMENT TREND",
+          "  run                        u_0   u_15   u_30   u_45   u_59  w chg    r_59   crises"]
+    ci = crows(fp(imech=1, **NOF)); fi = frows(fp(imech=1))
+    for name, rs in (("capitalism", crows(fp(**NOF))), ("capitalism, induced", ci), ("financialized", f), ("financialized, induced", fi)):
+        s7.append(padr(name, 24) + drow([rs[t]["U"] for t in (0, 15, 30, 45, 59)], 3, 7) + padl(pct8(wchg(rs), 1), 8) + padl(dec(rs[59]["Rr"], 4), 8) + padl(ilist(crises(rs)), 9))
+    s7.append("  financialized, induced: unemployment the same in every period from t = 30: " + tf(all(rnd(r["U"], 1000) == rnd(fi[30]["U"], 1000) for r in fi[30:])))
+    s7.append("  capitalism, induced: unemployment rises by less than 0.001 a period from t = 30: " + tf(all(F(0) <= b_["U"] - a["U"] < F(1, 1000) for a, b_ in zip(ci[30:], ci[31:]))))
+    s7 += ["  the switch share ws at which mechanizing stops paying (capitalism, induced):", "     ws   u_15   u_30   u_45   u_59  w chg"]
+    for ws in (F(7, 10), F(3, 4), F(153, 200), F(4, 5), F(21, 25)):
+        rs = crows(fp(imech=1, ws=ws, **NOF))
+        s7.append(padl(dec(ws, 3), 7) + drow([rs[t]["U"] for t in (15, 30, 45, 59)], 3, 7) + padl(pct8(wchg(rs), 1), 8))
+    check("§F5.7 induced mechanization against credit", "\n".join(s7), D[6])
+    # (8) edges and loops
+    IVF = {"K": ("K", "K2", F(10)), "Kap": ("kap", "kap", F(1, 10)), "E": ("E", "E", F(5)), "U": ("U", "U", F(1, 20)), "B": ("B", "B", F(1, 20)),
+           "W": ("W", "W", F(1, 20)), "Inf": ("Inf", "Inf", F(1, 20)), "Ce": ("Ce", "Ce", F(1, 5)), "Pi": ("Pi", "Pi", F(5)), "Rr": ("Rr", "Rr", F(1, 50)),
+           "I": ("I", "I", F(5)), "Asp": ("Asp", "Asp", F(1, 5)), "Rad": ("Rad", "Rad", F(3, 5)), "Gov": ("gov", "Gov2", F(1)), "SR": ("sR", "SR2", F(1, 5)),
+           "Df": ("Df", "Df2", F(5)), "Dh": ("dh", "Dh2", F(1, 10)), "DS": ("DS", "DS", F(1, 20))}
+    def probe(a_, b_, S, pp):
+        x, _, d = IVF[a_]; y = IVF[b_][1]
+        Vb = pf_chain(S, pp); frozen = [z for z in FIN_NODE_VARS if z != x and z != y]
+        return pf_chain(S, pp, (x, d, Vb, frozen))[y] - Vb[y]
+    ST8 = fp(scale=F(30), asp=F(2, 5)); DF8 = fp(shockpi=F(-1, 10))
+    bases = [(pf_at(pf_init(), PF, t), PF) for t in (0, 15, 30, 45, 7, 8, 52)] + [(pf_at(pf_init(), ST8, 10), ST8), (pf_at(pf_init(), PF, 40), PF), (pf_at(pf_init(), DF8, 41), DF8)]
+    old = [("K", "E", 1), ("Kap", "E", -1), ("E", "U", -1), ("U", "B", -1), ("U", "W", -1), ("B", "W", 1), ("W", "Ce", 1), ("Inf", "Ce", -1),
+           ("W", "Pi", -1), ("E", "Pi", 1), ("Pi", "Rr", 1), ("K", "Rr", -1), ("Rr", "I", 1), ("Pi", "I", 1), ("I", "K", 1), ("SR", "Asp", 1),
+           ("Ce", "Rad", -1), ("U", "Rad", 1), ("Asp", "Rad", 1), ("Rad", "Gov", 1), ("Gov", "B", -1), ("Pi", "SR", 1), ("U", "SR", 1), ("W", "SR", -1)]
+    new = [("K", "I", 1), ("K", "Df", 1), ("Pi", "Df", -1), ("Df", "Rr", -1), ("Inf", "Df", -1), ("Asp", "Dh", 1), ("Asp", "Ce", 1),
+           ("Dh", "Ce", -1), ("Dh", "W", -1), ("Dh", "DS", 1), ("DS", "SR", 1), ("Inf", "Dh", -1)]
+    def verdict(a_, b_, sg):
+        ds = [probe(a_, b_, S, pp) for S, pp in bases]
+        right = all((x > 0) if sg > 0 else (x < 0) for x in ds); zero = all(x == 0 for x in ds); nw = all((x >= 0) if sg > 0 else (x <= 0) for x in ds)
+        return ("strict" if right else ("absent" if zero else ("weak" if nw else "FAIL"))), ds
+    line = lambda a_, b_, sg, v_, ds: padl(a_, 4) + " -> " + padr(b_, 4) + padl("pos" if sg > 0 else "neg", 4) + padl(v_, 7) + drow(ds, 3, 8)
+    nv = [(e, *verdict(*e)) for e in new]; ov = [(e, *verdict(*e)) for e in old]
+    s8 = ["§F5.8 THE FINANCIAL EDGES, CHECKED ON THE EQUATION CHAIN (partial finite differences)",
+          "                       deltas at:   f0     f15     f30     f45     cr7    gov8    cr52    st10   inf40   def41"]
+    s8 += [line(*e, v_, ds) for e, v_, ds in nv]
+    s8.append("  financial edges confirmed (strict or weak): " + str(sum(1 for _, v_, _ in nv if v_ in ("strict", "weak"))) + " of " + str(len(new)))
+    s8.append("  capitalism's 24 edges at the financialized bases: those not strict")
+    s8 += [line(*e, v_, ds) for e, v_, ds in ov if v_ != "strict"]
+    alive = [e for e, v_, _ in ov if v_ != "absent"]
+    edges = alive + new
+    nodes = "K Kap E U B W Inf Ce Pi Rr I Asp Rad Gov SR Df Dh DS".split(); idx = {n: i for i, n in enumerate(nodes)}
+    found = []
+    def dfs(s_, cur, path):
+        for a_, b_, _ in edges:
+            if a_ != cur: continue
+            if b_ == s_: found.append(list(path))
+            elif idx[b_] > idx[s_] and b_ not in path: dfs(s_, b_, path + [b_])
+    for n in nodes: dfs(n, n, [n])
+    sign = {(a_, b_): sg for a_, b_, sg in edges}
+    loops = []
+    for cyc in found:
+        pol = 1
+        for a_, b_ in zip(cyc, cyc[1:] + cyc[:1]): pol *= sign[(a_, b_)]
+        loops.append(("R" if pol > 0 else "B", cyc))
+    fin_ = [l for l in loops if any(x in l[1] for x in ("Df", "Dh", "DS"))]
+    s8.append("  financialized diagram: " + str(len(alive)) + " of capitalism's edges + " + str(len(new)) + " financial = " + str(len(alive) + len(new)) + " edges")
+    s8.append("  elementary cycles: " + str(len(loops)) + "   reinforcing " + str(sum(1 for k, _ in loops if k == "R")) + "   balancing " + str(sum(1 for k, _ in loops if k == "B"))
+              + ";  through a financial node: " + str(len(fin_)) + " (R " + str(sum(1 for k, _ in fin_ if k == "R")) + ", B " + str(sum(1 for k, _ in fin_ if k == "B")) + ")")
+    s8.append("  the shortest loops through a financial node:")
+    s8 += [f"{k}{padl(str(len(cyc)), 3)}  " + " -> ".join(cyc + cyc[:1]) for k, cyc in fin_ if len(cyc) <= 4]
+    check("§F5.8 all 36 edge probes at 10 financialized states; the loops finance adds", "\n".join(s8), D[7])
+    check("me-financialized.pal: all assertions pass", asserts_ok(out), (12, 0))
+    return f, fc, ci
+
+
+def part8_evidence(f, fc, ci):
+    print("PART VIII(c)  finance against the data (me-evidence §EV2)")
+    out = run_pal("me-evidence.pal"); D = displays(out)
+    z89, z26 = lat_z_for(F(1, 100), F(228, 1000)), lat_z_for(F(1, 100), F(325, 1000))
+    crad = lambda rs: sum(1 for r in rs if r["Cr"] == 1 and rs[r["t"] + 1]["gov"] == 1)
+    ncr = lambda rs: sum(1 for r in rs if r["Cr"] == 1)
+    drop = lambda rs, t: 1 - rs[t]["Ce"] / rs[t - 1]["Ce"]
+    frel = lambda rs: (rs[59]["W"] - rs[0]["W"]) / rs[0]["W"]
+    p1 = lambda x: dec(100 * x, 1) + "%"
+    s = ["§EV2 FINANCE: THE MODEL AGAINST EMPIRICAL DATA", "  quantity                                   data        model",
+         "  Pareto exponent of US wealth               " + dec(F(149, 100), 2) + "        " + dec(lat_alpha(z89), 3) + "  (the lattice reading of the 1989 top-1% share)",
+         "    ... top-1% share " + p1(F(228, 1000)) + " -> " + p1(F(325, 1000)) + " (1989 -> 2026): alpha " + dec(lat_alpha(z89), 3) + " -> " + dec(lat_alpha(z26), 3) + "; condensation at 1",
+         "  far-right vote after financial crises      +" + p1(F(3, 10)) + "      radical government after " + str(crad(f)) + " of " + str(ncr(f)) + " crunches with household debt, "
+         + str(crad(fc)) + " of " + str(ncr(fc)) + " without",
+         "    ... the employed standard in the crunch: " + p1(-drop(f, 7)) + " / " + p1(-drop(f, 52)) + " with household debt; +" + p1(-drop(fc, 5)) + " without",
+         "  labour share, relative change              " + p1((F(66, 125) - F(331, 500)) / F(331, 500)) + "      financialized " + p1(frel(f)) + ";  induced mechanization " + p1(frel(ci)) + " (u_59 " + dec(ci[59]["U"], 3) + ")",
+         "  capital-account opening, labour share      " + p1(F(-9, 200)) + "       wage-share ceiling 1 - rho - r_ext: " + p1((F(4, 5) - F(17, 20)) / F(17, 20)) + "  (r_ext 10% -> 15%)"]
+    check("§EV2 finance against the data: wealth tail, crises and votes, labour share, capital account", "\n".join(s), D[1])
 
 
 if __name__ == "__main__":
@@ -1568,5 +1996,8 @@ if __name__ == "__main__":
     part6b()
     part6c()
     part6d()
+    f8, fc8, ci8 = part8b()
+    part8a()
+    part8_evidence(f8, fc8, ci8)
     print("\nALL AGREE" if ok_all else "\nDISAGREEMENT FOUND", f"({n_checks} checks)")
     sys.exit(0 if ok_all else 1)

@@ -1,7 +1,7 @@
 #lang palimpsest
 #fuel 4000000000
 #memo
-// PART VII(b) -- THE MODEL AGAINST EMPIRICAL DATA (MATERIALIST-ECONOMY.md §11; MATERIALIST-ECONOMY-PAPER.md §9.2)
+// PART VII(b) -- THE MODEL AGAINST EMPIRICAL DATA (MATERIALIST-ECONOMY.md §11; MATERIALIST-ECONOMY-PAPER.md §10.2)
 // Each empirical figure is a constant tagged with its source; each model figure
 // is computed here from the libraries. (The paper discusses the comparisons;
 // this program makes every number in the comparison table reproducible.)
@@ -14,12 +14,23 @@
 //   distribution    Ludwig & Yakovenko (2022): Gini of the exponential lower
 //                   class 1/2; upper class ~4% of tax units, 34% of income (2018)
 //   loss aversion   Tversky & Kahneman (1992): lambda = 2.25
+// and, for the financial mechanisms of Part VIII (display §EV2):
+//   wealth tail     Klass et al. (2006): Pareto exponent of US wealth 1.49
+//                   (Forbes 400, 1988-2003); Vermeulen (2018): 1.48-1.55
+//   top 1% wealth   Federal Reserve DFA (FRED WFRBST01134): 22.8% in 1989 Q3,
+//                   32.5% in 2026 Q2
+//   crises, votes   Funke, Schularick & Trebesch (2016): far-right vote share
+//                   up about 30% after financial crises, not after normal recessions
+//   capital account Furceri, Loungani & Ostry (2019): liberalization lowers the
+//                   labour share by about 4.5% in the medium term
 import "../lib/value.pal"
 import "../lib/classgames.pal"
 import "../lib/polecon.pal"
 import "../lib/econophysics.pal"
 import "../lib/selectorate.pal"
 import "../lib/report.pal"
+import "../lib/polecon-fin.pal"
+import "../lib/finance.pal"
 
 rule data-elast : (data-elast) => -1/10
 rule data-ls : (data-ls) => (list 331/500 66/125)
@@ -27,6 +38,10 @@ rule data-mawd : (data-mawd) => 23/250
 rule data-jg : (data-jg) => 1/20
 rule data-gini-lower : (data-gini-lower) => 1/2
 rule data-lambda : (data-lambda) => 9/4
+rule data-alpha : (data-alpha) => 149/100
+rule data-top1 : (data-top1) => (list 228/1000 325/1000)
+rule data-far-right : (data-far-right) => 3/10
+rule data-kaopen-ls : (data-kaopen-ls) => -9/200
 
 // ---- the model's counterparts -----------------------------------------------
 rule elast : (elast !b !s !u) => (q/ (* ?u (* (* (- 1 ?b) ?b) (- ?s 1))) (* (+ ?b (* ?u (- 1 ?b))) (+ ?b (* (* (- 1 ?b) ?u) ?s))))
@@ -62,6 +77,25 @@ rule s1 : (s1 !rows) => (lines (list
   (cat "    ... no effect below u_c = " (cat (sh (u-cross 1/5 2/5 4/5)) (cat ";  +5% at u = " (decimal (u-gain 1/20 (u-cross 1/5 2/5 4/5) 1 40) 4))))
   (cat "  Gini of the exponential (lower) class      " (cat (decimal (data-gini-lower) 3) (cat "       " (cat (decimal (geo-gini 10) 3) "  (geometric law, T = 10)"))))
   (cat "  loss aversion lambda                       " (cat (decimal (data-lambda) 2) "        2.25  (input; the threshold moves by 0.18 from lambda = 2 to 10, me-extremes §X4)"))))
+// ---- the financial counterparts (Part VIII) -------------------------------
+rule fin-rows : (fin-rows !kvs) => (traj-rows (pf-run (pf-init) (fev-go (pf-par) ?kvs) 60))
+rule fev-go-0 : (fev-go !p (list)) => ?p
+rule fev-go-n : (fev-go !p (list (kv ?k ?x) ?rest...)) => (fev-go (put@ ?p ?k ?x) (list ?rest...))
+rule app-fr-cr1 : (app fr-cr1 ?r) => (= (fr-cr ?r) 1)
+// crises followed (next period) by a radical government
+rule cr-radical : (cr-radical !rows) => (scount (gov-next ?rows) (sfilter fr-cr1 ?rows))
+rule app-gov-next : (app (gov-next ?rows) ?r) => (= (fr-gov (nth (+ (fr-t ?r) 1) ?rows)) 1)
+rule crunch-drop : (crunch-drop !rows !t) => (- 1 (q/ (fr-ce (nth ?t ?rows)) (fr-ce (nth (- ?t 1) ?rows))))
+rule frel : (frel !rows) => (q/ (- (fr-w (nth 59 ?rows)) (fr-w (nth 0 ?rows))) (fr-w (nth 0 ?rows)))
+rule s2 : (s2 !f !fc !ci) => (lines (list
+  "§EV2 FINANCE: THE MODEL AGAINST EMPIRICAL DATA"
+  "  quantity                                   data        model"
+  (cat "  Pareto exponent of US wealth               " (cat (decimal (data-alpha) 2) (cat "        " (cat (decimal (lat-alpha (lat-z-for 1/100 (nth 0 (data-top1)))) 3) "  (the lattice reading of the 1989 top-1% share)"))))
+  (cat "    ... top-1% share " (cat (pct (nth 0 (data-top1))) (cat " -> " (cat (pct (nth 1 (data-top1))) (cat " (1989 -> 2026): alpha " (cat (decimal (lat-alpha (lat-z-for 1/100 (nth 0 (data-top1)))) 3) (cat " -> " (cat (decimal (lat-alpha (lat-z-for 1/100 (nth 1 (data-top1)))) 3) "; condensation at 1"))))))))
+  (cat "  far-right vote after financial crises      +" (cat (pct (data-far-right)) (cat "      radical government after " (cat (sh (cr-radical ?f)) (cat " of " (cat (sh (length (sfilter fr-cr1 ?f))) (cat " crunches with household debt, " (cat (sh (cr-radical ?fc)) (cat " of " (cat (sh (length (sfilter fr-cr1 ?fc))) " without"))))))))))
+  (cat "    ... the employed standard in the crunch: " (cat (pct (- 0 (crunch-drop ?f 7))) (cat " / " (cat (pct (- 0 (crunch-drop ?f 52))) (cat " with household debt; " (cat "+" (cat (pct (- 0 (crunch-drop ?fc 5))) " without")))))))
+  (cat "  labour share, relative change              " (cat (pct (rel (nth 0 (data-ls)) (nth 1 (data-ls)))) (cat "      financialized " (cat (pct (frel ?f)) (cat ";  induced mechanization " (cat (pct (frel ?ci)) (cat " (u_59 " (cat (decimal (fr-u (nth 59 ?ci)) 3) ")"))))))))
+  (cat "  capital-account opening, labour share      " (cat (pct (data-kaopen-ls)) (cat "       wage-share ceiling 1 - rho - r_ext: " (cat (pct (rel 17/20 4/5)) "  (r_ext 10% -> 15%)"))))))
 // CE Table 10.1 deviation (as in me-extremes.pal)
 rule ce-mawd2 : (ce-mawd2) => (q/ (vsum (smap (absdev ?m) (zip ?lam (ce-sales)))) (vsum (ce-sales)))
   where ?lam <- (lvalues (ce-table)), ?m <- (q/ (vsum (ce-sales)) (vdot ?lam (ce-sales)))
@@ -70,7 +104,12 @@ import "../lib/longrun.pal"
 
 main = 0
 let $rows = (cap-rows) with eval
+let $f = (fin-rows (list)) with eval
+let $fc = (fin-rows (list (kv chi 0))) with eval
+let $ci = (traj-rows (pf-run (pe-init cap) (fev-go (pf-par) (list (kv imech 1))) 60)) with eval
 display (s1 $rows) with eval
+display (s2 $f $fc $ci) with eval
 assert (= (u-cross 1/5 2/5 4/5) 1/11) with eval
 assert (< (abs (- (jg-gain (u-cross 1/5 2/5 4/5)) 0)) 1/1000000000) with eval
 assert (< (mawd (e3) (list 0 10 2) (rstar-lo)) (data-mawd)) with eval
+assert (and (= (cr-radical $f) 2) (= (cr-radical $fc) 0)) with eval

@@ -6,14 +6,17 @@ feedback loops written as rewrite rules and verified edge by edge, its
 thresholds located exactly, and its outputs set beside published data.*
 
 This is the technical companion to the study. The study is written up as an
-academic paper in `MATERIALIST-ECONOMY-PAPER.md` (§15 below describes it).
+academic paper in `MATERIALIST-ECONOMY-PAPER.md` (§17 below describes it).
+Part VIII (§15–§16) adds finance: credit money, the wealth lattice, debt
+deflation, capital mobility, and a fourth, financialized regime of the
+integrated economy.
 Reproduce everything with:
 
 ```sh
 cargo build --release
 cargo test --release                            # 44 unit tests
-./verify-materialist.sh                         # 13 checks, ~4 min; exit 0 iff all pass
-python3 crosscheck/materialist_crosscheck.py    # 62 independent checks (part of the above)
+./verify-materialist.sh                         # 15 checks, ~6 min; exit 0 iff all pass
+python3 crosscheck/materialist_crosscheck.py    # 80 independent checks (part of the above)
 ```
 
 | file | role | section |
@@ -28,6 +31,8 @@ python3 crosscheck/materialist_crosscheck.py    # 62 independent checks (part of
 | `lib/longrun.pal` | the long-run profit attractor of *Classical Econophysics* §14.3 and its floor; CE Table 10.1 | §9–§10 |
 | `lib/selectorate.pal` | the selectorate model of *The Logic of Political Survival*, ch. 3 | §9–§10 |
 | `lib/report.pal` | strict text-report helpers, sparklines | displays |
+| `lib/finance.pal` | credit money and the price of a fixed stock, the wealth lattice, Fisher's debt-deflation cascade | §15 |
+| `lib/polecon-fin.pal` | the financialized regime (credit-financed accumulation, household credit, debt and desperation) and induced mechanization, on polecon's chain | §16 |
 | `examples/me-tour.pal` | one feedback loop, small enough to read with `--trace` (2 theorems) | §2 |
 | `examples/me-value.pal` | Part I, 17 theorems (~7 s) | §3 |
 | `examples/me-distribution.pal` | Part II, 18 theorems (~76 s) | §4 |
@@ -39,10 +44,12 @@ python3 crosscheck/materialist_crosscheck.py    # 62 independent checks (part of
 | `examples/me-classical.pal` | Part VI: checks against *Classical Econophysics* and *How the World Works*, 8 theorems (~7 s) | §9 |
 | `examples/me-selectorate.pal` | Part VI: the selectorate model, 7 theorems (~9 s) | §9 |
 | `examples/me-extremes.pal` | Part VII: limits, thresholds and inflection points, 6 theorems (~11 s) | §10 |
-| `examples/me-evidence.pal` | Part VII: the model's figures beside cited empirical data, 3 theorems (~0.5 s) | §11 |
+| `examples/me-evidence.pal` | Part VII: the model's figures beside cited empirical data, 4 theorems (~2 s) | §11, §16 |
+| `examples/me-finance.pal` | Part VIII(a): finance on its own, 7 theorems (~19 s) | §15 |
+| `examples/me-financialized.pal` | Part VIII(b): the financialized economy, 12 theorems (~56 s) | §16 |
 | `crosscheck/materialist_crosscheck.py` | an independent Python implementation that regenerates every displayed table | §13 |
 | `verify-materialist.sh` | runs all of the above | §13 |
-| `MATERIALIST-ECONOMY-PAPER.md` | the study as an academic paper, with code, data, sources and the reproduction protocol | §15 |
+| `MATERIALIST-ECONOMY-PAPER.md` | the study as an academic paper, with code, data, sources and the reproduction protocol | §17 |
 
 ---
 
@@ -803,7 +810,11 @@ et al. 2017).
 | Right-wing patronage employment drives a downward spiral | **Supported above a threshold** (G7, §6, §7, X7): jobs dominate; the lock-in starts between aspiration 0.26 and 0.27 | premise supported (Thachil) |
 | Accountable planning defuses authoritarian politics | **Supported within the model** (§6–§8): no loss domain from period 1 in all 27 settings; the radicalization loops are structurally absent. Cautions: AP's viability depends on demand growth not outrunning productivity, and a transition from a high-aspiration society fails its first period | no test available |
 | Unemployment always weakens labour | **Contradicted near full employment** (§7, X2): below u = 1/12 the class game's equilibrium is capital flight | — |
-| Capitalism's reserve army keeps growing | **Model artefact** (C2, X6): only with μ > s_c·r − δ | **contradicted** (trendless unemployment) |
+| Capitalism's reserve army keeps growing | **Model artefact** (C2, X6): only with μ > s_c·r − δ. Credit turns the trend into steps; induced mechanization stops it but shrinks the labour-share fall to −8.4% (§16 F5.7) | **contradicted** (trendless unemployment) |
+| Credit creates money and inflates asset prices, not output | **Supported** (F1): deposits created = loans outstanding; price = S/(1 − LTV); the sellers gain Q·D/M | **supported** (Favara and Imbs 2015; mortgages 30% → 60% of bank lending) |
+| Compounding capital gains make the Pareto class, which reform cannot remove | **Supported, qualified** (F2): a Pareto tail with α = log2(q/p) whenever fortunes are also broken up; condensation at 2p ≥ q; the exponent is set by resets (heirs, bankruptcy, tax) | the DFA top-1% shares read as α = 1.460 (1989) and 1.322 (2026); direct estimates 1.48–1.55 |
+| Falling prices start a spiral; the system needs inflation | **Supported with a threshold** (F3, F5.5): a complete spiral iff a distress sale moves the price by more than the spacing of leverage; inflation postpones the debt crisis (t = 48 → 59 for π = 0 → 8%), deflation brings it forward | Fisher (1933) |
+| Debt deepens desperation and the authoritarian turn | **Supported** (F5.3, F5.6, F5.8): every crisis becomes a radical government with household credit, none without; 27 of 27 stress settings against 15; the DS → SR edge holds but is weak | **supported** (Funke et al.; Mian, Sufi and Trebbi; Mian, Rao and Sufi) |
 
 ---
 
@@ -830,10 +841,13 @@ every displayed table with the same formatting and requires exact agreement:
 | VI(b) selectorate | 5 | §9 S1–S4 |
 | VI(c) extremes | 11 | §10 |
 | VI(d) evidence | 2 | §11 |
+| VIII(a) finance | 5 | §15 F1–F4 |
+| VIII(b) financialized | 12 | §16 F5.1–F5.8, including the nesting check (all channels off = capitalism, row for row), the 54-run stress grid and all 360 edge probes |
+| VIII(c) evidence | 1 | §16 (§EV2) |
 
-`verify-materialist.sh` runs the twelve programs (112 assertions), the
+`verify-materialist.sh` runs the fourteen programs (132 assertions), the
 self-rewriting sequence (six rewrites, then a fixed point) and the cross-check:
-13 checks, all passing. The two implementations share a specification, not
+15 checks, all passing. The two implementations share a specification, not
 code, so they catch implementation errors but not specification errors; the
 empirical comparison of §11 is the check on the specification.
 
@@ -850,9 +864,20 @@ empirical comparison of §11 is the check on the specification.
 - **The outside-option formula lets the wage share approach 1 at full
   employment.** It drives the capital-flight region below u = 1/12, the
   job guarantee's inertness below u_c = 1/11 and the zero elasticity at u = 0.
-- **Mechanization is exogenous** in the integrated model (μ fixed); X3 computes
-  when it pays, but firms do not choose it. **There is no demand side**, the
-  likely reason for the trending unemployment.
+- **Mechanization is exogenous** in the three regimes of Part IV (μ fixed); X3
+  computes when it pays. §16 F5.7 makes it induced as an option and shows that
+  the trend then stops, at the cost of the labour-share match. **There is no
+  demand side**: credit in §16 finances investment and consumption, but output
+  is still what the employed produce, and nothing models a realization crisis
+  or fiscal policy.
+- **The financial parameters are round values**, not steady-state algebra:
+  the interest rate (5%), the banks' accommodation (lev = 1), the households'
+  borrowing propensity (1/2), the debt ceiling (one period's income) and the
+  crunch repayment (1/5). §16 reports a grid for each one that decides an
+  outcome and the threshold where it changes. Households default on nothing,
+  the unemployed carry no debt, the interest rate does not respond to anything,
+  and asset prices (F1) and the wealth lattice (F2) are not inside the
+  integrated model.
 - **The value function's curvature is a modelling choice**, valid only for
   losses smaller than K, and X4 shows that K decides the radical threshold.
 - **Accountable planning's immunity to inflation is by construction.**
@@ -874,7 +899,8 @@ empirical comparison of §11 is the check on the specification.
   empirical sources were consulted at second hand (Shaikh and Zachariah via
   *Classical Econophysics*; Cockshott and Cottrell and Işıkara and Mokre via
   the essays).
-- **Not modelled:** international trade and unequal exchange, the party-state
+- **Not modelled:** international trade and unequal exchange (capital
+  mobility enters only through the return abroad, F4), the party-state
   beyond its collusion and selectorate readings, Wright's social-architecture
   model of firm formation, the psychoanalytic models of the contradictions post
   (foreclosure appears only as the diagnosis of §8), and the
@@ -882,7 +908,183 @@ empirical comparison of §11 is the check on the specification.
 
 ---
 
-## 15. The paper
+## 15. Part VIII(a) — finance on its own (`me-finance.pal`)
+
+The essays make four financial claims that Parts I–VII do not represent. The
+mechanical-materialism essay says that a bank "does not lend out pre-existing
+deposits" and that "new money bids up the price of housing and equities
+without a corresponding increase in the real output of the economy"; it ties
+the Pareto class to "compounding capital-gains income" and calls the class
+structure something that could not be "reformed away". The accountable-planning
+essay says that "nearly all production is financed by borrowing", that falling
+prices cause insolvency, distress selling and further price declines, and that
+"the system requires that the purchasing power of money be deliberately
+eroded". `lib/finance.pal` writes the first three mechanisms on their own;
+§16 puts credit and debt into the integrated economy.
+
+**F1 Credit money and a fixed stock.** A ledger of loans, payments and
+repayments `(bk M L)`: a loan adds the same amount to deposits and to loans,
+a repayment removes it, a payment moves a deposit. Over eight events, new
+deposits equal loans outstanding after every one (asserted). Buyers with
+savings S bid for a fixed stock with loans at loan-to-value LTV: the price is
+`S/(1 − LTV)`, ×2 at 0.5, ×5 at 0.8, ×20 at 0.95, with no house and no output
+added. The new money reaches the incumbent holders first; spent on output
+Q = 1000 it transfers exactly Q·D/M to them (Part II's Cantillon rule), 190
+units at LTV 0.95 with ten sales a period, and the transfers sum to zero.
+
+**F2 The wealth lattice.** Fortunes sit on levels 2ⁿ; each period one doubles
+with probability p (a capital gain) and halves with probability q (a reset:
+division between two heirs, a bankruptcy, a tax); level 0 is the floor where a
+fortune rejoins the exponential class. The stationary law is π_n = (1 − z)zⁿ,
+z = p/q, so P(W ≥ 2ⁿ) = zⁿ: a Pareto tail with α = log2(q/p), computed to
+three decimals as the largest m with 2^m ≤ (q/p)^1000. With the top fraction f
+between z^(n+1) and zⁿ, its wealth share is
+`(2z)^(n+1) + (f − z^(n+1))·2ⁿ(1 − 2z)/(1 − z)`, exact.
+
+```
+      z     q/p   alpha  top 1%  top 10%
+    1/4   4.000   2.000     9.5%    30.0%
+    1/3   3.000   1.584    17.9%    42.2%
+    3/8   2.667   1.415    25.4%    49.8%
+    2/5   2.500   1.321    32.5%    56.0%
+   9/20   2.222   1.152    54.1%    73.5%
+  19/40   2.105   1.074    72.6%    85.2%
+```
+
+The chain itself, iterated from every fortune at the floor on 31 levels
+(p = 1/10, q = 1/4, rounded to 10⁻¹² a period), reaches the geometric law
+within 10⁻⁶ in 300 periods. **Condensation is the case 2z ≥ 1**: mean wealth
+diverges, and on a lattice capped at 2^L the top 1% hold 42.3%, 90.7%, 99.8%,
+100.0% at z = 3/5 as L goes 10, 20, 40, 80, against a share that settles at
+32.5% for z = 2/5 (both asserted). Part II's condensation is q = 0; the asset
+cap is a finite L. Read on the lattice, the Distributional Financial Accounts'
+top-1% shares give z = 0.3634, α = 1.460 in 1989 (22.8%) and z = 0.4000,
+α = 1.322 in 2026 (32.5%): p/q rose 10.1%.
+
+**F3 Fisher's debt deflation.** Twenty firms hold one unit of an asset and owe
+d_j, evenly spaced (spacing Δ) between d_lo and d_hi; after a shock σ and m
+distress sales the price is `1 − σ − ηm`, and m is the least fixed point of
+`m ↦ #{j : d_j > 1 − σ − ηm}`. The program checks the closed form on 36 cases:
+one insolvency brings down all twenty iff η ≥ Δ; otherwise sales stop at
+`⌈(d_hi − 1 + σ)/(Δ − η)⌉`. At η = 0.025, debts spread over [0.20, 0.80]
+(Δ = 0.032) absorb shocks up to 20% and amplify a 25% shock 1.8-fold; debts
+crowded into [0.50, 0.95] (Δ = 0.024) collapse completely after a 10% shock,
+amplified sixfold.
+
+**F4 Capital mobility.** In Part III the return abroad r_ext is 10%. Capital
+flight is a pure equilibrium of the class game exactly when the reserve-army
+wage reaches 1 − ρ − r_ext, i.e. for
+`u ≤ u_f = β_l(ρ + r)/((1 − β_l)(1 − ρ − r − s))`; game (bisection over u,
+"some pure equilibrium has capital leaving") and closed form agree at seven
+returns: u_f = 0.050, 0.083, 0.125, 0.179, 0.250, 0.350, 0.750 for
+r = 0.05 … 0.40, and from r = 43/100 flight is an equilibrium at every u.
+
+---
+
+## 16. Part VIII(b) — the financialized economy (`me-financialized.pal`)
+
+`lib/polecon-fin.pal` adds a fourth regime, `fin`, to the equation chain of
+Part IV. It replaces seven equations by name — `(as W Wf)` in a regime's
+order stores equation `Wf` under `W`, so every reader, row and probe still uses
+`W` (one rule added to `polecon.pal`, which the other three regimes never
+reach) — and adds nine: `Mu Bf Df2 Inc Jh Bh Rh DS Dh2`. The three channels:
+
+1. **Credit-financed accumulation.** Firms invest `(μ + δ)K`, the investment
+   that holds their workforce; banks lend `Bf = lev·max(0, (μ + δ)K − s_c·Π_net)`,
+   with Π_net = Π − i·D_f at nominal rate i = 5%. The capital strike reads the
+   net profit rate, so a debt crisis is Part IV's crisis rule reached through
+   interest. Real debt evolves as `D_f' = (D_f + Bf)/(1 + π)`; in a crisis
+   `D_f' = (1 − crash)·D_f/(1 + π)` and no loans are made.
+2. **Household credit.** The employed borrow `Bh = χ·max(0, Asp − (Inc − i·d_h))`
+   (χ = 1/2), capped by `d_h + Bh ≤ Inc` (the ceiling dcap = 1); in a crisis
+   they repay `Rh = d_h/5`. Their standard is `Inc − i·d_h + Bh − Rh`.
+3. **Debt and desperation.** The worker's fallback in the bargain is
+   `s − i·d_h(1 + π)/A`; the right network's pull is `3(1 + U + DS)` with
+   `DS = (i·d_h + Rh)/Inc`; households' interest funds the network with profits.
+
+`(pf-run S P N)` runs any regime with `pf-next`, which carries the debts and,
+with `imech = 1`, lets capital per job grow at
+`μ·max(0, w − w_s)/(w_m − w_s)` (w_m = 0.864, w_s = 0.765 = w_m/1.129, the
+switch ratio of X3). The program asserts that with lev = χ = 0 the regime is
+capitalism, row for row, through both runners.
+
+**F5.1 Baseline** (lev = 1). Crises at t = 7 and 52, each followed by one
+period of radical government (capitalism: none). Unemployment is flat between
+the crises (0.189–0.190 from t = 15 to 51) and jumps at each, ending at 0.298
+against capitalism's 0.299. Between the crises the wage share stays within
+0.0087 while the profit rate falls every period, 0.0733 → 0.0403: the falling
+rate of profit at constant exploitation (V8), which credit-held employment
+supplies. Firm debt/capital runs 0.086, 0.062, 0.113, 0.190 at t = 9, 24, 39,
+51; household debt sits at its ceiling from t = 15 to 39. The labour share falls
+21.7% (capitalism 19.9%).
+
+**F5.2 Channels.** Firm credit alone: crises at 5 and 50, no radical
+government. Household credit alone: no crisis, no radical government. Both:
+crises at 7 and 52, each followed by radical government.
+
+**F5.3 The crunch.** The employed vote radical iff standard/aspiration
+< 1 + D*/20 = 0.7300 (D* = −5.39936, bisection). With household credit the
+crunch cuts the standard 22.3% and 21.7% (ratio 0.670, 0.664); without it the
+standard rises 2.5% at the crisis (0.889, 0.871). Asserted: every crisis is
+radical exactly when the ratio crosses the threshold. Over χ: no radical
+government up to 1/8, the second crisis only at 1/4–3/8, both from 1/2.
+
+**F5.4 Accommodation.** No crisis within 60 periods for lev ≤ 3/4
+(u_59 = 0.278 … 0.240); the boundary is between lev = 0.7617 and 0.7622.
+
+**F5.5 Inflation and deflation.** The first crisis (t = 6–8) survives every
+steady inflation rate; the second comes at t = 48, 52, 54, 57, 59 and not at
+all for π = 0, 2, 4, 6, 8, 10% (asserted non-decreasing). A 10% deflation at
+t = 40–41 raises capitalism's employed standard (1.787 → 2.184); in the
+financialized economy it lifts household debt to 1.235 of income, brings the
+second crisis forward from 52 to 49 and doubles radical periods (2 → 4).
+
+**F5.6 The stress grid.** Of Part IV's 27 settings, capitalism elects a
+radical government in 15, the financialized economy in all 27; radical periods
+386 against 509. In 5 settings finance has fewer, all of them settings where
+capitalism is locked in for 56+ periods.
+
+**F5.7 Two remedies for the trend.**
+
+```
+  run                        u_0   u_15   u_30   u_45   u_59  w chg    r_59   crises
+capitalism                0.100  0.168  0.205  0.249  0.299  -19.9%  0.0571        -
+capitalism, induced       0.100  0.141  0.149  0.156  0.161   -8.4%  0.0538        -
+financialized             0.100  0.190  0.189  0.189  0.298  -21.7%  0.0494     7 52
+financialized, induced    0.100  0.149  0.140  0.140  0.140   -7.2%  0.0477        7
+```
+
+Induced mechanization stops the trend (capitalism: rises < 0.001 a period from
+t = 30; with credit: 0.140 in every period from t = 30), but the labour share
+then falls 7–8%, not 20%; across w_s from 0.70 to 0.84, u_59 runs 0.187 →
+0.117 and the labour-share fall −11.2% → −2.7%. In this model the labour share
+is a function of unemployment, so §11's labour-share match and the
+unemployment failure are one fact.
+
+**F5.8 Edges and loops.** The 12 financial edges, probed at ten financialized
+states (baseline 0/15/30/45, crises 7 and 52, the radical period 8, stress at
+10, inflation shock 40, deflation 41): 11 confirmed. **Inf → Dh fails**: at
+t = 0, with no debt, inflation raises borrowing (+0.018), because households
+borrow to replace the real pay it cuts. DS → SR (terror management) is strict
+but small (0.001–0.004 for ΔDS = 0.05). Of capitalism's 24 edges none vanishes;
+Pi → I becomes weak (zero while banks fill the gap: credit severs investment
+from profit), and U → B still fails. The financialized diagram has 36 edges and
+37 elementary cycles (15 R, 22 B), 18 through a financial node (7 R, 11 B);
+the shortest are the Minsky loop `K → Df → Rr → I → K` (B), the debt–desperation
+loop `Asp → Dh → DS → SR → Asp` (R) and the debt-discipline loop
+`W → SR → Asp → Dh → W` (R).
+
+**§EV2** (in `me-evidence.pal`) sets these beside data: the US wealth tail
+(1.49, Klass et al.; 1.48–1.55, Vermeulen) against the lattice reading 1.460;
+far-right votes after financial crises (+30%, Funke et al.) against 2 of 2
+radicalizing crunches with household debt and 0 of 2 without; the labour share
+(−20.2%) against −21.7% financialized and −8.4% with induced mechanization;
+capital-account opening (labour share −4.5%, Furceri et al.) against the fall
+of the wage-share ceiling 1 − ρ − r_ext (−5.9% for r_ext 10% → 15%).
+
+---
+
+## 17. The paper
 
 `MATERIALIST-ECONOMY-PAPER.md` presents the study as an academic paper. It is
 organized by theme, and each of §§4–8 runs mechanism, thresholds, evidence and
@@ -890,15 +1092,16 @@ verdict:
 
 | paper section | content | here |
 |---|---|---|
-| §1–§2 | the essays' argument, the fourteen propositions T1–T14, and the three tests (derivation, extremes, data) | §1 |
+| §1–§2 | the essays' argument, the eighteen propositions T1–T18, and the three tests (derivation, extremes, data) | §1 |
 | §3 | Palimpsest, with the traced `me-tour.pal` example | §2 |
 | §4 | value, prices and profit (T1, T2, T5, T6) | §3, §9 C1, §10 X3/X5/X10 |
 | §5 | money and its distribution (T3, T4, T10) | §4 |
 | §6 | class conflict in the labour market (T8) | §5 G1–G3, §10 X1–X2, §11 |
 | §7 | politics (T7, T9, T11, T13) | §5 G4–G7, §9 S1–S4, §10 X4/X8/X9 |
 | §8 | the integrated economy (T11–T14) | §6–§8, §9 C2, §10 X6–X7 |
-| §9 | the scorecard and the data at a glance | §11–§12 |
-| §10–§12 | verification and reproduction, limitations, conclusion | §13–§14 |
+| §9 | finance: credit money, the wealth lattice, debt deflation, the financialized regime, two remedies for the unemployment trend, capital mobility (T15–T18) | §15–§16 |
+| §10 | the scorecard and the data at a glance | §11–§12 |
+| §11–§13 | verification and reproduction, limitations, conclusion | §13–§14 |
 
 It contains references and a list of the sources consulted online. A live
 version with charts is published as a Claude document; the Markdown file marks

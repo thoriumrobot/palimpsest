@@ -1,0 +1,169 @@
+#lang palimpsest
+// polecon-fin.pal -- a fourth regime for the integrated economy of polecon.pal,
+// FINANCIALIZED capitalism (fin), and INDUCED mechanization for any capitalist
+// regime. fin is capitalism (polecon's cap) with three financial channels,
+// each one equation with one parameter, so that switching all of them off
+// gives back cap row for row (asserted in me-financialized.pal):
+//
+//  1. credit-financed accumulation (lev): firms invest what holds their
+//     workforce while capital per job rises, (mu + dep) K; banks lend the share
+//     lev of the gap that retained net profit leaves. Interest at the nominal
+//     rate ifr on firm debt Df is a deduction from profit, and the capital
+//     strike of polecon (r < r_min) now reads the NET profit rate -- so a debt
+//     crisis is the existing crisis rule, reached through interest (Minsky).
+//     Debt is nominal: inflation erodes it; a crisis writes off the share of it
+//     that the crash destroys, and no new loans are made.
+//  2. household credit (chi, dcap, arep): the employed borrow the share chi of
+//     the gap between their aspiration (the reference point of polecon) and
+//     their income net of interest, up to a debt ceiling of dcap times income.
+//     In a crisis lending stops (the credit crunch) and they repay the share
+//     arep of their debt. Their standard is income - interest + borrowing -
+//     repayment.
+//  3. debt and desperation: debt service is owed whatever happens, so it is
+//     subtracted from the worker's fallback in the wage bargain (an indebted
+//     worker bargains from a worse outside option), and the debt-service share
+//     DS of income joins unemployment in the insecurity that raises the pull of
+//     the right network's institutions (polecon's terror-management term
+//     3 (1 + U) becomes 3 (1 + U + DS)). Interest paid by households is income
+//     of capital and funds the right network with profits.
+//
+// INDUCED MECHANIZATION (imech = 1): capital per job rises at
+//     mu_t = mu max(0, w_t - ws) / (wm - ws),
+// the full rate mu at the wage share wm = 0.864 (the initial wage share of
+// cap) and none at the share ws below which mechanizing no longer pays. The
+// default ws = 0.765 is wm divided by 1.129, the switch ratio of me-extremes.pal §X3 (paper §4.3)
+// (a technique that saves labour with machinery in the ratio 1/2 pays only
+// above a real wage 12.9% higher than the one at which it does not).
+import "polecon.pal"
+
+rule fmx : (fmx !a !b) => (if (>= ?a ?b) ?a ?b)
+rule fmn : (fmn !a !b) => (if (<= ?a ?b) ?a ?b)
+
+// ---------------------------------------------------------------- parameters
+rule pf-par : (pf-par) => (pf-extend (pe-par))
+rule pf-extend : (pf-extend !p) => (put@ (put@ (put@ (put@ (put@ (put@ (put@ (put@ ?p
+  ifr 1/20) lev 1) chi 1/2) dcap 1) arep 1/5) imech 0) ws 153/200) wm 108/125)
+rule pf-init : (pf-init) => (put@ (put@ (pe-init fin) Df 0) dh 0)
+
+// ---------------------------------------------------------------- the chain
+// polecon's chain with seven equations replaced (as NAME EQ) and nine added
+rule pe-order-fin : (pe-order fin) => (list E U B Fl Inf (as W Wf) Pi (as Rr Rrf) Cr Mu Bf (as I If) Df2 K2 Asp
+  Inc Jh Bh Rh (as Ce Cef) (as Cu Cuf) DS Dh2 Rad Gov2 (as SR2 SR2f))
+// the mechanization rate (exogenous unless imech = 1)
+rule pf-mu : (pf-mu !v !p) => (if (has@ ?p imech) (pf-mu2 ?v ?p (@ ?p imech)) (@ ?p mu))
+rule pf-mu2 : (pf-mu2 !v !p !im) => (if (= ?im 1) (q/ (* (@ ?p mu) (fmx 0 (- (@ ?v W) (@ ?p ws)))) (- (@ ?p wm) (@ ?p ws))) (@ ?p mu))
+// the indebted worker's fallback: benefit minus debt service, in wage-share units
+// (one unit of the living standard is (1 + Inf) / A of an hour's value)
+rule pf-jw : (pf-jw !v !p) => (q/ (* (* (@ ?p ifr) (@ ?v dh)) (+ 1 (@ ?v Inf))) (@ ?v A))
+rule eq-Wf : (pe-eq Wf ?v ?p) => (w-cap (@ ?v B) (@ ?v U) (- (@ ?p s) (pf-jw ?v ?p)))
+// net profit = profit - interest on firm debt
+rule pf-pn : (pf-pn !v !p) => (- (@ ?v Pi) (* (@ ?p ifr) (@ ?v Df)))
+rule eq-Rrf : (pe-eq Rrf ?v ?p) => (if (> (@ ?v K) 0) (q/ (pf-pn ?v ?p) (@ ?v K)) 0)
+rule eq-Mu : (pe-eq Mu ?v ?p) => (pf-mu ?v ?p)
+// Bf: new bank lending to firms (none in a crisis)
+rule eq-Bf : (pe-eq Bf ?v ?p) => (if (= (@ ?v Cr) 1) 0 (* (@ ?p lev) (fmx 0 (- (* (+ (@ ?v Mu) (@ ?p dep)) (@ ?v K)) (* (@ ?p sc) (pf-pn ?v ?p))))))
+rule eq-If : (pe-eq If ?v ?p) => (if (= (@ ?v Cr) 1) 0 (+ (* (@ ?p sc) (pf-pn ?v ?p)) (@ ?v Bf)))
+// Df2: next period's real firm debt
+rule eq-Df2 : (pe-eq Df2 ?v ?p) => (q/ (if (= (@ ?v Cr) 1) (* (- 1 (@ ?p crash)) (@ ?v Df)) (+ (@ ?v Df) (@ ?v Bf))) (+ 1 (@ ?v Inf)))
+// the employed household: income, interest, borrowing, repayment, standard
+rule eq-Inc : (pe-eq Inc ?v ?p) => (q/ (* (@ ?v W) (@ ?v A)) (+ 1 (@ ?v Inf)))
+rule eq-Jh : (pe-eq Jh ?v ?p) => (* (@ ?p ifr) (@ ?v dh))
+rule eq-Bh : (pe-eq Bh ?v ?p) => (if (= (@ ?v Cr) 1) 0 (fmn (* (@ ?p chi) (fmx 0 (- (@ ?v Asp) (- (@ ?v Inc) (@ ?v Jh)))))
+                                                          (fmx 0 (- (* (@ ?p dcap) (@ ?v Inc)) (@ ?v dh)))))
+rule eq-Rh : (pe-eq Rh ?v ?p) => (if (= (@ ?v Cr) 1) (* (@ ?p arep) (@ ?v dh)) 0)
+rule eq-Cef : (pe-eq Cef ?v ?p) => (+ (- (@ ?v Inc) (@ ?v Jh)) (- (@ ?v Bh) (@ ?v Rh)))
+rule eq-Cuf : (pe-eq Cuf ?v ?p) => (@ ?p s)
+rule eq-DS : (pe-eq DS ?v ?p) => (q/ (+ (@ ?v Jh) (@ ?v Rh)) (@ ?v Inc))
+rule eq-Dh2 : (pe-eq Dh2 ?v ?p) => (q/ (- (+ (@ ?v dh) (@ ?v Bh)) (@ ?v Rh)) (+ 1 (@ ?v Inf)))
+// the right network: funded by profit and by households' interest (in hours),
+// pulling with insecurity U + DS
+rule eq-SR2f : (pe-eq SR2f ?v ?p) => (pat-step 1 0 (rec (br ?br) (bl ?blf) (rho (@ ?p prho)) (a ?a) (m 1) (t 1)) (@ ?v sR))
+  where ?br <- (* (@ ?p phi) (+ (@ ?v Pi) (* (q/ (* (@ ?v Jh) (+ 1 (@ ?v Inf))) (@ ?v A)) (@ ?v E)))),
+        ?blf <- (* (@ ?p psi) (* (@ ?v W) (@ ?v E))), ?a <- (* 3 (+ 1 (+ (@ ?v U) (@ ?v DS))))
+
+// ---------------------------------------------------------------- the period
+// as pe-next, with capital per job growing at the (possibly induced) rate and
+// the two debts carried when the state has them
+rule pf-next : (pf-next !s !v !p) => (pf-debt (set@ (set@ (set@ (set@ (set@ (set@ (set@ ?s t ?t1) K (pe-r6 (@ ?v K2)))
+    kap (pe-r6 (* (@ ?s kap) (+ 1 ?mu)))) A (pe-r6 (* (@ ?s A) (+ 1 (@ ?p gam))))) ce (pe-r6 (@ ?v Ce))) sR (@ ?v SR2)) gov (@ ?v Gov2)) ?v)
+  where ?t1 <- (+ (@ ?s t) 1), ?mu <- (pf-mu ?v ?p)
+rule pf-debt : (pf-debt !s !v) => (if (has@ ?s Df) (set@ (set@ ?s Df (pe-r6 (@ ?v Df2))) dh (pe-r6 (@ ?v Dh2))) ?s)
+// rows: (frow t mode u beta w r crisis ce asp Df/K dh/Inc DS rad sR gov Phi mu)
+rule pf-get : (pf-get !v !k) => (if (has@ ?v ?k) (@ ?v ?k) 0)
+rule pf-row : (pf-row !v) => (frow (@ ?v t) (@ ?v mode) (@ ?v U) (@ ?v B) (@ ?v W) (@ ?v Rr) (@ ?v Cr) (@ ?v Ce) (@ ?v Asp)
+    (q/ (pf-get ?v Df) (@ ?v K)) (if (has@ ?v Inc) (q/ (@ ?v dh) (@ ?v Inc)) 0) (pf-get ?v DS) (@ ?v Rad) (@ ?v sR) (@ ?v gov) (@ ?v Phi))
+rule pf-run : (pf-run !s !p !n) => (pfr-go ?s ?p ?n (list))
+rule pfr-done : (pfr-go !s !p !n !rows) => (traj ?s ?rows) where (<= ?n 0)
+rule pfr-go : (pfr-go !s !p !n !rows) => (pfr-go ?s2 ?p ?n1 ?rows2)
+  where (> ?n 0), ?v <- (pe-chain ?s ?p none), ?s2 <- (pf-next ?s ?v ?p), ?rows2 <- (snoc ?rows (pf-row ?v)), ?n1 <- (- ?n 1)
+// the state after T periods
+rule pf-at : (pf-at !s !p !n) => (traj-final (pf-run ?s ?p ?n))
+// row accessors
+rule fr-t : (fr-t (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?t
+rule fr-u : (fr-u (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?u
+rule fr-w : (fr-w (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?w
+rule fr-r : (fr-r (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?r
+rule fr-cr : (fr-cr (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?cr
+rule fr-ce : (fr-ce (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?ce
+rule fr-asp : (fr-asp (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?asp
+rule fr-dk : (fr-dk (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?dk
+rule fr-dh : (fr-dh (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?dh
+rule fr-ds : (fr-ds (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?ds
+rule fr-rad : (fr-rad (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?rad
+rule fr-sr : (fr-sr (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?sr
+rule fr-gov : (fr-gov (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?gov
+rule fr-phi : (fr-phi (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => ?phi
+rule app-fr-u : (app fr-u ?r) => (fr-u ?r)
+rule app-fr-w : (app fr-w ?r) => (fr-w ?r)
+rule app-fr-r : (app fr-r ?r) => (fr-r ?r)
+rule app-fr-ce : (app fr-ce ?r) => (fr-ce ?r)
+rule app-fr-dk : (app fr-dk ?r) => (fr-dk ?r)
+rule app-fr-dh : (app fr-dh ?r) => (fr-dh ?r)
+rule app-fr-rad : (app fr-rad ?r) => (fr-rad ?r)
+rule app-fr-gov : (app fr-gov ?r) => (fr-gov ?r)
+rule app-fr-cr : (app fr-cr ?r) => (fr-cr ?r)
+rule app-fr-phi : (app fr-phi ?r) => (fr-phi ?r)
+// a row of polecon's own history format, for comparing fin with cap
+rule pf-as-row : (pf-as-row (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => (rw ?t ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi)
+rule pe-as-row : (pe-as-row (row ?t ?m ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi ?ec ?po)) => (rw ?t ?u ?b ?w ?r ?cr ?ce ?rad ?sr ?gov ?phi)
+rule app-pf-as-row : (app pf-as-row ?r) => (pf-as-row ?r)
+rule app-pe-as-row : (app pe-as-row ?r) => (pe-as-row ?r)
+
+// ---------------------------------------------------------------- the CLD
+// the financial nodes: Df (firm debt; measured on next period's Df2), Dh
+// (household debt: the state variable dh, measured on Dh2) and DS (the
+// debt-service share)
+rule pe-iv-Df : (pe-iv Df) => (iv Df Df2 5)
+rule pe-iv-Dh : (pe-iv Dh) => (iv dh Dh2 1/10)
+rule pe-iv-DS : (pe-iv DS) => (iv DS DS 1/20)
+rule pf-node-vars : (pf-node-vars) => (list E U B W Inf Ce Pi Rr I K2 Asp Rad Gov2 SR2 Df2 Dh2 DS)
+// the edges financialization adds (checked by pf-verify-edge in me-financialized.pal)
+rule pf-new-edges : (pf-new-edges) => (list
+  (edge K I pos "credit finances the investment that holds the workforce: it scales with capital")
+  (edge K Df pos "and so does the financing gap the banks lend into (next period)")
+  (edge Pi Df neg "the less retained profit, the more borrowing (next period)")
+  (edge Df Rr neg "interest is a deduction from profit")
+  (edge Inf Df neg "inflation erodes nominal debt (next period)")
+  (edge Asp Dh pos "households borrow toward their aspiration (next period)")
+  (edge Asp Ce pos "and they consume what they borrow")
+  (edge Dh Ce neg "interest and repayment come out of the standard")
+  (edge Dh W neg "debt service worsens the indebted worker's fallback")
+  (edge Dh DS pos "debt raises the debt-service share")
+  (edge DS SR pos "debt service is insecurity: the pull of institutions (terror management)")
+  (edge Inf Dh neg "inflation erodes household debt (next period)"))
+// a probe with an explicit frozen set (pe-probe freezes polecon's node list)
+rule pf-probe : (pf-probe !from !to !s !p) => (- (@ ?vh ?y) (@ ?vb ?y))
+  where ?ivf <- (pe-iv ?from), ?ivt <- (pe-iv ?to), ?x <- (iv-var ?ivf), ?d <- (iv-d ?ivf), ?y <- (iv-meas ?ivt),
+        ?vb <- (pe-chain ?s ?p none), ?frozen <- (filter (not-in2 ?x ?y) (pf-node-vars)),
+        ?vh <- (pe-chain ?s ?p (hook ?x ?d ?vb ?frozen))
+rule pf-verify-edge : (pf-verify-edge (edge ?a ?b ?sg ?why) !bases) => (everdict ?a ?b ?sg ?ds (edge-verdict ?sg ?ds))
+  where ?ds <- (smap (pf-probe-at ?a ?b) ?bases)
+rule app-pf-probe-at : (app (pf-probe-at ?a ?b) (base ?n ?s ?p)) => (pf-probe ?a ?b ?s ?p)
+
+// ---------------------------------------------------------------- reporting
+rule pf-hist-view : (pf-hist-view !rows !every) => (lines (prepend
+  "     t      u      w      r cr     ce    asp   Df/K dh/inc     DS    rad     sR gov"
+  (smap frow-line (sfilter (fevery-k ?every) ?rows))))
+rule app-fevery-k : (app (fevery-k ?k) ?r) => (= (mod (fr-t ?r) ?k) 0)
+rule app-frow-line : (app frow-line (frow ?t ?m ?u ?b ?w ?r ?cr ?ce ?asp ?dk ?dh ?ds ?rad ?sr ?gov ?phi)) => (cats (list
+  (padl (str ?t) 6) (dpad ?u 3 7) (dpad ?w 3 7) (dpad ?r 4 7) (padl (str ?cr) 3) (dpad ?ce 3 7) (dpad ?asp 3 7) (dpad ?dk 3 7) (dpad ?dh 3 7) (dpad ?ds 3 7) (dpad ?rad 3 7) (dpad ?sr 3 7) (padl (str ?gov) 4)))
