@@ -1,0 +1,42 @@
+#lang palimpsest
+#mode run-only
+#fuel 5000000
+import "../lib/games.pal"
+
+// semilattice-tagged.pal — additive quantities under a semilattice merge.
+//
+// SEMILATTICE-GRAMMAR.md shows that addition, being non-idempotent, is
+// corrupted by duplicate delivery. That does not mean additive quantities
+// cannot be combined coherently: if every contribution carries an identity,
+// the merged state can be the SET of identified contributions, merged by
+// union (a semilattice), and the additive quantity is read off that set by
+// summation. This is the standard construction of a grow-only counter in
+// CRDTs (Shapiro et al. 2011). The semilattice condition then applies to
+// the merged state, not to every observable computed from it.
+strategy solve = outermost(prim + rules)
+
+// plain addition
+rule merge-add : (merge add ?x ?y) => (+ ?x ?y)
+// tagged contributions: state = (evs (ev ID VALUE) ...), merged by union
+rule merge-tag-e : (merge tagged (evs) ?y) => ?y
+rule merge-tag : (merge tagged (evs ?xs...) (evs ?ys...)) => (evs-of ?d) where ?d <- (dedup (list ?xs... ?ys...))
+rule evs-of : (evs-of (list ?xs...)) => (evs ?xs...)
+rule total : (total (evs ?xs...)) => (sum ?vs) where ?vs <- (map ev-val (list ?xs...))
+rule app-ev-val : (app ev-val (ev ?id ?v)) => ?v
+rule app-one : (app one ?e) => (evs ?e)
+
+rule tagged-total : (tagged-total ?l) => (total ?st) where ?ls <- (map one ?l), ?st <- (merge-all tagged (evs) ?ls)
+rule app-tagged-total : (app tagged-total-of ?l) => (tagged-total ?l)
+rule app-add-total : (app add-total-of ?l) => (merge-all add 0 ?l)
+
+main = (report
+  // plain addition: reordering is harmless, a duplicated delivery is not
+  (add-orders (dedup (map add-total-of (permutations (list 1 2)))))
+  (add-duplicate (merge-all add 0 (list 1 2)) (merge-all add 0 (list 1 2 1)))
+  // tagged: event e1 carries 1, event e2 carries 2; e1 delivered twice
+  (tagged-orders-with-duplicate (dedup (map tagged-total-of (permutations (list (ev e1 1) (ev e2 2) (ev e1 1))))))
+  (tagged-duplicate (tagged-total (list (ev e1 1) (ev e2 2))) (tagged-total (list (ev e1 1) (ev e2 2) (ev e1 1))))
+  // two DIFFERENT events that happen to carry the same value are both counted
+  (tagged-distinct-events (tagged-total (list (ev e1 1) (ev e2 2) (ev e3 1)))))
+
+run solve

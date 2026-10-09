@@ -27,6 +27,25 @@ else
   fail=$((fail+1))
 fi
 
+out2="$("$BIN" examples/semilattice-tagged.pal 2>&1)"
+ok=1
+for detail in \
+  "(add-orders (list 3))" \
+  "(add-duplicate 3 4)" \
+  "(tagged-orders-with-duplicate (list 3))" \
+  "(tagged-duplicate 3 3)" \
+  "(tagged-distinct-events 4)"
+do
+  printf '%s' "$out2" | grep -qF "$detail" || ok=0
+done
+if [ "$ok" = 1 ]; then
+  printf "  PASS  semilattice-tagged.pal  additive totals converge when contributions carry identities\n"
+  pass=$((pass+1))
+else
+  printf "  FAIL  semilattice-tagged.pal\n"
+  fail=$((fail+1))
+fi
+
 echo "-------------------------------------------------------------"
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
